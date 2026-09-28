@@ -4,7 +4,8 @@
 // و به صورت تصویر شفاف برای سرور فرستاده می‌شوند؛ سرور با ffmpeg آن‌ها را روی ویدیو می‌گذارد.
 
 const TEMPLATES = {
-  kermanravi: { name: "کرمان راوی", accent: "#9d1819", band: "rgba(25,49,83,.9)", head: "#ffffff", kick: "#ffffff", capBg: "rgba(25,49,83,.88)", capText: "#ffffff", c1: "#1f3d68", c2: "#0d1a2e", cardText: "#ffffff", footer: true },
+  kermanravi: { name: "کرمان راوی", style: "kr", accent: "#9d1819", band: "rgba(255,255,255,.9)", head: "#9d1819", kick: "#ffffff", capBg: "rgba(255,255,255,.9)", capText: "#193153", c1: "#1f3d68", c2: "#0d1a2e", cardText: "#ffffff" },
+  kermanravi_bar: { name: "کرمان راوی (نوار)", accent: "#9d1819", band: "rgba(25,49,83,.9)", head: "#ffffff", kick: "#ffffff", capBg: "rgba(25,49,83,.88)", capText: "#ffffff", c1: "#1f3d68", c2: "#0d1a2e", cardText: "#ffffff", footer: true },
   breaking: { name: "فوری", accent: "#d0142c", band: "rgba(0,0,0,.72)", head: "#ffffff", kick: "#ffffff", capBg: "rgba(0,0,0,.72)", capText: "#ffffff", c1: "#8a0f1e", c2: "#1a0508", cardText: "#ffffff" },
   navy: { name: "رسمی", accent: "#2a7fc1", band: "rgba(8,24,44,.82)", head: "#ffffff", kick: "#ffffff", capBg: "rgba(8,24,44,.82)", capText: "#ffffff", c1: "#1f5f8b", c2: "#08182c", cardText: "#ffffff" },
   yellow: { name: "زرد", accent: "#ffcc00", band: "rgba(0,0,0,.82)", head: "#ffffff", kick: "#000000", capBg: "#ffcc00", capText: "#000000", c1: "#262626", c2: "#000000", cardText: "#ffcc00" },
@@ -22,7 +23,8 @@ const TZ = {
 function teaserDefaults() {
   return {
     title: "", format: "9:16", quality: "720", fit: "blur", template: "kermanravi", accent: "",
-    kicker: "فوری", headline: "", headlinePos: "top", headlineMode: "all", brand: "کرمان راوی",
+    kicker: "", headline: "", headlinePos: "top", headlineMode: "first", brand: "کرمان راوی",
+    speakerName: "", speakerTitle: "", credit: "",
     footerText: "www.kermanravi.ir", logoId: "brand", captionsText: "", autoTime: true, manual: [], captionSize: 1,
     clips: [], musicId: null, musicVolume: 0.35, keepAudio: true, videoVolume: 1,
     intro: false, introText: "", outro: false, outroText: "", fade: true, transition: "fade", story_id: null,
@@ -60,7 +62,9 @@ function captionTimes() {
   const tl = timeline();
   if (!lines.length || tl.main <= 0) return [];
   if (!s.autoTime && s.manual.length === lines.length) return lines.map((text, i) => ({ text, start: s.manual[i][0], end: s.manual[i][1] }));
-  const a = tl.mainStart + 0.3, b = tl.mainEnd - 0.2;
+  // اگر تیتر فقط روی تکه‌ی اول است، زیرنویس‌ها بعد از آن شروع شوند (مثل ریلزهای صفحه)
+  const hEnd = s.headlineMode === "first" && s.headline.trim() ? headlineEnd(tl) : tl.mainStart;
+  const a = (tl.mainEnd - hEnd > 2 ? hEnd : tl.mainStart) + 0.3, b = tl.mainEnd - 0.2;
   const weights = lines.map((l) => Math.max(3, l.split(/\s+/).length));
   const sum = weights.reduce((x, y) => x + y, 0);
   let cur = a;
@@ -100,6 +104,7 @@ function rr(ctx, x, y, w, h, r) {
 function setup(ctx) { ctx.direction = "rtl"; ctx.textBaseline = "middle"; }
 
 function drawHeadline(ctx, W, H) {
+  if (tpl().style === "kr") return krHeadline(ctx, W, H);
   const s = TZ.s, t = tpl();
   if (!s.headline.trim() && !s.kicker.trim()) return;
   setup(ctx);
@@ -107,7 +112,7 @@ function drawHeadline(ctx, W, H) {
   const hs = base * (vertical ? 0.068 : 0.06), ks = base * 0.042;
   ctx.font = `900 ${hs}px ${FONT}`;
   const maxW = W - m * 2 - base * 0.06;
-  const lines = s.headline.trim() ? wrapText(ctx, s.headline.trim(), maxW).slice(0, 4) : [];
+  const lines = s.headline.trim() ? wrapText(ctx, s.headline.replace(/\*/g, "").trim(), maxW).slice(0, 4) : [];
   const lh = hs * 1.45, padY = base * 0.025, padX = base * 0.03;
   const kickH = s.kicker.trim() ? ks * 1.7 : 0;
   const blockH = kickH + (lines.length ? lines.length * lh + padY * 2 : 0);
@@ -143,7 +148,8 @@ function drawHeadline(ctx, W, H) {
   ctx.shadowBlur = 0;
 }
 
-function drawBrand(ctx, W, H) {
+function drawBrand(ctx, W, H, phase = "main") {
+  if (tpl().style === "kr") return krBrand(ctx, W, H, phase);
   const s = TZ.s, t = tpl();
   setup(ctx);
   const base = Math.min(W, H), m = base * 0.05;
@@ -185,12 +191,13 @@ function drawBrand(ctx, W, H) {
 }
 
 function drawCaption(ctx, W, H, text) {
+  if (tpl().style === "kr") return krCaption(ctx, W, H, text);
   const s = TZ.s, t = tpl();
   setup(ctx);
   const base = Math.min(W, H), vertical = H > W;
   const cs = base * (vertical ? 0.058 : 0.05) * (Number(s.captionSize) || 1);
   ctx.font = `700 ${cs}px ${FONT}`;
-  const lines = wrapText(ctx, text, W * 0.84).slice(0, 3);
+  const lines = wrapText(ctx, text.replace(/\*/g, ""), W * 0.84).slice(0, 3);
   const lh = cs * 1.5, pad = cs * 0.45;
   const cy = vertical ? H * (s.headlinePos === "top" ? 0.8 : 0.84) : H * 0.83;
   const top = cy - (lines.length * lh) / 2;
@@ -243,7 +250,145 @@ function drawCard(ctx, W, H, text, isOutro) {
   }
 }
 
-function drawMedia(ctx, el, W, H, fit, zoom = 1) {
+function headlineEnd(tl) {
+  // در قالب «فقط اول»: تیتر روی تکه‌ی اول (حداکثر ۶ ثانیه)
+  if (TZ.s.headlineMode !== "first") return tl.mainEnd;
+  const first = TZ.s.clips[0] ? clipDur(TZ.s.clips[0]) : 5;
+  return Math.min(tl.mainStart + Math.min(6, Math.max(2.5, first)), tl.mainEnd);
+}
+
+// ───────────── قالب کرمان راوی (مثل ریلزهای صفحه) ─────────────
+const KR = { red: "#9d1819", navy: "#193153" };
+
+// متن با واژه‌های *ستاره‌دار* قرمز → فهرست واژه‌ها با رنگ
+function richWords(text, base, hi) {
+  const out = [];
+  String(text).split("*").forEach((part, i) => part.split(/\s+/).filter(Boolean).forEach((w) => out.push({ w, c: i % 2 ? hi : base })));
+  return out;
+}
+function wrapRich(ctx, words, maxW) {
+  const lines = [];
+  let line = [], w = 0;
+  const sp = ctx.measureText(" ").width;
+  for (const t of words) {
+    const tw = ctx.measureText(t.w).width;
+    if (line.length && w + sp + tw > maxW) { lines.push({ words: line, w }); line = []; w = 0; }
+    w += (line.length ? sp : 0) + tw;
+    line.push({ ...t, tw });
+  }
+  if (line.length) lines.push({ words: line, w });
+  return lines;
+}
+// کشیدن یک سطر راست‌به‌چپ، واژه‌به‌واژه (هر واژه رنگ خودش)
+function drawRichLine(ctx, line, right, y) {
+  const sp = ctx.measureText(" ").width;
+  let x = right;
+  ctx.textAlign = "right";
+  for (const t of line.words) { ctx.fillStyle = t.c; ctx.fillText(t.w, x, y); x -= t.tw + sp; }
+}
+
+function krLower(phase) {
+  const s = TZ.s;
+  const speaker = s.speakerName.trim() ? ["sp", s.speakerName.trim(), s.speakerTitle.trim()] : null;
+  const credit = s.credit.trim() ? ["cr", "تهیه و تدوین:", s.credit.trim()] : null;
+  const pick = phase === "intro" ? (credit || speaker) : (speaker || credit);
+  return pick ? pick.join("|") : "";
+}
+
+function krPattern(ctx, x0, y0, w, h) {
+  // الگوی شبکه‌ای کم‌رنگ پس‌زمینه‌ی نوار پایین (ثابت، بدون تصادف)
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+  const pts = Array.from({ length: 34 }, () => [x0 + rnd() * w, y0 + rnd() * h]);
+  ctx.strokeStyle = "rgba(25,49,83,.10)";
+  ctx.lineWidth = Math.max(1, h * 0.01);
+  pts.forEach((a, i) => pts.slice(i + 1).forEach((b) => { if (Math.hypot(a[0] - b[0], a[1] - b[1]) < h * 0.9) { ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke(); } }));
+  ctx.fillStyle = "rgba(25,49,83,.16)";
+  pts.forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, h * 0.018, 0, Math.PI * 2); ctx.fill(); });
+}
+
+function krBrand(ctx, W, H, phase = "main") {
+  setup(ctx);
+  const base = Math.min(W, H), vertical = H > W;
+  // قاب قرمز
+  const fx = W * (vertical ? 0.07 : 0.05), fy = H * (vertical ? 0.105 : 0.07), fb = H * (vertical ? 0.83 : 0.8);
+  ctx.strokeStyle = "rgba(157,24,25,.9)";
+  ctx.lineWidth = base * 0.0055;
+  rr(ctx, fx, fy, W - fx * 2, fb - fy, base * 0.035);
+  ctx.stroke();
+  // نوار پایین
+  const bh = H * (vertical ? 0.115 : 0.15), by = H - bh;
+  const g = ctx.createLinearGradient(0, by, 0, H);
+  g.addColorStop(0, "#eef1f5"); g.addColorStop(1, "#d9dfe7");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, by, W, bh);
+  krPattern(ctx, 0, by, W, bh);
+  ctx.fillStyle = "rgba(25,49,83,.35)";
+  ctx.fillRect(0, by, W, Math.max(1, base * 0.002));
+  // لوگو سمت چپ
+  if (TZ.logoEl && TZ.logoEl.complete && TZ.logoEl.naturalWidth) {
+    const r = TZ.logoEl.naturalWidth / TZ.logoEl.naturalHeight;
+    const lh = bh * 0.62, lw = lh * r;
+    ctx.drawImage(TZ.logoEl, W * 0.05, by + (bh - lh) / 2, lw, lh);
+  }
+  // نام و سمت / تهیه و تدوین — سمت راست
+  const lower = krLower(phase);
+  if (lower) {
+    const [kind, l1, l2] = lower.split("|");
+    const right = W * 0.94;
+    ctx.textAlign = "right";
+    ctx.font = `900 ${bh * 0.26}px ${FONT}`;
+    ctx.fillStyle = KR.red;
+    ctx.fillText(l1, right, by + bh * (l2 ? 0.36 : 0.5));
+    if (l2) {
+      let fs = bh * (kind === "cr" ? 0.24 : 0.17);
+      ctx.font = `${kind === "cr" ? 900 : 700} ${fs}px ${FONT}`;
+      const maxW = W * 0.55;
+      while (ctx.measureText(l2).width > maxW && fs > bh * 0.1) { fs *= 0.93; ctx.font = `700 ${fs}px ${FONT}`; }
+      ctx.fillStyle = KR.navy;
+      ctx.fillText(l2, right, by + bh * 0.7);
+    }
+  }
+}
+
+function krHeadline(ctx, W, H) {
+  const s = TZ.s;
+  const text = [s.kicker.trim(), s.headline.trim()].filter(Boolean).join(" ");
+  if (!text) return;
+  setup(ctx);
+  const base = Math.min(W, H), vertical = H > W;
+  const fs = base * (vertical ? 0.1 : 0.075);
+  ctx.font = `900 ${fs}px ${FONT}`;
+  const words = richWords(s.headline.trim(), KR.red, KR.navy);
+  if (s.kicker.trim()) words.unshift(...richWords(s.kicker.trim(), KR.navy, KR.navy));
+  const lines = wrapRich(ctx, words, W * (vertical ? 0.62 : 0.5)).slice(0, 4);
+  const lh = fs * 1.32, px = fs * 0.35, py = fs * 0.25;
+  const bw = Math.max(...lines.map((l) => l.w)) + px * 2, bhh = lines.length * lh + py * 2;
+  const right = W * (vertical ? 0.87 : 0.9), top = s.headlinePos === "top" ? H * (vertical ? 0.17 : 0.14) : H * (vertical ? 0.5 : 0.45);
+  ctx.fillStyle = "rgba(255,255,255,.9)";
+  rr(ctx, right - bw, top, bw, bhh, fs * 0.28);
+  ctx.fill();
+  lines.forEach((l, i) => drawRichLine(ctx, l, right - px, top + py + lh * (i + 0.5)));
+}
+
+function krCaption(ctx, W, H, text) {
+  const s = TZ.s;
+  setup(ctx);
+  const base = Math.min(W, H), vertical = H > W;
+  const fs = base * (vertical ? 0.05 : 0.042) * (Number(s.captionSize) || 1);
+  ctx.font = `700 ${fs}px ${FONT}`;
+  const lines = wrapRich(ctx, richWords(text, KR.navy, KR.red), W * 0.66).slice(0, 4);
+  const lh = fs * 1.45, px = fs * 0.5, py = fs * 0.3;
+  const bw = Math.max(...lines.map((l) => l.w)) + px * 2, bhh = lines.length * lh + py * 2;
+  const cy = H * (vertical ? 0.66 : 0.66), top = cy - bhh / 2;
+  ctx.fillStyle = "rgba(255,255,255,.88)";
+  rr(ctx, W / 2 - bw / 2, top, bw, bhh, fs * 0.35);
+  ctx.fill();
+  // هر سطر وسط‌چین
+  lines.forEach((l, i) => drawRichLine(ctx, l, W / 2 + l.w / 2, top + py + lh * (i + 0.5)));
+}
+
+function drawMedia(ctx, el, W, H, fit, zoom = 1, gray = false) {
   const sw = el.videoWidth || el.naturalWidth, sh = el.videoHeight || el.naturalHeight;
   if (!sw || !sh) return;
   ctx.save();
@@ -251,16 +396,19 @@ function drawMedia(ctx, el, W, H, fit, zoom = 1) {
   ctx.scale(zoom, zoom);
   ctx.translate(-W / 2, -H / 2);
   const cover = Math.max(W / sw, H / sh), contain = Math.min(W / sw, H / sh);
+  if (gray) ctx.filter = "grayscale(1)";
   if (fit === "crop") {
     ctx.drawImage(el, (W - sw * cover) / 2, (H - sh * cover) / 2, sw * cover, sh * cover);
   } else {
     if (fit === "blur") {
-      ctx.filter = "blur(18px) brightness(0.8)";
+      ctx.filter = gray ? "blur(18px) brightness(0.8) grayscale(1)" : "blur(18px) brightness(0.8)";
       ctx.drawImage(el, (W - sw * cover) / 2 - 30, (H - sh * cover) / 2 - 30, sw * cover + 60, sh * cover + 60);
       ctx.filter = "none";
     } else { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); }
+    if (gray) ctx.filter = "grayscale(1)";
     ctx.drawImage(el, (W - sw * contain) / 2, (H - sh * contain) / 2, sw * contain, sh * contain);
   }
+  ctx.filter = "none";
   ctx.restore();
 }
 
@@ -328,10 +476,10 @@ function drawPreview() {
       const want = (Number(at.clip.start) || 0) + at.local;
       if (el.readyState >= 1 && Math.abs(el.currentTime - want) > 0.15) el.currentTime = want;
     }
-    if ((el.readyState ?? 4) >= 2 || el.complete) drawMedia(ctx, el, W, H, TZ.s.fit, zoom);
+    if ((el.readyState ?? 4) >= 2 || el.complete) drawMedia(ctx, el, W, H, TZ.s.fit, zoom, !!at.clip.gray);
     if (t >= tl.mainStart && t < tl.mainEnd) {
-      drawBrand(ctx, W, H);
-      const hEnd = TZ.s.headlineMode === "first" ? Math.min(tl.mainStart + 5, tl.mainEnd) : tl.mainEnd;
+      const hEnd = headlineEnd(tl);
+      drawBrand(ctx, W, H, t < hEnd && TZ.s.headlineMode === "first" ? "intro" : "main");
       if (t < hEnd) drawHeadline(ctx, W, H);
       const cap = captionTimes().find((c) => t >= c.start && t < c.end);
       if (cap) drawCaption(ctx, W, H, cap.text);
@@ -408,7 +556,7 @@ VIEWS.teaser = async (view, params) => {
   TZ.music = media.filter((m) => m.kind === "audio" || (m.kind === "video" && m.has_audio)).concat(music.filter((m) => !media.some((x) => x.id === m.id)));
   if (!TZ.s) {
     try { TZ.s = { ...teaserDefaults(), ...JSON.parse(lsGet("teaserDraft", "null") || "{}") }; } catch { TZ.s = teaserDefaults(); }
-    if (brandPref.value) for (const k of ["brand", "template", "accent", "logoId", "kicker", "fit", "headlinePos", "outroText", "quality", "footerText"]) if (brandPref.value[k] !== undefined && (!TZ.s[k] || k === "logoId")) TZ.s[k] = brandPref.value[k];
+    if (brandPref.value) for (const k of ["brand", "template", "accent", "logoId", "kicker", "fit", "headlinePos", "outroText", "quality", "footerText", "credit", "headlineMode"]) if (brandPref.value[k] !== undefined && (!TZ.s[k] || k === "logoId")) TZ.s[k] = brandPref.value[k];
   }
   const storyId = params.get("story");
   if (storyId) {
@@ -458,11 +606,15 @@ VIEWS.teaser = async (view, params) => {
             <label>روتیتر / برچسب<input data-k="kicker" value="${esc(s.kicker)}" placeholder="مثلاً فوری، گزارش، ویدیو"></label>
             <label>نام رسانه (کارت‌ها)<input data-k="brand" value="${esc(s.brand)}" placeholder="مثلاً خبرگزاری …"></label>
             <label class="wide">نوشته‌ی نوار پایین (قالب کرمان راوی)<input data-k="footerText" value="${esc(s.footerText || "")}" class="ltr" placeholder="www.kermanravi.ir"></label>
-            <label class="wide">تیتر<textarea data-k="headline" rows="2" placeholder="تیتر اصلی کلیپ">${esc(s.headline)}</textarea></label>
+            <label class="wide">تیتر<textarea data-k="headline" rows="2" placeholder="تیتر اصلی کلیپ">${esc(s.headline)}</textarea>
+              <small>در قالب «کرمان راوی» واژه‌هایی را که بین دو ستاره بنویسید سرمه‌ای می‌شوند، مثلاً: برگزاری *رویداد* سولار</small></label>
+            <label>نام گوینده (نوار پایین)<input data-k="speakerName" value="${esc(s.speakerName || "")}" placeholder="مثلاً حمید علیزاده"></label>
+            <label>سمت گوینده<input data-k="speakerTitle" value="${esc(s.speakerTitle || "")}" placeholder="مثلاً مدیر دفتر …"></label>
+            <label class="wide">تهیه و تدوین<input data-k="credit" value="${esc(s.credit || "")}" placeholder="نام خبرنگار (در ابتدای کلیپ نمایش داده می‌شود)"></label>
             <label>جای تیتر<select data-k="headlinePos"><option value="top" ${s.headlinePos === "top" ? "selected" : ""}>بالا</option><option value="bottom" ${s.headlinePos === "bottom" ? "selected" : ""}>پایین</option></select></label>
-            <label>نمایش تیتر<select data-k="headlineMode"><option value="all" ${s.headlineMode === "all" ? "selected" : ""}>در تمام کلیپ</option><option value="first" ${s.headlineMode === "first" ? "selected" : ""}>فقط ۵ ثانیه‌ی اول</option></select></label>
+            <label>نمایش تیتر<select data-k="headlineMode"><option value="all" ${s.headlineMode === "all" ? "selected" : ""}>در تمام کلیپ</option><option value="first" ${s.headlineMode === "first" ? "selected" : ""}>فقط روی تکه‌ی اول</option></select></label>
             <label class="wide">زیرنویس‌ها (هر خط یک زیرنویس)<textarea data-k="captionsText" rows="5" placeholder="جمله‌ی اول&#10;جمله‌ی دوم&#10;…">${esc(s.captionsText)}</textarea>
-              <small>زمان هر زیرنویس خودکار بر اساس طول جمله تقسیم می‌شود. <a href="#" id="tz-manual">${s.autoTime ? "تنظیم دستی زمان‌ها" : "زمان‌بندی خودکار"}</a>${s.story_id ? ` · <a href="#" id="tz-fromstory">ساخت از متن سوژه</a>` : ""}</small></label>
+              <small>واژه‌های مهم را بین دو ستاره بنویسید تا قرمز شوند: حدود *۱۴۰ مگاوات* نصب شده. زمان هر زیرنویس خودکار بر اساس طول جمله تقسیم می‌شود. <a href="#" id="tz-manual">${s.autoTime ? "تنظیم دستی زمان‌ها" : "زمان‌بندی خودکار"}</a>${s.story_id ? ` · <a href="#" id="tz-fromstory">ساخت از متن سوژه</a>` : ""}</small></label>
             <div class="wide captions" id="tz-times"></div>
             <label>اندازه‌ی زیرنویس<select data-k="captionSize"><option value="0.85" ${s.captionSize == 0.85 ? "selected" : ""}>کوچک</option><option value="1" ${s.captionSize == 1 ? "selected" : ""}>معمولی</option><option value="1.2" ${s.captionSize == 1.2 ? "selected" : ""}>بزرگ</option></select></label>
           </div>
@@ -549,7 +701,7 @@ VIEWS.teaser = async (view, params) => {
     s.captionsText = r.lines.join("\n"); saveDraft(); refresh();
   };
   $("#tz-savebrand").onclick = async () => {
-    await api("/api/prefs/teaser_brand", { method: "PUT", body: { value: { brand: s.brand, template: s.template, accent: s.accent, logoId: s.logoId, kicker: s.kicker, footerText: s.footerText, fit: s.fit, headlinePos: s.headlinePos, outroText: s.outroText, quality: s.quality } } });
+    await api("/api/prefs/teaser_brand", { method: "PUT", body: { value: { brand: s.brand, template: s.template, accent: s.accent, logoId: s.logoId, kicker: s.kicker, footerText: s.footerText, credit: s.credit, headlineMode: s.headlineMode, fit: s.fit, headlinePos: s.headlinePos, outroText: s.outroText, quality: s.quality } } });
     toast("ذخیره شد؛ تیزرهای بعدی با همین تنظیمات شروع می‌شوند ⭐");
   };
   $("#tz-up").onchange = (ev) => uploadMedia(ev.target.files, true);
@@ -589,6 +741,7 @@ function drawClips() {
       : `<span>از ثانیه <input type="number" step="0.5" min="0" max="${c.mediaDuration || 0}" value="${c.start || 0}" data-ci="${i}" data-f="start"></span>
         <span>به مدت <input type="number" step="0.5" min="0.5" max="${c.mediaDuration || 0}" value="${c.duration}" data-ci="${i}" data-f="duration"> ث</span>
         <small class="muted">(کل ویدیو ${num((c.mediaDuration || 0).toFixed(1))} ث)</small>`}
+      <label><input type="checkbox" data-ci="${i}" data-f="gray" ${c.gray ? "checked" : ""}> سیاه‌وسفید</label>
       <button class="btn sm ghost" data-cprev="${i}" title="پیش‌نمایش این تکه">👁</button>
     </div>
     <div class="ord">
@@ -597,6 +750,7 @@ function drawClips() {
   $$("[data-ci]", box).forEach((el) => (el.onchange = () => {
     const c = s.clips[Number(el.dataset.ci)];
     if (el.dataset.f === "zoom") c.zoom = el.checked;
+    else if (el.dataset.f === "gray") c.gray = el.checked;
     else {
       let v = Math.max(0, Number(enDigits(el.value)) || 0);
       if (c.kind === "video") {
@@ -692,21 +846,25 @@ async function renderTeaser() {
     const tl = timeline();
     const png = (c) => c.toDataURL("image/png");
     const overlays = [];
-    if (s.brand.trim() || TZ.logoEl) overlays.push({ image: png(layerCanvas(drawBrand)), start: tl.mainStart, end: tl.mainEnd });
+    const hEnd = headlineEnd(tl);
+    const twoPhase = tpl().style === "kr" && s.headlineMode === "first" && hEnd < tl.mainEnd && krLower("intro") !== krLower("main");
+    if (twoPhase) {
+      overlays.push({ image: png(layerCanvas((c, W, H) => drawBrand(c, W, H, "intro"))), start: tl.mainStart, end: hEnd });
+      overlays.push({ image: png(layerCanvas((c, W, H) => drawBrand(c, W, H, "main"))), start: hEnd, end: tl.mainEnd });
+    } else if (s.brand.trim() || TZ.logoEl || tpl().style === "kr") overlays.push({ image: png(layerCanvas(drawBrand)), start: tl.mainStart, end: tl.mainEnd });
     if (s.headline.trim() || s.kicker.trim()) {
-      const hEnd = s.headlineMode === "first" ? Math.min(tl.mainStart + 5, tl.mainEnd) : tl.mainEnd;
       overlays.push({ image: png(layerCanvas(drawHeadline)), start: tl.mainStart, end: hEnd });
     }
     const caps = captionTimes();
     for (const c of caps) overlays.push({ image: png(layerCanvas((ctx, W, H) => drawCaption(ctx, W, H, c.text))), start: c.start, end: c.end });
-    const clips = s.clips.map((c) => ({ media_id: c.media_id, duration: clipDur(c), start: c.start || 0, zoom: c.zoom !== false }));
+    const clips = s.clips.map((c) => ({ media_id: c.media_id, duration: clipDur(c), start: c.start || 0, zoom: c.zoom !== false, gray: !!c.gray }));
     if (s.intro) clips.unshift({ card: png(layerCanvas((ctx, W, H) => drawCard(ctx, W, H, s.introText || s.headline, false))), duration: INTRO_DUR, zoom: true });
     if (s.outro) clips.push({ card: png(layerCanvas((ctx, W, H) => drawCard(ctx, W, H, s.outroText, true))), duration: OUTRO_DUR, zoom: false });
     btn.textContent = "در حال فرستادن…";
     await api("/api/teasers", {
       method: "POST",
       body: {
-        title: s.title || s.headline || "تیزر", format: s.format, quality: s.quality, fit: s.fit, clips, overlays,
+        title: (s.title || s.headline || "تیزر").replace(/\*/g, ""), format: s.format, quality: s.quality, fit: s.fit, clips, overlays,
         music_id: s.musicId, music_volume: s.musicVolume, keep_audio: s.keepAudio, video_volume: s.videoVolume,
         fade: s.fade, transition: s.transition, captions: caps, story_id: s.story_id, editor: s,
       },

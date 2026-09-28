@@ -221,7 +221,8 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
             start = _num(c.get("start"), 0.0, 0, max(0.0, total - 0.3))
             dur = _num(c.get("duration") or (total - start), total - start, 0.3, max(0.3, total - start))
         clips.append({"media_id": m["id"], "kind": m["kind"], "path": m["path"], "has_audio": m["has_audio"],
-                      "start": round(start, 2), "duration": round(dur, 2), "zoom": bool(c.get("zoom", True))})
+                      "start": round(start, 2), "duration": round(dur, 2), "zoom": bool(c.get("zoom", True)),
+                      "gray": bool(c.get("gray", False))})
     total = round(sum(c["duration"] for c in clips), 2)
     if total > MAX_TOTAL_SECONDS:
         raise db.ValidationError(f"مدت کل کلیپ ({total:.0f} ثانیه) بیش از {MAX_TOTAL_SECONDS} ثانیه است")
@@ -287,6 +288,8 @@ def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[st
     if not use_audio:
         args += ["-f", "lavfi", "-t", f"{d:.2f}", "-i", "anullsrc=r=44100:cl=stereo"]
     fc = [_place_filter(spec["fit"], w, h, spec["bg_color"])]
+    if clip.get("gray"):
+        fc[0] = fc[0][: -len("[pv]")] + ",hue=s=0[pv]"
     if clip["kind"] == "image":
         if clip["zoom"]:
             # زوم آرام (افکت کن برنز) روی تصویر ۲ برابر برای حرکت نرم‌تر
@@ -569,7 +572,8 @@ def teaser_srt(tid: int) -> str:
         row = conn.execute("SELECT spec FROM teasers WHERE id=?", (tid,)).fetchone()
     if not row:
         raise db.NotFound("تیزر پیدا نشد")
-    caps = [c for c in json.loads(row["spec"]).get("captions", []) if c["text"].strip() and c["end"] > c["start"]]
+    caps = [{**c, "text": c["text"].replace("*", "")} for c in json.loads(row["spec"]).get("captions", [])
+            if c["text"].strip() and c["end"] > c["start"]]
 
     def ts(s: float) -> str:
         ms = int(round(s * 1000))

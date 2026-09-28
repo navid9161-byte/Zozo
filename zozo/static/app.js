@@ -96,6 +96,7 @@ const NAV_MAIN = [
   ["more", "☰", "بیشتر"],
 ];
 const NAV_MORE = [
+  ["post", "🖼️", "پست‌ساز", "پست اینستاگرام با قالب کرمان راوی"],
   ["calendar", "📅", "تقویم", "مهلت‌ها و یادآوری‌ها در یک نگاه"],
   ["reminders", "⏰", "یادآوری‌ها", "یک‌باره یا تکرارشونده"],
   ["news", "📡", "رصد خبر", "خبرهای خبرگزاری‌ها و کلیدواژه‌ها"],
@@ -615,6 +616,7 @@ VIEWS.home = async (view) => {
       <button data-q="reminder">⏰ یادآوری</button>
       <button data-q="idea">💡 ایده</button>
       <button data-q="teaser">🎬 تیزر</button>
+      <button data-q="post">🖼️ پست</button>
       <button data-q="income">➕ دریافتی</button>
       <button data-q="expense">➖ هزینه</button>
       <button data-q="contact">👤 منبع جدید</button>
@@ -649,6 +651,7 @@ VIEWS.home = async (view) => {
     else if (q === "reminder") openForm("reminders");
     else if (q === "idea") openForm("notes", null, { kind: "idea" });
     else if (q === "teaser") location.hash = "#teaser";
+    else if (q === "post") location.hash = "#post";
     else if (q === "income") openForm("transactions", null, { kind: "income" });
     else if (q === "expense") openForm("transactions", null, { kind: "expense", category: "" });
     else if (q === "contact") openForm("contacts");
