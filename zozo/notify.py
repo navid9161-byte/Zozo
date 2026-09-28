@@ -66,6 +66,7 @@ def cleanup(keep: int = 500) -> None:
 HELP = """سلام! من دستیار {app} هستم.
 
 • هر متنی برایم بفرستید، به عنوان «ایده» در یادداشت‌ها ذخیره می‌شود.
+• ویس یا فایل صوتی بفرستید تا به متن فارسی تبدیل شود.
 • یادآوری‌ها و مهلت‌های تحویل را همین‌جا برایتان می‌فرستم.
 
 دستورها:
@@ -117,8 +118,19 @@ class BaleBot:
             self.send(chat_id, "این ربات شخصی است.\nبرای فعال‌سازی، این شناسه را در متغیر "
                                f"BALE_ALLOWED_CHAT_IDS برنامه وارد کنید: {chat_id}")
             return
+        media = msg.get("voice") or msg.get("audio") or msg.get("video") or msg.get("video_note")
+        doc = msg.get("document")
+        if not media and doc and str(doc.get("mime_type", "")).startswith(("audio/", "video/")):
+            media = doc
+        if media:
+            try:
+                self.transcribe_media(chat_id, media, text)
+            except Exception as e:
+                log.exception("دریافت فایل صوتی از بله ناموفق بود")
+                self.send(chat_id, f"⚠️ فایل دریافت نشد: {e}"[:300])
+            return
         if not text:
-            self.send(chat_id, "فعلاً فقط پیام متنی را ذخیره می‌کنم. فایل‌ها را از بخش «بایگانی» برنامه بارگذاری کنید.")
+            self.send(chat_id, "فعلاً پیام متنی (به عنوان ایده) و صوت/ویس (برای تبدیل به متن) را می‌پذیرم.")
             return
         cmd = text.split()[0].split("@")[0].lower()
         if cmd in ("/start", "/help"):
@@ -137,6 +149,24 @@ class BaleBot:
             with db.connect() as conn:
                 db.create(conn, "notes", {"title": title, "content": text, "kind": "idea", "tags": "از بله"})
             self.send(chat_id, "✅ به عنوان ایده در یادداشت‌ها ذخیره شد.")
+
+    def transcribe_media(self, chat_id: str, media: dict[str, Any], caption: str = "") -> None:
+        """ویس یا فایل صوتی فرستاده‌شده به ربات ← صف تبدیل به متن؛ متن آماده همین‌جا فرستاده می‌شود."""
+        import io
+
+        from . import transcribe
+
+        info = self.call("getFile", file_id=media["file_id"])
+        path = info.get("file_path") or ""
+        r = self.http.get(f"{self.base}/file/bot{self.token}/{path}", timeout=120)
+        r.raise_for_status()
+        name = media.get("file_name") or (path.rsplit("/", 1)[-1] if "." in path else "voice.ogg")
+        if "." not in name:
+            name += ".ogg"
+        t = transcribe.add(io.BytesIO(r.content), name, title=caption.strip()[:80] or f"ویس {db.now_str()}",
+                           source_chat=chat_id)
+        mins = max(1, round((t.get("duration") or 60) / 60))
+        self.send(chat_id, f"🎙️ دریافت شد؛ در حال تبدیل به متن (حدود {mins} دقیقه صدا). متن آماده را همین‌جا می‌فرستم.")
 
     def poll_forever(self) -> None:
         log.info("ربات بله شروع به کار کرد")

@@ -96,6 +96,7 @@ const NAV_MAIN = [
   ["more", "☰", "بیشتر"],
 ];
 const NAV_MORE = [
+  ["transcribe", "🎙️", "صوت به متن", "ویس و مصاحبه را تایپ‌شده تحویل بگیرید"],
   ["post", "🖼️", "پست‌ساز", "پست اینستاگرام با قالب کرمان راوی"],
   ["calendar", "📅", "تقویم", "مهلت‌ها و یادآوری‌ها در یک نگاه"],
   ["reminders", "⏰", "یادآوری‌ها", "یک‌باره یا تکرارشونده"],
@@ -617,6 +618,7 @@ VIEWS.home = async (view) => {
       <button data-q="idea">💡 ایده</button>
       <button data-q="teaser">🎬 تیزر</button>
       <button data-q="post">🖼️ پست</button>
+      <button data-q="asr">🎙️ صوت به متن</button>
       <button data-q="income">➕ دریافتی</button>
       <button data-q="expense">➖ هزینه</button>
       <button data-q="contact">👤 منبع جدید</button>
@@ -652,6 +654,7 @@ VIEWS.home = async (view) => {
     else if (q === "idea") openForm("notes", null, { kind: "idea" });
     else if (q === "teaser") location.hash = "#teaser";
     else if (q === "post") location.hash = "#post";
+    else if (q === "asr") location.hash = "#transcribe";
     else if (q === "income") openForm("transactions", null, { kind: "income" });
     else if (q === "expense") openForm("transactions", null, { kind: "expense", category: "" });
     else if (q === "contact") openForm("contacts");
@@ -945,6 +948,7 @@ function openDoc(d) {
       <a class="btn" href="${url}" target="_blank">📄 باز کردن</a>
       <a class="btn" href="${url}?download=1">⬇️ دانلود</a>
       ${["pdf", "docx", "text", "image"].includes(d.kind) && d.status === "ready" ? `<button class="btn" id="d-text">📃 متن استخراج‌شده</button>` : ""}
+      ${["audio", "video"].includes(d.kind) ? `<button class="btn primary" id="d-asr">🎙️ تبدیل به متن</button>` : ""}
       ${["pdf", "image"].includes(d.kind) && d.status !== "queued" ? `<button class="btn" id="d-re" title="خواندن دوباره‌ی متن">↻</button>` : ""}
       <button class="btn" id="d-close">بستن</button>
       <button class="btn danger" id="d-del">حذف</button>
@@ -960,6 +964,11 @@ function openDoc(d) {
     if (!confirm("این سند برای همیشه حذف شود؟")) return;
     await api(`/api/documents/${d.id}`, { method: "DELETE" });
     dlg.close(); toast("حذف شد"); refresh();
+  };
+  if ($("#d-asr")) $("#d-asr").onclick = async () => {
+    const t = await api(`/api/transcripts/from-document/${d.id}`, { method: "POST" });
+    dlg.close();
+    location.hash = `#transcribe?id=${t.id}`;
   };
   if ($("#d-re")) $("#d-re").onclick = async () => { await api(`/api/documents/${d.id}/reprocess`, { method: "POST" }); dlg.close(); toast("دوباره در صف خواندن قرار گرفت"); refresh(); };
   if ($("#d-text")) $("#d-text").onclick = async () => {
@@ -1212,6 +1221,7 @@ VIEWS.settings = async (view) => {
           <dt>رمز عبور</dt><dd>${META.password_set ? "✅ تنظیم شده" : "⚠️ تنظیم نشده"}</dd>
           <dt>ساخت ویدیو (ffmpeg)</dt><dd>${META.ffmpeg ? "✅ آماده" : "❌ نصب نیست"}</dd>
           <dt>خواندن اسکن فارسی (OCR)</dt><dd>${META.ocr ? "✅ آماده" : "❌ نصب نیست"}</dd>
+          <dt>تبدیل گفتار به متن</dt><dd>${META.asr?.model ? "✅ آماده" : META.asr?.installed ? `⚠️ مدل نصب نیست — <a href="#transcribe">نصب</a>` : "❌ نصب نیست"}</dd>
           <dt>هوش مصنوعی</dt><dd>${META.ai ? `✅ ${esc(META.ai)}` : "خاموش (همه‌چیز بدون آن کار می‌کند)"}</dd>
         </dl>
       </div>

@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm
+from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe
 from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -39,6 +39,7 @@ async def lifespan(_: FastAPI):
     if background:
         documents.worker.start()
         teaser.renderer.start()
+        transcribe.worker.start()
         scheduler.start()
         notify.start_bot()
     if not auth.enabled():
@@ -48,6 +49,7 @@ async def lifespan(_: FastAPI):
         scheduler.stop()
         documents.worker.stop()
         teaser.renderer.stop()
+        transcribe.worker.stop()
         if notify.bot:
             notify.bot.stop()
 
@@ -177,6 +179,7 @@ def meta():
         "ai": ai.provider(),
         "ffmpeg": teaser.available(),
         "ocr": documents.ocr_available(),
+        "asr": transcribe.status(),
         "notify": notify.status(),
         "password_set": auth.enabled(),
         "max_upload_mb": settings.max_upload_mb,
@@ -489,6 +492,136 @@ def teasers_thumb(tid: int):
 @app.get("/api/teasers/{tid}/srt")
 def teasers_srt(tid: int):
     return PlainTextResponse(teaser.teaser_srt(tid), headers={"Content-Disposition": f'attachment; filename="teaser-{tid}.srt"'})
+
+
+# ───────────────────────── تبدیل صوت به متن ─────────────────────────
+
+
+@app.get("/api/transcripts")
+def transcripts_list():
+    return {"items": transcribe.list_all(), "status": transcribe.status()}
+
+
+@app.post("/api/transcripts", status_code=201)
+def transcripts_upload(files: list[UploadFile] = File(...), title: str | None = Form(None),
+                       story_id: int | None = Form(None)):
+    added, errors = [], []
+    for f in files:
+        try:
+            added.append(transcribe.add(f.file, f.filename or "audio", title=(title if len(files) == 1 else None) or None,
+                                        story_id=story_id))
+        except db.ValidationError as e:
+            errors.append(f"{f.filename}: {e}")
+        finally:
+            f.file.close()
+    if errors and not added:
+        raise HTTPException(400, " | ".join(errors))
+    return {"added": added, "errors": errors}
+
+
+@app.post("/api/transcripts/from-document/{doc_id}", status_code=201)
+def transcripts_from_doc(doc_id: int):
+    return transcribe.add_from_document(doc_id)
+
+
+@app.get("/api/transcripts/{tid}")
+def transcripts_get(tid: int):
+    return transcribe.get(tid)
+
+
+@app.patch("/api/transcripts/{tid}")
+def transcripts_update(tid: int, data: dict[str, Any]):
+    return transcribe.update(tid, data)
+
+
+@app.delete("/api/transcripts/{tid}")
+def transcripts_delete(tid: int):
+    transcribe.delete(tid)
+    return {"ok": True}
+
+
+@app.post("/api/transcripts/{tid}/retry")
+def transcripts_retry(tid: int):
+    transcribe.retry(tid)
+    return {"ok": True}
+
+
+@app.post("/api/transcripts/{tid}/cancel")
+def transcripts_cancel(tid: int):
+    transcribe.worker.cancel(tid)
+    return {"ok": True}
+
+
+@app.get("/api/transcripts/{tid}/audio")
+def transcripts_audio(tid: int):
+    path, name = transcribe.audio_path(tid)
+    return FileResponse(path, filename=name, content_disposition_type="inline")
+
+
+@app.post("/api/transcripts/{tid}/summary")
+def transcripts_summary(tid: int, n: int = 5):
+    return transcribe.summarize(tid, max(1, min(n, 12)))
+
+
+@app.post("/api/transcripts/{tid}/archive")
+def transcripts_archive(tid: int, times: bool = True):
+    return transcribe.save_to_archive(tid, times)
+
+
+@app.get("/api/transcripts/{tid}/export")
+def transcripts_export(tid: int, fmt: str = "txt", summary: bool = False):
+    t = transcribe.get(tid)
+    segs, base = t["segments"], documents.safe_name(t["title"])[:60] or "transcript"
+    summ = t.get("summary") if summary else None
+    if fmt == "docx":
+        data = transcribe.docx_bytes(t["title"], segs, with_times=False, summary=summ)
+        return Response(data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        headers={"Content-Disposition": _cd(f"{base}.docx")})
+    if fmt == "srt":
+        return Response(transcribe.srt_text(segs).encode(), media_type="application/x-subrip",
+                        headers={"Content-Disposition": _cd(f"{base}.srt")})
+    text = transcribe.plain_text(segs, with_times=fmt == "txt_times")
+    if summ:
+        text = f"خلاصه:\n{summ}\n\nمتن کامل:\n{text}"
+    return Response(("\ufeff" + text).encode("utf-8"), media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": _cd(f"{base}.txt")})
+
+
+def _cd(name: str) -> str:
+    from urllib.parse import quote
+
+    return f"attachment; filename=\"transcript{Path(name).suffix}\"; filename*=UTF-8''{quote(name)}"
+
+
+@app.get("/api/asr/status")
+def asr_status():
+    return transcribe.status()
+
+
+@app.post("/api/asr/download")
+def asr_download():
+    if transcribe.model_path():
+        return {"ok": True, "already": True}
+
+    def run():
+        try:
+            transcribe.download_model()
+            transcribe.worker.wake()
+        except Exception as e:
+            log.warning("دانلود مدل گفتار ناموفق: %s", e)
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"ok": True, "started": True}
+
+
+@app.post("/api/asr/model")
+def asr_model_upload(file: UploadFile = File(...)):
+    try:
+        transcribe.install_model_zip(file.file)
+    finally:
+        file.file.close()
+    transcribe.worker.wake()
+    return transcribe.status()
 
 
 # ───────────────────────── تنظیمات ذخیره‌شده ─────────────────────────

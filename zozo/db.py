@@ -416,6 +416,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
         CREATE VIRTUAL TABLE IF NOT EXISTS feed_fts USING fts5(
             norm, item_id UNINDEXED, tokenize='unicode61 remove_diacritics 0');
 
+        -- تبدیل صوت به متن
+        CREATE TABLE IF NOT EXISTS transcripts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT, filename TEXT, path TEXT, size INTEGER, duration REAL,
+            status TEXT DEFAULT 'queued', progress REAL DEFAULT 0, error TEXT,
+            segments TEXT, summary TEXT, story_id INTEGER REFERENCES stories(id) ON DELETE SET NULL,
+            source_chat TEXT, doc_id INTEGER, created_at TEXT, updated_at TEXT
+        );
+
         -- تیزرساز: فایل‌های رسانه‌ای و پروژه‌های تیزر
         CREATE TABLE IF NOT EXISTS media (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

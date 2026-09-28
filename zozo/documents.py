@@ -48,6 +48,10 @@ OCR_MAX_PIXELS = 4200
 GOOD_SCORE = 0.97
 
 
+# کارهای سنگین (OCR، ساخت ویدیو، تبدیل گفتار) نوبتی اجرا می‌شوند تا حافظه‌ی سرور کوچک پر نشود
+HEAVY = threading.Lock()
+
+
 def docs_dir() -> Path:
     return settings.dir("docs")
 
@@ -492,7 +496,8 @@ class Worker:
             if not row:
                 return n
             try:
-                process_document(row["id"])
+                with HEAVY:
+                    process_document(row["id"])
             except Exception as e:
                 log.exception("پردازش سند %s ناموفق بود", row["id"])
                 with db.connect() as conn:

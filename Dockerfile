@@ -16,6 +16,10 @@ RUN pip install -r requirements.txt
 COPY scripts/get_fonts.py scripts/get_fonts.py
 RUN python scripts/get_fonts.py /app/fonts || echo "WARNING: Vazirmatn font not installed"
 
+# مدل سبک تبدیل گفتار فارسی (اگر دانلود نشد، از داخل برنامه قابل نصب است)
+COPY scripts/get_asr_model.py scripts/get_asr_model.py
+RUN python scripts/get_asr_model.py /opt/asr || echo "WARNING: ASR model not downloaded"
+
 COPY zozo ./zozo
 
 ENV ZOZO_DATA_DIR=/data \

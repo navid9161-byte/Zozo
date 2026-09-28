@@ -263,5 +263,13 @@ def extractive_summary(text: str, n: int = 3) -> list[str]:
 
 
 def keywords(text: str, n: int = 10) -> list[str]:
-    freq = Counter(stem(t) for t in tokens(text) if t not in STOPWORDS and len(t) > 2 and not t.isdigit())
-    return [w for w, _ in freq.most_common(n)]
+    """واژه‌های پرتکرار؛ شمارش بر اساس ریشه، ولی نمایش با رایج‌ترین شکل خود واژه."""
+    freq: Counter = Counter()
+    forms: dict[str, Counter] = {}
+    for t in tokens(text):
+        if t in STOPWORDS or len(t) <= 2 or t.isdigit():
+            continue
+        st = stem(t)
+        freq[st] += 1
+        forms.setdefault(st, Counter())[t] += 1
+    return [forms[w].most_common(1)[0][0] for w, _ in freq.most_common(n)]

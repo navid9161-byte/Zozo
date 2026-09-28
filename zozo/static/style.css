@@ -423,3 +423,12 @@ code { background: var(--bg); padding: 1px 6px; border-radius: 6px; font-size: 1
 .chip.active, .seg button.active { background: var(--primary); border-color: var(--primary); }
 .btn.primary { box-shadow: 0 1px 0 rgba(0,0,0,.05); }
 .quick-actions button:first-child { background: var(--brand-red); color: #fff; border-color: var(--brand-red); }
+
+/* ───── تبدیل صوت به متن ───── */
+.segs { display: flex; flex-direction: column; gap: 2px; }
+.seg-row { display: grid; grid-template-columns: 62px 1fr; gap: 8px; align-items: start; padding: 4px 6px; border-radius: 10px; }
+.seg-row.on { background: var(--primary-soft); }
+.seg-time { border: 0; background: var(--bg); color: var(--accent); border-radius: 8px; padding: 3px 0; cursor: pointer; font-size: 13px; font-weight: 700; direction: ltr; }
+.seg-row.on .seg-time { background: var(--accent); color: #fff; }
+.seg-text { line-height: 2; font-size: 16px; padding: 2px 6px; border-radius: 8px; outline: none; min-height: 1.8em; }
+.seg-text:focus { background: var(--card); box-shadow: 0 0 0 2px var(--primary-soft); }

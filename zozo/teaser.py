@@ -490,7 +490,8 @@ class Renderer:
                 row = conn.execute("SELECT id FROM teasers WHERE status='queued' ORDER BY id LIMIT 1").fetchone()
             if not row:
                 return n
-            self.render(row["id"])
+            with documents.HEAVY:
+                self.render(row["id"])
             n += 1
         return n
 
