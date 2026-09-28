@@ -4,6 +4,7 @@
 // و به صورت تصویر شفاف برای سرور فرستاده می‌شوند؛ سرور با ffmpeg آن‌ها را روی ویدیو می‌گذارد.
 
 const TEMPLATES = {
+  kermanravi: { name: "کرمان راوی", accent: "#9d1819", band: "rgba(25,49,83,.9)", head: "#ffffff", kick: "#ffffff", capBg: "rgba(25,49,83,.88)", capText: "#ffffff", c1: "#1f3d68", c2: "#0d1a2e", cardText: "#ffffff", footer: true },
   breaking: { name: "فوری", accent: "#d0142c", band: "rgba(0,0,0,.72)", head: "#ffffff", kick: "#ffffff", capBg: "rgba(0,0,0,.72)", capText: "#ffffff", c1: "#8a0f1e", c2: "#1a0508", cardText: "#ffffff" },
   navy: { name: "رسمی", accent: "#2a7fc1", band: "rgba(8,24,44,.82)", head: "#ffffff", kick: "#ffffff", capBg: "rgba(8,24,44,.82)", capText: "#ffffff", c1: "#1f5f8b", c2: "#08182c", cardText: "#ffffff" },
   yellow: { name: "زرد", accent: "#ffcc00", band: "rgba(0,0,0,.82)", head: "#ffffff", kick: "#000000", capBg: "#ffcc00", capText: "#000000", c1: "#262626", c2: "#000000", cardText: "#ffcc00" },
@@ -20,13 +21,15 @@ const TZ = {
 
 function teaserDefaults() {
   return {
-    title: "", format: "9:16", quality: "720", fit: "blur", template: "breaking", accent: "",
-    kicker: "فوری", headline: "", headlinePos: "top", headlineMode: "all", brand: "",
-    logoId: null, captionsText: "", autoTime: true, manual: [], captionSize: 1,
+    title: "", format: "9:16", quality: "720", fit: "blur", template: "kermanravi", accent: "",
+    kicker: "فوری", headline: "", headlinePos: "top", headlineMode: "all", brand: "کرمان راوی",
+    footerText: "www.kermanravi.ir", logoId: "brand", captionsText: "", autoTime: true, manual: [], captionSize: 1,
     clips: [], musicId: null, musicVolume: 0.35, keepAudio: true, videoVolume: 1,
     intro: false, introText: "", outro: false, outroText: "", fade: true, transition: "fade", story_id: null,
   };
 }
+
+function logoUrl(id) { return id === "brand" ? "/static/brand/logo.png" : `/api/media/${id}/file`; }
 
 function saveDraft() { lsSet("teaserDraft", JSON.stringify(TZ.s)); }
 
@@ -147,13 +150,28 @@ function drawBrand(ctx, W, H) {
   let x = m;
   const y = H > W ? H * 0.04 : H * 0.05;
   const size = base * 0.1;
-  if (TZ.logoEl && TZ.logoEl.complete && TZ.logoEl.naturalWidth) {
+  const hasLogo = TZ.logoEl && TZ.logoEl.complete && TZ.logoEl.naturalWidth;
+  if (hasLogo) {
     const r = TZ.logoEl.naturalWidth / TZ.logoEl.naturalHeight;
-    const lw = Math.min(size * r, base * 0.3);
-    ctx.drawImage(TZ.logoEl, x, y, lw, lw / r);
-    x += lw + base * 0.02;
+    const lw = Math.min(size * r, base * 0.32), lh = lw / r, p = base * 0.012;
+    ctx.fillStyle = "rgba(255,255,255,.95)";
+    rr(ctx, x - p, y - p, lw + p * 2, lh + p * 2, base * 0.018);
+    ctx.fill();
+    ctx.drawImage(TZ.logoEl, x, y, lw, lh);
+    x += lw + base * 0.03;
   }
-  if (s.brand.trim()) {
+  if (t.footer && (s.footerText || "").trim()) {
+    const fh = base * 0.05, fy = H - fh;
+    ctx.fillStyle = t.accent;
+    ctx.fillRect(0, fy, W, fh);
+    ctx.fillStyle = "rgba(25,49,83,.95)";
+    ctx.fillRect(0, fy - base * 0.006, W, base * 0.006);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.font = `700 ${fh * 0.5}px ${FONT}`;
+    ctx.fillText(s.footerText.trim(), W / 2, fy + fh / 2 + fh * 0.03);
+  }
+  if (s.brand.trim() && !hasLogo) {
     const bs = base * 0.036;
     ctx.font = `700 ${bs}px ${FONT}`;
     const bw = ctx.measureText(s.brand.trim()).width + bs * 1.2;
@@ -174,7 +192,7 @@ function drawCaption(ctx, W, H, text) {
   ctx.font = `700 ${cs}px ${FONT}`;
   const lines = wrapText(ctx, text, W * 0.84).slice(0, 3);
   const lh = cs * 1.5, pad = cs * 0.45;
-  const cy = vertical ? H * (s.headlinePos === "top" ? 0.8 : 0.84) : H * 0.87;
+  const cy = vertical ? H * (s.headlinePos === "top" ? 0.8 : 0.84) : H * 0.83;
   const top = cy - (lines.length * lh) / 2;
   ctx.textAlign = "center";
   lines.forEach((l, i) => {
@@ -204,8 +222,11 @@ function drawCard(ctx, W, H, text, isOutro) {
   ctx.fillRect(W * 0.3, H * 0.5 + base * 0.2, W * 0.4, base * 0.012);
   if (TZ.logoEl && TZ.logoEl.complete && TZ.logoEl.naturalWidth) {
     const r = TZ.logoEl.naturalWidth / TZ.logoEl.naturalHeight;
-    const lh = base * 0.16;
-    ctx.drawImage(TZ.logoEl, W / 2 - (lh * r) / 2, H * 0.5 - base * 0.42, lh * r, lh);
+    const lh = base * 0.16, lw = lh * r, p = base * 0.02, lx = W / 2 - lw / 2, ly = H * 0.5 - base * 0.44;
+    ctx.fillStyle = "#fff";
+    rr(ctx, lx - p, ly - p, lw + p * 2, lh + p * 2, base * 0.025);
+    ctx.fill();
+    ctx.drawImage(TZ.logoEl, lx, ly, lw, lh);
   }
   const fs = base * 0.075;
   ctx.font = `900 ${fs}px ${FONT}`;
@@ -387,7 +408,7 @@ VIEWS.teaser = async (view, params) => {
   TZ.music = media.filter((m) => m.kind === "audio" || (m.kind === "video" && m.has_audio)).concat(music.filter((m) => !media.some((x) => x.id === m.id)));
   if (!TZ.s) {
     try { TZ.s = { ...teaserDefaults(), ...JSON.parse(lsGet("teaserDraft", "null") || "{}") }; } catch { TZ.s = teaserDefaults(); }
-    if (brandPref.value) for (const k of ["brand", "template", "accent", "logoId", "kicker", "fit", "headlinePos", "outroText", "quality"]) if (brandPref.value[k] !== undefined && (!TZ.s[k] || k === "logoId")) TZ.s[k] = brandPref.value[k];
+    if (brandPref.value) for (const k of ["brand", "template", "accent", "logoId", "kicker", "fit", "headlinePos", "outroText", "quality", "footerText"]) if (brandPref.value[k] !== undefined && (!TZ.s[k] || k === "logoId")) TZ.s[k] = brandPref.value[k];
   }
   const storyId = params.get("story");
   if (storyId) {
@@ -404,7 +425,7 @@ VIEWS.teaser = async (view, params) => {
   const fromTools = lsGet("teaserCaptions");
   if (fromTools) { try { TZ.s.captionsText = JSON.parse(fromTools).join("\n"); } catch { /* */ } lsSet("teaserCaptions", ""); try { localStorage.removeItem("teaserCaptions"); } catch { /* */ } }
   TZ.logoEl = null;
-  if (TZ.s.logoId) { TZ.logoEl = new Image(); TZ.logoEl.onload = () => drawPreview(); TZ.logoEl.src = `/api/media/${TZ.s.logoId}/file`; }
+  if (TZ.s.logoId) { TZ.logoEl = new Image(); TZ.logoEl.onload = () => drawPreview(); TZ.logoEl.src = logoUrl(TZ.s.logoId); }
 
   if (!META.ffmpeg) {
     view.innerHTML = `<div class="card error">ffmpeg روی سرور نصب نیست؛ ساخت تیزر ممکن نیست. (با Dockerfile همین پروژه خودکار نصب می‌شود.)</div>`;
@@ -435,7 +456,8 @@ VIEWS.teaser = async (view, params) => {
         <div class="card step"><h3>تیتر و نوشته‌ها</h3>
           <div class="form-grid">
             <label>روتیتر / برچسب<input data-k="kicker" value="${esc(s.kicker)}" placeholder="مثلاً فوری، گزارش، ویدیو"></label>
-            <label>نام رسانه (روی ویدیو)<input data-k="brand" value="${esc(s.brand)}" placeholder="مثلاً خبرگزاری …"></label>
+            <label>نام رسانه (کارت‌ها)<input data-k="brand" value="${esc(s.brand)}" placeholder="مثلاً خبرگزاری …"></label>
+            <label class="wide">نوشته‌ی نوار پایین (قالب کرمان راوی)<input data-k="footerText" value="${esc(s.footerText || "")}" class="ltr" placeholder="www.kermanravi.ir"></label>
             <label class="wide">تیتر<textarea data-k="headline" rows="2" placeholder="تیتر اصلی کلیپ">${esc(s.headline)}</textarea></label>
             <label>جای تیتر<select data-k="headlinePos"><option value="top" ${s.headlinePos === "top" ? "selected" : ""}>بالا</option><option value="bottom" ${s.headlinePos === "bottom" ? "selected" : ""}>پایین</option></select></label>
             <label>نمایش تیتر<select data-k="headlineMode"><option value="all" ${s.headlineMode === "all" ? "selected" : ""}>در تمام کلیپ</option><option value="first" ${s.headlineMode === "first" ? "selected" : ""}>فقط ۵ ثانیه‌ی اول</option></select></label>
@@ -452,7 +474,8 @@ VIEWS.teaser = async (view, params) => {
             <label>رنگ اصلی <input type="color" data-k="accent" value="${s.accent || tpl().accent}"></label>
             <button class="btn sm" id="tz-accent-reset">رنگ پیش‌فرض قالب</button>
             <label class="btn sm">🖼 لوگو<input type="file" id="tz-logo" accept="image/png,image/jpeg,image/webp" hidden></label>
-            ${s.logoId ? `<button class="btn sm" id="tz-logo-x">حذف لوگو</button>` : ""}
+            ${s.logoId !== "brand" ? `<button class="btn sm" id="tz-logo-brand">لوگوی کرمان راوی</button>` : ""}
+            ${s.logoId ? `<button class="btn sm" id="tz-logo-x">بدون لوگو</button>` : ""}
           </div>
           <div class="form-grid" style="margin-top:10px">
             <label><span><input type="checkbox" data-k="intro" ${s.intro ? "checked" : ""}> کارت آغاز (۲٫۵ ثانیه)</span><input data-k="introText" value="${esc(s.introText)}" placeholder="خالی = همان تیتر"></label>
@@ -526,12 +549,13 @@ VIEWS.teaser = async (view, params) => {
     s.captionsText = r.lines.join("\n"); saveDraft(); refresh();
   };
   $("#tz-savebrand").onclick = async () => {
-    await api("/api/prefs/teaser_brand", { method: "PUT", body: { value: { brand: s.brand, template: s.template, accent: s.accent, logoId: s.logoId, kicker: s.kicker, fit: s.fit, headlinePos: s.headlinePos, outroText: s.outroText, quality: s.quality } } });
+    await api("/api/prefs/teaser_brand", { method: "PUT", body: { value: { brand: s.brand, template: s.template, accent: s.accent, logoId: s.logoId, kicker: s.kicker, footerText: s.footerText, fit: s.fit, headlinePos: s.headlinePos, outroText: s.outroText, quality: s.quality } } });
     toast("ذخیره شد؛ تیزرهای بعدی با همین تنظیمات شروع می‌شوند ⭐");
   };
   $("#tz-up").onchange = (ev) => uploadMedia(ev.target.files, true);
   $("#tz-music").onchange = async (ev) => { const added = await uploadMedia(ev.target.files, false); if (added[0]) { s.musicId = added[0].id; saveDraft(); refresh(); } };
   $("#tz-logo").onchange = async (ev) => { const added = await uploadMedia(ev.target.files, false); if (added[0]) { s.logoId = added[0].id; saveDraft(); refresh(); } };
+  if ($("#tz-logo-brand")) $("#tz-logo-brand").onclick = () => { s.logoId = "brand"; saveDraft(); refresh(); };
   if ($("#tz-logo-x")) $("#tz-logo-x").onclick = () => { s.logoId = null; saveDraft(); refresh(); };
   $("#tz-render").onclick = renderTeaser;
 

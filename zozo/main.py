@@ -93,7 +93,7 @@ def service_worker():
 def manifest():
     return JSONResponse({
         "name": settings.app_name, "short_name": settings.app_name, "lang": "fa", "dir": "rtl",
-        "start_url": "/", "display": "standalone", "background_color": "#f5f3ef", "theme_color": "#8a1c2b",
+        "start_url": "/", "display": "standalone", "background_color": "#f3f5f8", "theme_color": "#193153",
         "icons": [{"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}],
     }, media_type="application/manifest+json")
 

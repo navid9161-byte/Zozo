@@ -154,7 +154,7 @@ function showLogin() {
   $("#bottom-nav").innerHTML = "";
   $("#side-nav").innerHTML = "";
   $("#view").innerHTML = `<div class="login-wrap"><form class="card login" id="login-form">
-      <div class="logo">📰</div><h1>${esc(document.title.split(" —")[0])}</h1>
+      <div class="logo"><img src="/static/brand/logo.png" alt="کرمان راوی"></div><h1>${esc(document.title.split(" —")[0])}</h1>
       <input type="password" name="p" placeholder="رمز عبور" autocomplete="current-password" required autofocus>
       <button class="btn primary big">ورود</button>
       <p class="error" id="login-err"></p>
