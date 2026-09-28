@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#8a1c2b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="زوزو">
+  <title>زوزو — دستیار روزنامه‌نگار</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css?v=1">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand" id="brand" onclick="location.hash='#home'">زوزو</span>
+    <span class="date" id="today"></span>
+    <span class="spacer"></span>
+    <button class="icon-btn" id="btn-search" title="جستجو در همه‌چیز" aria-label="جستجو">🔍</button>
+    <button class="icon-btn" id="btn-notif" title="اعلان‌ها" aria-label="اعلان‌ها">🔔<span class="dot" id="notif-dot" hidden></span></button>
+  </header>
+
+  <div class="layout">
+    <nav class="side-nav" id="side-nav"></nav>
+    <main id="view"><div class="empty center">در حال بارگذاری…</div></main>
+  </div>
+
+  <nav class="bottom-nav" id="bottom-nav"></nav>
+
+  <div class="notif-panel" id="notif-panel" hidden></div>
+
+  <dialog id="modal">
+    <form method="dialog" id="modal-form" autocomplete="off">
+      <h3 id="modal-title"></h3>
+      <div id="modal-body" class="form-grid"></div>
+      <div id="modal-extra" class="extra-actions"></div>
+      <p class="error" id="modal-error"></p>
+      <div class="modal-actions">
+        <button type="submit" class="btn primary" value="save">ذخیره</button>
+        <button type="button" class="btn" id="modal-cancel">انصراف</button>
+        <button type="button" class="btn danger" id="modal-delete">حذف</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg" class="plain"><div class="dlg-body" id="dlg-body"></div></dialog>
+
+  <dialog id="datepicker" class="dp"></dialog>
+
+  <dialog id="pageview" class="pageview">
+    <div class="pv-bar">
+      <button class="btn" id="pv-prev">→ قبلی</button>
+      <b id="pv-title"></b>
+      <button class="btn" id="pv-next">بعدی ←</button>
+      <button class="btn" id="pv-close">✕</button>
+    </div>
+    <div class="pv-body" id="pv-body"></div>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="/static/jalali.js?v=1"></script>
+  <script src="/static/app.js?v=1"></script>
+  <script src="/static/teaser.js?v=1"></script>
+</body>
+</html>
