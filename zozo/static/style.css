@@ -432,3 +432,31 @@ code { background: var(--bg); padding: 1px 6px; border-radius: 6px; font-size: 1
 .seg-row.on .seg-time { background: var(--accent); color: #fff; }
 .seg-text { line-height: 2; font-size: 16px; padding: 2px 6px; border-radius: 8px; outline: none; min-height: 1.8em; }
 .seg-text:focus { background: var(--card); box-shadow: 0 0 0 2px var(--primary-soft); }
+
+/* ───── بهبود نمایش روی گوشی‌های خیلی کوچک ───── */
+.teaser-layout > *, .steps > *, .form-grid > * { min-width: 0; }
+.teaser-layout { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .teaser-layout { grid-template-columns: minmax(0, 1fr) 360px; } }
+@media (max-width: 380px) {
+  main { padding: 10px; }
+  .card { padding: 12px; }
+  .topbar .date { display: none; }
+  .clip { grid-template-columns: 52px 1fr auto; }
+  .clip img, .clip .ph { width: 52px; height: 52px; }
+  .captions .cap { grid-template-columns: 1fr 56px 56px; }
+  .stat .v { font-size: 18px; }
+}
+/* کادر جستجو در نوار ابزار: روی گوشی یک سطر کامل */
+.toolbar input[type=search] { min-width: 160px !important; }
+@media (max-width: 640px) {
+  .toolbar input[type=search] { flex: 1 1 100%; order: -1; }
+  .toolbar select { flex: 1 1 40%; }
+}
+/* کارت‌های تابلو: دکمه‌ی «مرحله‌ی بعد» زیر عنوان */
+.col .item { flex-wrap: wrap; }
+.col .item .side { width: 100%; align-items: flex-start; }
+.col .item .side .btn { width: 100%; justify-content: center; }
+@media (max-width: 480px) {
+  .list > .item { flex-wrap: wrap; }
+  .list > .item .side { width: 100%; flex-direction: row; justify-content: flex-start; align-items: center; }
+}

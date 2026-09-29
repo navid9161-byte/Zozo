@@ -713,7 +713,7 @@ function barChart(series) {
       <text x="${x + bw / 2}" y="${H - 10}" font-size="11" text-anchor="middle" fill="var(--muted)">${s.label.split(" ")[0]}</text></g>`;
   }).join("");
   const grid = [0.25, 0.5, 0.75, 1].map((f) => `<line x1="${pad}" x2="${W - pad}" y1="${y(max * f)}" y2="${y(max * f)}" stroke="var(--line)"/><text x="${W - 2}" y="${y(max * f) + 4}" font-size="10" text-anchor="end" fill="var(--muted)">${moneyWords(max * f)}</text>`).join("");
-  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" font-family="Vazirmatn, Tahoma">${grid}${bars}</svg></div>
+  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" font-family="Vazirmatn, Tahoma" style="direction:ltr">${grid}${bars}</svg></div>
     <div class="legend"><span><i style="background:var(--ok)"></i>درآمد</span><span><i style="background:var(--danger)"></i>هزینه</span></div>`;
 }
 
