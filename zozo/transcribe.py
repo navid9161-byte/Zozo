@@ -77,11 +77,27 @@ def download_model(target_root: Path | None = None) -> Path:
         if (p := model_path()) is not None:
             return p
         tmp = root / f"{MODEL_NAME}.zip.part"
-        with httpx.stream("GET", MODEL_URL, timeout=httpx.Timeout(60, read=120), follow_redirects=True) as r:
-            r.raise_for_status()
-            with open(tmp, "wb") as f:
-                for chunk in r.iter_bytes(1 << 20):
-                    f.write(chunk)
+        last: Exception | None = None
+        for attempt in range(4):  # شبکه‌ی کند: ادامه‌ی دانلود از جایی که قطع شد
+            try:
+                have = tmp.stat().st_size if tmp.exists() else 0
+                headers = {"Range": f"bytes={have}-"} if have else {}
+                with httpx.stream("GET", MODEL_URL, headers=headers, timeout=httpx.Timeout(60, read=180),
+                                  follow_redirects=True) as r:
+                    if r.status_code == 416:  # کامل است
+                        break
+                    r.raise_for_status()
+                    mode = "ab" if have and r.status_code == 206 else "wb"
+                    with open(tmp, mode) as f:
+                        for chunk in r.iter_bytes(1 << 20):
+                            f.write(chunk)
+                last = None
+                break
+            except Exception as e:  # noqa: BLE001
+                last = e
+                log.warning("دانلود مدل گفتار (تلاش %d) ناموفق: %s", attempt + 1, e)
+        if last:
+            raise last
         with zipfile.ZipFile(tmp) as z:
             z.extractall(root)
         tmp.unlink()
@@ -530,6 +546,13 @@ class Worker:
         return n
 
     def _run(self) -> None:
+        # اولین اجرا روی سرور: دانلود مدل در پس‌زمینه (فقط یک بار؛ روی دیسک داده‌ها می‌ماند)
+        if model_path() is None and vosk_installed() and not os.getenv("ZOZO_NO_ASR_DOWNLOAD"):
+            try:
+                download_model()
+                log.info("مدل تبدیل گفتار فارسی دانلود و نصب شد")
+            except Exception as e:
+                log.warning("دانلود خودکار مدل گفتار ناموفق بود؛ از بخش «صوت به متن» قابل نصب است: %s", e)
         while not self.stopping:
             try:
                 self.run_pending()
