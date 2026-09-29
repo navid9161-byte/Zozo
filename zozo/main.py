@@ -273,6 +273,22 @@ def tools_analyze(body: TextIn):
             "summary": textnorm.extractive_summary(body.text, max(1, min(body.n, 8)))}
 
 
+class DocxIn(BaseModel):
+    title: str = "متن"
+    text: str
+    summary: str | None = None
+
+
+@app.post("/api/tools/docx")
+def tools_docx(body: DocxIn):
+    from . import export
+
+    sections = [("خلاصه", body.summary.split("\n"))] if body.summary else None
+    data = export.docx_bytes(body.title, body.text.split("\n"), sections)
+    return Response(data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"Content-Disposition": _cd(f"{documents.safe_name(body.title)[:60] or 'text'}.docx")})
+
+
 @app.post("/api/ai/{task}")
 def ai_task(task: str, body: TextIn):
     if task not in ai.TASKS:
@@ -284,8 +300,8 @@ def ai_task(task: str, body: TextIn):
 
 
 @app.get("/api/documents")
-def documents_list(category: str | None = None, story_id: int | None = None):
-    return {"documents": documents.list_documents(category, story_id), "stats": documents.stats()}
+def documents_list(category: str | None = None, story_id: int | None = None, tag: str | None = None):
+    return {"documents": documents.list_documents(category, story_id, tag), "stats": documents.stats()}
 
 
 @app.get("/api/documents/search")
@@ -341,6 +357,12 @@ def documents_reprocess(doc_id: int):
 def documents_file(doc_id: int, download: bool = False):
     d = documents.get_document(doc_id)
     return FileResponse(d["path"], filename=d["filename"], content_disposition_type="attachment" if download else "inline")
+
+
+@app.get("/api/documents/{doc_id}/pages")
+def documents_pages(doc_id: int):
+    d = documents.get_document(doc_id)
+    return {"document": d, "pages": documents.page_texts(doc_id) if d["status"] == "ready" else []}
 
 
 @app.get("/api/documents/{doc_id}/text")

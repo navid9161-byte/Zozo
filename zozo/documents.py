@@ -73,8 +73,36 @@ def _tesseract(path: str, langs: str) -> str:
     return res.stdout
 
 
-def ocr_image(path: str) -> str:
+def _prep_image(path: str) -> str | None:
+    """آماده‌سازی عکس برای OCR: خاکستری و بزرگ‌نمایی عکس‌های کوچک (مثل اسکرین‌شات)، کوچک کردن عکس‌های خیلی بزرگ.
+
+    خروجی: مسیر فایل موقت PNG، یا None اگر لازم نبود/ممکن نشد.
+    """
+    try:
+        import pymupdf
+
+        pix = pymupdf.Pixmap(path)
+        longest = max(pix.width, pix.height)
+        scale = 2400 / longest if longest < 1600 else (3600 / longest if longest > 4200 else 1.0)
+        if pix.n - pix.alpha >= 3 or pix.alpha:
+            pix = pymupdf.Pixmap(pymupdf.csGRAY, pix)
+        if abs(scale - 1.0) > 0.05:
+            pix = pymupdf.Pixmap(pix, int(pix.width * scale), int(pix.height * scale), None)
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            pix.save(tmp.name)
+        return tmp.name
+    except Exception as e:  # noqa: BLE001
+        log.info("آماده‌سازی تصویر برای OCR ممکن نشد: %s", e)
+        return None
+
+
+def ocr_image(path: str, prep: bool = False) -> str:
     """OCR تطبیقی: اول فارسی، اگر نتیجه ضعیف بود انگلیسی و ترکیبی."""
+    if prep and (tmp := _prep_image(path)):
+        try:
+            return ocr_image(tmp)
+        finally:
+            os.unlink(tmp)
     first = os.getenv("ZOZO_OCR_LANGS", "fas")
     best, best_q = "", -1.0
     for langs in dict.fromkeys([first, "eng", "fas+eng"]):
@@ -144,7 +172,7 @@ def iter_pages(path: Path, kind: str) -> Iterator[tuple[int, int, Any]]:
         if not use_ocr:
             yield 1, 1, lambda: ("", "weak")
             return
-        yield 1, 1, lambda: (ocr_image(str(path)), "ocr")
+        yield 1, 1, lambda: (ocr_image(str(path), prep=True), "ocr")
     elif kind == "docx":
         import docx
 
@@ -363,7 +391,23 @@ def delete_document(doc_id: int) -> None:
         os.unlink(row["path"])
 
 
-def list_documents(category: str | None = None, story_id: int | None = None) -> list[dict[str, Any]]:
+def page_texts(doc_id: int) -> list[dict[str, Any]]:
+    """متن خام هر صفحه (با شکست خط‌های اصلی) برای «عکس/PDF به متن»؛ ویرگول و ی/ک فارسی اصلاح می‌شود."""
+    with db.connect() as conn:
+        rows = conn.execute("SELECT page, text, method FROM doc_pages WHERE doc_id=? ORDER BY page", (doc_id,)).fetchall()
+        if not rows:  # اسناد قدیمی‌تر: از بندهای نمایه
+            rows = conn.execute("SELECT page, group_concat(text, '\n') AS text, max(method) AS method FROM "
+                                "(SELECT * FROM doc_chunks WHERE doc_id=? AND page>0 ORDER BY page, seq) GROUP BY page",
+                                (doc_id,)).fetchall()
+    out = []
+    for r in rows:
+        raw = textnorm.fix_persian(textnorm.clean_display(r["text"] or ""), digits=False)
+        out.append({"page": r["page"], "method": r["method"], "raw": raw,
+                    "text": textnorm.drop_noise(raw) if r["method"] in ("ocr", "weak") else raw})
+    return out
+
+
+def list_documents(category: str | None = None, story_id: int | None = None, tag: str | None = None) -> list[dict[str, Any]]:
     sql = ("SELECT d.*, s.title AS story_name FROM documents d LEFT JOIN stories s ON s.id = d.story_id")
     where, params = [], []
     if category:
@@ -372,6 +416,9 @@ def list_documents(category: str | None = None, story_id: int | None = None) -> 
     if story_id:
         where.append("d.story_id = ?")
         params.append(story_id)
+    if tag:
+        where.append("d.tags LIKE ?")
+        params.append(f"%{tag}%")
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY d.id DESC"
@@ -424,6 +471,7 @@ def process_document(doc_id: int) -> None:
         for cid in old:
             conn.execute("DELETE FROM doc_fts WHERE chunk_id=?", (cid,))
         conn.execute("DELETE FROM doc_chunks WHERE doc_id = ? AND page > 0", (doc_id,))
+        conn.execute("DELETE FROM doc_pages WHERE doc_id = ?", (doc_id,))
         conn.execute(
             "UPDATE documents SET status='processing', pages_done=0, ocr_pages=0, fixed_pages=0, weak_pages=0, "
             "chunks=0, error=NULL WHERE id=?", (doc_id,),
@@ -431,6 +479,7 @@ def process_document(doc_id: int) -> None:
         _index_meta(conn, doc_id)
     stats = {"ocr": 0, "fixed": 0, "weak": 0, "chunks": 0}
     pending: list[tuple[int, int, str, str]] = []
+    raw_pages: list[tuple[int, str, str]] = []
 
     def flush(done: int, total: int) -> None:
         with db.connect() as conn:
@@ -441,6 +490,9 @@ def process_document(doc_id: int) -> None:
                 )
                 conn.execute("INSERT INTO doc_fts (norm, chunk_id, doc_id) VALUES (?, ?, ?)",
                              (textnorm.normalize(text), cur.lastrowid, doc_id))
+            conn.executemany("INSERT OR REPLACE INTO doc_pages (doc_id, page, text, method) VALUES (?, ?, ?, ?)",
+                             [(doc_id, p, t, m) for p, t, m in raw_pages])
+            raw_pages.clear()
             conn.execute(
                 "UPDATE documents SET pages=?, pages_done=?, ocr_pages=?, fixed_pages=?, weak_pages=?, chunks=?, "
                 "updated_at=? WHERE id=?",
@@ -453,6 +505,7 @@ def process_document(doc_id: int) -> None:
         if worker.stopping:
             return
         text, method = extract()
+        raw_pages.append((page_no, text, method))
         if method in ("ocr", "fixed", "weak"):
             stats[method] += 1
         for seq, chunk in enumerate(chunk_text(text)):

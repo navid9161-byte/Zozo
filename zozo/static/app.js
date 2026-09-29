@@ -97,6 +97,7 @@ const NAV_MAIN = [
 ];
 const NAV_MORE = [
   ["transcribe", "🎙️", "صوت به متن", "ویس و مصاحبه را تایپ‌شده تحویل بگیرید"],
+  ["ocr", "📄", "عکس و PDF به متن", "متن عکس، بیانیه یا اسکن آماده‌ی کپی"],
   ["post", "🖼️", "پست‌ساز", "پست اینستاگرام با قالب کرمان راوی"],
   ["calendar", "📅", "تقویم", "مهلت‌ها و یادآوری‌ها در یک نگاه"],
   ["reminders", "⏰", "یادآوری‌ها", "یک‌باره یا تکرارشونده"],
@@ -619,6 +620,7 @@ VIEWS.home = async (view) => {
       <button data-q="teaser">🎬 تیزر</button>
       <button data-q="post">🖼️ پست</button>
       <button data-q="asr">🎙️ صوت به متن</button>
+      <button data-q="ocr">📄 عکس به متن</button>
       <button data-q="income">➕ دریافتی</button>
       <button data-q="expense">➖ هزینه</button>
       <button data-q="contact">👤 منبع جدید</button>
@@ -655,6 +657,7 @@ VIEWS.home = async (view) => {
     else if (q === "teaser") location.hash = "#teaser";
     else if (q === "post") location.hash = "#post";
     else if (q === "asr") location.hash = "#transcribe";
+    else if (q === "ocr") location.hash = "#ocr";
     else if (q === "income") openForm("transactions", null, { kind: "income" });
     else if (q === "expense") openForm("transactions", null, { kind: "expense", category: "" });
     else if (q === "contact") openForm("contacts");

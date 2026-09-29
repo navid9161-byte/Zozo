@@ -402,6 +402,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
             page INTEGER, seq INTEGER, text TEXT NOT NULL, method TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_chunks_doc ON doc_chunks(doc_id, page, seq);
+        CREATE TABLE IF NOT EXISTS doc_pages (
+            doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            page INTEGER NOT NULL, text TEXT, method TEXT, PRIMARY KEY (doc_id, page)
+        );
         CREATE VIRTUAL TABLE IF NOT EXISTS doc_fts USING fts5(
             norm, chunk_id UNINDEXED, doc_id UNINDEXED, tokenize='unicode61 remove_diacritics 0');
 

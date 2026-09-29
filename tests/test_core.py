@@ -182,3 +182,11 @@ def test_fetch_feed_matches_keywords(monkeypatch):
     assert story["source_url"] == "https://ex.ir/1"
     with db.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM notifications WHERE kind='feed'").fetchone()[0] == 1
+
+
+def test_ocr_noise_filter():
+    assert textnorm.is_noise_line("6۲۳۱۵۳۲۵۷. وطگ6است")
+    assert textnorm.is_noise_line("67 اب4۶ مه ۰ ۷ 2 2 19:34")
+    assert not textnorm.is_noise_line("کلنگ‌زنی ایستگاه شماره ۱۴")
+    assert not textnorm.is_noise_line("کرمان راوی")
+    assert textnorm.drop_noise("۳0515 بح\nمتن درست خبر\n۱ 123") == "متن درست خبر"

@@ -385,37 +385,10 @@ def srt_text(segs: list[dict[str, Any]]) -> str:
 
 
 def docx_bytes(title: str, segs: list[dict[str, Any]], with_times: bool, summary: str | None = None) -> bytes:
-    import docx
-    from docx.oxml.ns import qn
-    from docx.shared import Pt
+    from . import export
 
-    d = docx.Document()
-
-    def rtl(p, text: str, bold: bool = False, size: int = 12) -> None:
-        pPr = p._p.get_or_add_pPr()
-        bidi = pPr.makeelement(qn("w:bidi"), {})
-        pPr.append(bidi)
-        run = p.add_run(text)
-        run.bold = bold
-        run.font.size = Pt(size)
-        rPr = run._r.get_or_add_rPr()
-        rPr.append(rPr.makeelement(qn("w:rtl"), {}))
-        run.font.name = "Vazirmatn"
-        rPr.rFonts.set(qn("w:cs"), "B Nazanin")
-
-    rtl(d.add_paragraph(), title, bold=True, size=16)
-    if summary:
-        rtl(d.add_paragraph(), "خلاصه", bold=True, size=13)
-        for line in summary.split("\n"):
-            if line.strip():
-                rtl(d.add_paragraph(), line.strip())
-        rtl(d.add_paragraph(), "متن کامل", bold=True, size=13)
-    for para in plain_text(segs, with_times).split("\n"):
-        if para.strip():
-            rtl(d.add_paragraph(), para.strip())
-    buf = io.BytesIO()
-    d.save(buf)
-    return buf.getvalue()
+    sections = [("خلاصه", summary.split("\n"))] if summary else None
+    return export.docx_bytes(title, plain_text(segs, with_times).split("\n"), sections)
 
 
 def summarize(tid: int, n: int = 5) -> dict[str, Any]:

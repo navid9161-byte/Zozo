@@ -224,6 +224,32 @@ def fix_persian(text: str, digits: bool = True) -> str:
     return text
 
 
+def is_noise_line(line: str) -> bool:
+    """سطر بی‌معنی حاصل از OCR (مثلاً از روی عکس یا نوار وضعیت گوشی): ترکیب عجیب ارقام و حروف، واژه‌های تک‌حرفی."""
+    toks = [t for t in re.split(r"[^\w\u200c]+", unicodedata.normalize("NFKC", line)) if t]
+    if not toks:
+        return True
+    kinds = [_classify(t.replace(ZWNJ, "")) for t in toks]
+    fa = [t for t, k in zip(toks, kinds) if k == "fa" and len(t.replace(ZWNJ, "")) >= 2]
+    en = [t for t, k in zip(toks, kinds) if k == "en" and len(t) >= 3]
+    bad = kinds.count("bad") / len(kinds)
+    if bad > 0.25:
+        return True
+    real = len(fa) + len(en)
+    if real == 0:
+        return True
+    if real == 1 and len(toks) > 2:  # یک واژه‌ی درست میان تکه‌های نامفهوم
+        return True
+    if real == 1 and len(toks) == 1 and len(fa[0] if fa else en[0]) < 3:
+        return True
+    return False
+
+
+def drop_noise(text: str) -> str:
+    lines = [ln for ln in (text or "").split("\n") if not ln.strip() or not is_noise_line(ln)]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
 def text_stats(text: str) -> dict[str, int]:
     words = re.findall(r"[\w‌]+", text or "")
     sents = [s for s in re.split(r"[.!?؟\n]+", text or "") if s.strip()]
@@ -242,7 +268,13 @@ def split_sentences(text: str) -> list[str]:
 
 def extractive_summary(text: str, n: int = 3) -> list[str]:
     """خلاصه‌ی بدون هوش مصنوعی: جمله‌هایی که واژه‌های پرتکرار متن را بیشتر دارند (به ترتیب اصلی)."""
-    sents = split_sentences(text)
+    seen: set[str] = set()
+    sents = []
+    for x in split_sentences(text):  # جمله‌های تکراری (مثلاً صفحه‌ی تکراری) فقط یک بار
+        k = normalize(x)
+        if k and k not in seen:
+            seen.add(k)
+            sents.append(x)
     if len(sents) <= n:
         return sents
     freq = Counter(t for t in tokens(text) if t not in STOPWORDS and len(t) > 2)

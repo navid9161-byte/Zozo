@@ -217,7 +217,7 @@ async function renderTranscript(view, id) {
 
 function summaryHTML(summary, keywords, mode) {
   return `<div class="out-box" style="margin-top:12px"><b>خلاصه</b>${mode === "fallback" ? ` <small class="muted">(مهم‌ترین جمله‌ها، بدون هوش مصنوعی)</small>` : ""}
-    <div class="sum-text" style="white-space:pre-line;margin-top:4px">${esc(summary)}</div>
+    <div class="sum-text" style="white-space:pre-line;margin-top:4px">${esc(summary.trim())}</div>
     ${keywords?.length ? `<div class="small muted" style="margin-top:6px">واژه‌های پرتکرار: ${esc(keywords.join("، "))}</div>` : ""}
     <button class="btn sm" style="margin-top:6px" onclick="navigator.clipboard.writeText(this.closest('.out-box').querySelector('.sum-text').innerText).then(()=>toast('کپی شد'))">📋 کپی خلاصه</button></div>`;
 }

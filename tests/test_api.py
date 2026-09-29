@@ -121,3 +121,32 @@ def test_teaser_render(client):
 def test_teaser_validation(client):
     login(client)
     assert client.post("/api/teasers", json={"clips": []}).status_code == 400
+
+
+def test_document_pages_and_docx(client):
+    login(client)
+    r = client.post("/api/documents", files={"files": ("n.txt", "سطر اول خبر\nسطر دوم خبر".encode(), "text/plain")},
+                    data={"tags": "متن‌خوان"})
+    doc_id = r.json()["added"][0]["id"]
+    documents.worker.run_pending()
+    pages = client.get(f"/api/documents/{doc_id}/pages").json()["pages"]
+    assert "سطر اول خبر\nسطر دوم خبر" in pages[0]["text"]
+    assert any(d["id"] == doc_id for d in client.get("/api/documents", params={"tag": "متن‌خوان"}).json()["documents"])
+    r = client.post("/api/tools/docx", json={"title": "آزمون", "text": "متن", "summary": "• خلاصه"})
+    assert r.status_code == 200 and r.content[:2] == b"PK"
+
+
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract نصب نیست")
+def test_ocr_image_persian(client):
+    import pymupdf
+
+    login(client)
+    doc = pymupdf.open()
+    page = doc.new_page(width=800, height=300)
+    page.insert_text((40, 120), "Kerman news 2026", fontsize=40)
+    pix = page.get_pixmap(dpi=100)
+    r = client.post("/api/documents", files={"files": ("scan.png", pix.tobytes("png"), "image/png")}, data={"tags": "متن‌خوان"})
+    doc_id = r.json()["added"][0]["id"]
+    documents.worker.run_pending()
+    text = client.get(f"/api/documents/{doc_id}/pages").json()["pages"][0]["raw"]
+    assert "Kerman" in text

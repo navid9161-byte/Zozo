@@ -20,17 +20,63 @@ function coverImage(ctx, img, x, y, w, h, focus, zoom) {
   ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) * f, dw, dh);
 }
 
+// پس‌زمینه‌ی نقطه‌ای (هافتون) کم‌رنگ، پررنگ‌تر به سمت پایین-چپ؛ مثل پست‌های صفحه
+function halftone(ctx, W, H) {
+  const step = 17;
+  ctx.fillStyle = "rgba(25,49,83,.13)";
+  for (let y = H * 0.42; y < H; y += step) {
+    for (let x = 0; x < W; x += step) {
+      const d = Math.hypot(x / W, (H - y) / H * 1.6);
+      const k = Math.max(0, 1 - d / 0.95);
+      if (k < 0.05) continue;
+      ctx.beginPath();
+      ctx.arc(x + ((y / step) % 2 ? step / 2 : 0), y, step * 0.3 * k, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+// سطر تراز‌شده (justify) راست‌به‌چپ: فاصله‌ی اضافه بین واژه‌ها پخش می‌شود
+function drawJustified(ctx, words, right, width, y, justify) {
+  const ws = words.map((w) => ctx.measureText(w).width);
+  const sp = ctx.measureText(" ").width;
+  const gap = justify && words.length > 1 ? (width - ws.reduce((a, b) => a + b, 0)) / (words.length - 1) : sp;
+  let x = right;
+  ctx.textAlign = "right";
+  words.forEach((w, i) => { ctx.fillText(w, x, y); x -= ws[i] + gap; });
+}
+
+function wrapWords(ctx, text, maxW) {
+  const lines = [];
+  for (const para of text.split("\n")) {
+    let line = [];
+    for (const w of para.split(/\s+/).filter(Boolean)) {
+      const test = [...line, w].join(" ");
+      if (line.length && ctx.measureText(test).width > maxW) { lines.push({ words: line, last: false }); line = [w]; } else line.push(w);
+    }
+    if (line.length) lines.push({ words: line, last: true });
+  }
+  return lines;
+}
+
 function drawPostNews(ctx) {
   const s = PS.s, W = POST_W, H = POST_H;
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, W, H);
-  // نوار سرمه‌ای کنار راست
+  halftone(ctx, W, H);
+  // لوگو پایین راست، نوار سرمه‌ای عمودی کنار راست تا بالای لوگو، خط قرمز افقی هم‌تراز نوار قرمز لوگو
+  const lh = 124, lr = PS.logo && PS.logo.naturalWidth ? PS.logo.naturalWidth / PS.logo.naturalHeight : 2.06;
+  const lineY = 1265, lineH = 17;
+  const lw = lh * lr, lx = 1019 - lw, ly = lineY - lh * 0.80;
   ctx.fillStyle = KR.navy;
-  ctx.fillRect(W - 16, 0, 16, H);
-  // عکس
-  const px = 44, py = 44, pw = W - 44 - 60, ph = 600;
+  ctx.fillRect(996, 0, 14, ly + 40);
+  ctx.fillStyle = KR.red;
+  ctx.fillRect(0, lineY, lx + lw * 0.25, lineH);
+  if (PS.logo && PS.logo.naturalWidth) ctx.drawImage(PS.logo, lx, ly, lw, lh);
+  // عکس با گوشه‌های گرد
+  const px = 92, py = 106, pw = 852, ph = 530;
   ctx.save();
-  rr(ctx, px, py, pw, ph, 30);
+  rr(ctx, px, py, pw, ph, 26);
   ctx.clip();
   if (PS.img) {
     if (s.gray) ctx.filter = "grayscale(1)";
@@ -42,37 +88,47 @@ function drawPostNews(ctx) {
     ctx.fillText("عکس را انتخاب کنید", px + pw / 2, py + ph / 2);
   }
   ctx.restore();
-  // تیتر: سطرهای عادی قرمز، *ستاره‌دار* سرمه‌ای
+
+  // نوشته‌ها: اگر جا کم بود اندازه‌ها کمی کوچک می‌شوند
   setup(ctx);
-  let y = py + ph + 60;
-  const cx = (px + px + pw) / 2, maxW = pw - 40;
-  if (s.title.trim()) {
-    ctx.font = `900 64px ${FONT}`;
-    const lines = wrapRich(ctx, richWords(s.title.trim(), KR.red, KR.navy), maxW).slice(0, 3);
-    lines.forEach((l) => { drawRichLine(ctx, l, cx + l.w / 2, y); y += 84; });
-  }
-  if (s.subtitle.trim()) {
-    ctx.font = `700 40px ${FONT}`;
+  const cx = px + pw / 2, top = py + ph + 22, bottom = ly - 14, textRight = 930, textW = 848;
+  const layout = (k) => {
+    const out = { k, h: 0, title: [], sub: [], body: [] };
+    const tf = 76 * k, sf = 64 * k, bf = Math.max(22, 30.5 * k);
+    ctx.font = `900 ${tf}px ${FONT}`;
+    out.title = s.title.trim() ? wrapRich(ctx, richWords(s.title.trim(), KR.red, KR.navy), textW).slice(0, 3) : [];
+    ctx.font = `900 ${sf}px ${FONT}`;
+    out.sub = s.subtitle.trim() ? wrapText(ctx, s.subtitle.trim(), textW).slice(0, 2) : [];
+    ctx.font = `700 ${bf}px ${FONT}`;
+    out.body = s.body.trim() ? wrapWords(ctx, s.body.trim(), textW) : [];
+    Object.assign(out, { tf, sf, bf, tl: tf * 1.24, sl: sf * 1.32, bl: bf * 1.36 });
+    out.h = out.title.length * out.tl + out.sub.length * out.sl + (out.body.length ? 14 + out.body.length * out.bl : 0);
+    return out;
+  };
+  let L = layout(1);
+  for (const k of [0.94, 0.88, 0.82, 0.76]) { if (L.h <= bottom - top) break; L = layout(k); }
+  let y = top;
+  ctx.font = `900 ${L.tf}px ${FONT}`;
+  L.title.forEach((l) => { y += L.tl; drawRichLine(ctx, l, cx + l.w / 2, y - L.tl / 2); });
+  ctx.font = `900 ${L.sf}px ${FONT}`;
+  ctx.fillStyle = KR.navy;
+  ctx.textAlign = "center";
+  L.sub.forEach((l) => { y += L.sl; ctx.fillText(l, cx, y - L.sl / 2); });
+  if (L.body.length) {
+    y += 14;
+    ctx.font = `700 ${L.bf}px ${FONT}`;
     ctx.fillStyle = KR.navy;
-    ctx.textAlign = "center";
-    wrapText(ctx, s.subtitle.trim(), maxW).slice(0, 2).forEach((l) => { ctx.fillText(l, cx, y - 8); y += 54; });
-  }
-  // متن
-  if (s.body.trim()) {
-    y += 6;
-    ctx.font = `400 31px ${FONT}`;
-    ctx.fillStyle = KR.navy;
-    ctx.textAlign = "right";
-    const lines = [];
-    s.body.trim().split("\n").forEach((para) => lines.push(...wrapText(ctx, para, maxW)));
-    const maxLines = Math.max(0, Math.floor((H - 150 - y) / 48));
-    lines.slice(0, maxLines).forEach((l, i) => {
-      const last = i === Math.min(lines.length, maxLines) - 1;
-      ctx.fillText(last && lines.length > maxLines ? l + " …" : l, px + pw - 20, y);
-      y += 48;
+    const maxLines = Math.floor((bottom - y) / L.bl);
+    L.body.slice(0, maxLines).forEach((l, i) => {
+      y += L.bl;
+      const cut = i === maxLines - 1 && L.body.length > maxLines;
+      drawJustified(ctx, cut ? [...l.words, "…"] : l.words, textRight, textW, y - L.bl / 2, !l.last && !cut);
     });
   }
-  drawPostFooter(ctx, false);
+  if (s.credit.trim()) {
+    ctx.font = `700 24px ${FONT}`; ctx.fillStyle = KR.navy; ctx.textAlign = "left";
+    ctx.fillText(`تهیه و تدوین: ${s.credit.trim()}`, 40, H - 26);
+  }
 }
 
 function drawPostCover(ctx) {
