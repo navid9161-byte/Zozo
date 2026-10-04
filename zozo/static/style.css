@@ -460,3 +460,38 @@ code { background: var(--bg); padding: 1px 6px; border-radius: 6px; font-size: 1
   .list > .item { flex-wrap: wrap; }
   .list > .item .side { width: 100%; flex-direction: row; justify-content: flex-start; align-items: center; }
 }
+
+/* ───── ویرایشگر لایه‌ای (شبیه کنوا) ───── */
+dialog.designer {
+  width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; padding: 0; border-radius: 0;
+  display: flex; flex-direction: column; background: var(--bg); overflow: hidden;
+}
+dialog.designer:not([open]) { display: none; }
+.dz-top, .dz-add { display: flex; gap: 6px; align-items: center; padding: 8px 12px; background: var(--card); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.dz-top .spacer { flex: 1; }
+.dz-add { overflow-x: auto; flex-wrap: nowrap; }
+.dz-add .btn { white-space: nowrap; flex: none; }
+.dz-main { flex: 1; display: flex; min-height: 0; }
+.dz-stage { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 12px; gap: 8px;
+  background: repeating-conic-gradient(#d6dbe3 0 25%, #eef1f5 0 50%) 0 0 / 22px 22px; }
+.dz-canvas { max-width: 100%; max-height: calc(100dvh - 150px); width: auto; height: auto; touch-action: none; box-shadow: 0 6px 24px rgba(0,0,0,.25); background: #fff; cursor: move; }
+.dz-time { display: flex; gap: 8px; align-items: center; width: min(520px, 100%); background: var(--card); padding: 6px 10px; border-radius: 10px; }
+.dz-time .dz-t { flex: 1; }
+.dz-panel { width: 330px; flex: none; overflow-y: auto; background: var(--card); border-inline-start: 1px solid var(--line); padding: 10px 12px; }
+.dz-props { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; margin-bottom: 14px; }
+.dz-f { display: flex; flex-direction: column; gap: 3px; font-size: 13px; min-width: 0; }
+.dz-f.wide { grid-column: 1 / -1; }
+.dz-f textarea { width: 100%; font: inherit; }
+.dz-f input[type=color] { width: 44px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 6px; }
+.dz-f .seg button { padding: 5px 9px; font-size: 13px; }
+.dz-layers { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--line); padding-top: 8px; }
+.dz-li { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-size: 13px; }
+.dz-li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dz-li.on { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
+@media (max-width: 760px) {
+  .dz-main { flex-direction: column; }
+  .dz-stage { flex: none; height: 52dvh; padding: 8px; }
+  .dz-canvas { max-height: calc(52dvh - 60px); }
+  .dz-panel { width: auto; flex: 1; border-inline-start: 0; border-top: 1px solid var(--line); }
+}
+.muted-card { opacity: .55; }

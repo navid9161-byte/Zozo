@@ -7,7 +7,8 @@ const PS = { s: null, img: null, logo: null };
 const POST_W = 1080, POST_H = 1350;
 
 function postDefaults() {
-  return { layout: "news", title: "", subtitle: "", body: "", credit: "", focus: 50, zoom: 100, gray: null };
+  return { layout: "news", title: "", subtitle: "", body: "", credit: "", focus: 50, zoom: 100, gray: null,
+    tSize: 100, bSize: 100, bAlign: "justify", tColor: "", bColor: "", layers: [], freeTexts: false };
 }
 
 function postSave() { lsSet("postDraft", JSON.stringify(PS.s)); }
@@ -37,11 +38,12 @@ function halftone(ctx, W, H) {
 }
 
 // سطر تراز‌شده (justify) راست‌به‌چپ: فاصله‌ی اضافه بین واژه‌ها پخش می‌شود
-function drawJustified(ctx, words, right, width, y, justify) {
+function drawJustified(ctx, words, right, width, y, justify, align = "right") {
   const ws = words.map((w) => ctx.measureText(w).width);
   const sp = ctx.measureText(" ").width;
   const gap = justify && words.length > 1 ? (width - ws.reduce((a, b) => a + b, 0)) / (words.length - 1) : sp;
-  let x = right;
+  const lw = ws.reduce((a, b) => a + b, 0) + sp * (words.length - 1);
+  let x = justify || align === "right" ? right : align === "center" ? right - (width - lw) / 2 : right - width + lw;
   ctx.textAlign = "right";
   words.forEach((w, i) => { ctx.fillText(w, x, y); x -= ws[i] + gap; });
 }
@@ -91,12 +93,14 @@ function drawPostNews(ctx) {
 
   // نوشته‌ها: اگر جا کم بود اندازه‌ها کمی کوچک می‌شوند
   setup(ctx);
+  if (s.freeTexts) { drawPostCredit(ctx, "news"); return; }
+  const tS = (s.tSize || 100) / 100, bS = (s.bSize || 100) / 100, tC = s.tColor || KR.red, bC = s.bColor || KR.navy;
   const cx = px + pw / 2, top = py + ph + 22, bottom = ly - 14, textRight = 930, textW = 848;
   const layout = (k) => {
     const out = { k, h: 0, title: [], sub: [], body: [] };
-    const tf = 76 * k, sf = 64 * k, bf = Math.max(22, 30.5 * k);
+    const tf = 76 * k * tS, sf = 64 * k * tS, bf = Math.max(18, 30.5 * k * bS);
     ctx.font = `900 ${tf}px ${FONT}`;
-    out.title = s.title.trim() ? wrapRich(ctx, richWords(s.title.trim(), KR.red, KR.navy), textW).slice(0, 3) : [];
+    out.title = s.title.trim() ? wrapRich(ctx, richWords(s.title.trim(), tC, KR.navy), textW).slice(0, 3) : [];
     ctx.font = `900 ${sf}px ${FONT}`;
     out.sub = s.subtitle.trim() ? wrapText(ctx, s.subtitle.trim(), textW).slice(0, 2) : [];
     ctx.font = `700 ${bf}px ${FONT}`;
@@ -106,7 +110,7 @@ function drawPostNews(ctx) {
     return out;
   };
   let L = layout(1);
-  for (const k of [0.94, 0.88, 0.82, 0.76]) { if (L.h <= bottom - top) break; L = layout(k); }
+  for (const k of [0.94, 0.88, 0.82, 0.76, 0.7, 0.64]) { if (L.h <= bottom - top) break; L = layout(k); }
   let y = top;
   ctx.font = `900 ${L.tf}px ${FONT}`;
   L.title.forEach((l) => { y += L.tl; drawRichLine(ctx, l, cx + l.w / 2, y - L.tl / 2); });
@@ -117,18 +121,24 @@ function drawPostNews(ctx) {
   if (L.body.length) {
     y += 14;
     ctx.font = `700 ${L.bf}px ${FONT}`;
-    ctx.fillStyle = KR.navy;
+    ctx.fillStyle = bC;
     const maxLines = Math.floor((bottom - y) / L.bl);
     L.body.slice(0, maxLines).forEach((l, i) => {
       y += L.bl;
       const cut = i === maxLines - 1 && L.body.length > maxLines;
-      drawJustified(ctx, cut ? [...l.words, "…"] : l.words, textRight, textW, y - L.bl / 2, !l.last && !cut);
+      const al = s.bAlign || "justify";
+      drawJustified(ctx, cut ? [...l.words, "…"] : l.words, textRight, textW, y - L.bl / 2, al === "justify" && !l.last && !cut, al);
     });
   }
-  if (s.credit.trim()) {
-    ctx.font = `700 24px ${FONT}`; ctx.fillStyle = KR.navy; ctx.textAlign = "left";
-    ctx.fillText(`تهیه و تدوین: ${s.credit.trim()}`, 40, H - 26);
-  }
+  drawPostCredit(ctx, "news");
+}
+
+function drawPostCredit(ctx, layout) {
+  const s = PS.s;
+  if (layout !== "news" || !s.credit.trim()) return;
+  setup(ctx);
+  ctx.font = `700 24px ${FONT}`; ctx.fillStyle = KR.navy; ctx.textAlign = "left";
+  ctx.fillText(`تهیه و تدوین: ${s.credit.trim()}`, 40, POST_H - 26);
 }
 
 function drawPostCover(ctx) {
@@ -151,10 +161,13 @@ function drawPostCover(ctx) {
   ctx.stroke();
   // جعبه‌ی سفید تیتر (بالا راست)
   setup(ctx);
+  if (s.freeTexts) { drawPostFooter(ctx, true); return; }
+  const tS = (s.tSize || 100) / 100, bS = (s.bSize || 100) / 100, tC = s.tColor || KR.red, bC = s.bColor || KR.navy;
+  const sF = Math.round(58 * tS), tF = Math.round(104 * tS), bF = Math.round(40 * bS);
   const right = W - 110;
   const rows = [];
-  if (s.subtitle.trim()) { ctx.font = `900 58px ${FONT}`; rows.push(...wrapRich(ctx, richWords(s.subtitle.trim(), KR.navy, KR.red), 700).slice(0, 1).map((l) => ({ l, fs: 58 }))); }
-  if (s.title.trim()) { ctx.font = `900 104px ${FONT}`; rows.push(...wrapRich(ctx, richWords(s.title.trim(), KR.red, KR.navy), 760).slice(0, 3).map((l) => ({ l, fs: 104 }))); }
+  if (s.subtitle.trim()) { ctx.font = `900 ${sF}px ${FONT}`; rows.push(...wrapRich(ctx, richWords(s.subtitle.trim(), KR.navy, KR.red), 700).slice(0, 1).map((l) => ({ l, fs: sF }))); }
+  if (s.title.trim()) { ctx.font = `900 ${tF}px ${FONT}`; rows.push(...wrapRich(ctx, richWords(s.title.trim(), tC, KR.navy), 760).slice(0, 3).map((l) => ({ l, fs: tF }))); }
   if (rows.length) {
     const pad = 34;
     const bw = Math.max(...rows.map((r) => { ctx.font = `900 ${r.fs}px ${FONT}`; return r.l.w; })) + pad * 2;
@@ -167,14 +180,14 @@ function drawPostCover(ctx) {
     rows.forEach((r) => { ctx.font = `900 ${r.fs}px ${FONT}`; drawRichLine(ctx, r.l, right - pad, y + (r.fs * 1.3) / 2); y += r.fs * 1.3; });
   }
   if (s.body.trim()) {
-    ctx.font = `700 40px ${FONT}`;
+    ctx.font = `700 ${bF}px ${FONT}`;
     const lines = wrapText(ctx, s.body.trim(), 760).slice(0, 3);
-    const lh = 60, bh = lines.length * lh + 36, top = H - bandH - 110 - bh;
+    const lh = bF * 1.5, bh = lines.length * lh + 36, top = H - bandH - 110 - bh;
     const bw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 60;
     ctx.fillStyle = "rgba(255,255,255,.88)";
     rr(ctx, W / 2 - bw / 2, top, bw, bh, 26);
     ctx.fill();
-    ctx.fillStyle = KR.navy; ctx.textAlign = "center";
+    ctx.fillStyle = bC; ctx.textAlign = "center";
     lines.forEach((l, i) => ctx.fillText(l, W / 2, top + 18 + lh * (i + 0.5)));
   }
   drawPostFooter(ctx, true);
@@ -211,11 +224,44 @@ function drawPostFooter(ctx, band) {
   }
 }
 
-function drawPost(cv = $("#ps-canvas")) {
+function drawPost(cv = $("#ps-canvas"), withLayers = true) {
   if (!cv) return;
   cv.width = POST_W; cv.height = POST_H;
   const ctx = cv.getContext("2d");
-  (PS.s.layout === "cover" ? drawPostCover : drawPostNews)(ctx);
+  drawPostBase(ctx);
+  if (withLayers && PS.s.layers?.length && typeof drawLayers === "function") drawLayers(ctx, PS.s.layers);
+}
+function drawPostBase(ctx) { (PS.s.layout === "cover" ? drawPostCover : drawPostNews)(ctx); }
+
+// نوشته‌های قالب ← لایه‌های آزاد (برای جابه‌جا کردن و تغییر دلخواه در ویرایشگر لایه‌ای)
+function postTextLayers() {
+  const s = PS.s, out = [], id = () => "t" + Math.random().toString(36).slice(2, 8);
+  const tS = (s.tSize || 100) / 100, bS = (s.bSize || 100) / 100;
+  if (s.layout === "cover") {
+    if (s.subtitle.trim()) out.push({ id: id(), type: "text", tpl: 1, ...LAYER_DEFAULTS.text, text: s.subtitle.trim(), x: 330, y: 120, w: 640, h: 110, size: Math.round(58 * tS), color: KR.navy, hi: KR.red, align: "right", bg: "#ffffff", pad: 24, radius: 30 });
+    if (s.title.trim()) out.push({ id: id(), type: "text", tpl: 1, ...LAYER_DEFAULTS.text, text: s.title.trim(), x: 170, y: 240, w: 800, h: 300, size: Math.round(104 * tS), color: s.tColor || KR.red, hi: KR.navy, align: "right", lh: 1.25, bg: "#ffffff", pad: 30, radius: 36 });
+    if (s.body.trim()) out.push({ id: id(), type: "text", tpl: 1, ...LAYER_DEFAULTS.text, text: s.body.trim(), weight: 700, x: 140, y: 920, w: 800, h: 150, size: Math.round(40 * bS), color: s.bColor || KR.navy, hi: KR.red, align: "center", bg: "#ffffff", pad: 22, radius: 26 });
+  } else {
+    let y = 655;
+    if (s.title.trim()) { out.push({ id: id(), type: "text", tpl: 1, ...LAYER_DEFAULTS.text, text: s.title.trim(), x: 92, y, w: 852, h: 190, size: Math.round(72 * tS), color: s.tColor || KR.red, hi: KR.navy, align: "center", lh: 1.22, pad: 0 }); y += 200; }
+    if (s.subtitle.trim()) { out.push({ id: id(), type: "text", tpl: 1, ...LAYER_DEFAULTS.text, text: s.subtitle.trim(), x: 92, y, w: 852, h: 90, size: Math.round(56 * tS), color: KR.navy, hi: KR.red, align: "center", pad: 0 }); y += 100; }
+    if (s.body.trim()) out.push({ id: id(), type: "text", tpl: 1, ...LAYER_DEFAULTS.text, text: s.body.trim(), weight: 700, x: 92, y, w: 852, h: Math.max(120, 1150 - y), size: Math.round(29 * bS), color: s.bColor || KR.navy, hi: KR.red, align: s.bAlign || "justify", lh: 1.4, pad: 0 });
+  }
+  return out;
+}
+
+function openPostDesigner() {
+  const s = PS.s;
+  let layers = s.layers || [], convert = false;
+  if (!s.freeTexts && (s.title.trim() || s.subtitle.trim() || s.body.trim()) && confirm("نوشته‌های قالب هم به لایه‌های آزاد تبدیل شوند تا بتوانید جابه‌جا و هر طور خواستید ویرایششان کنید؟\n(«انصراف» = نوشته‌ها همان‌طور خودکار بمانند و فقط لایه‌ی تازه اضافه کنید)")) {
+    layers = [...postTextLayers(), ...layers];
+    convert = true;
+  }
+  openDesigner({
+    w: POST_W, h: POST_H, layers, title: "🎨 ویرایش آزاد پست",
+    background: (ctx) => { const f = s.freeTexts; s.freeTexts = f || convert; drawPostBase(ctx); s.freeTexts = f; },
+    onSave: (ls) => { s.layers = ls; if (convert) s.freeTexts = true; postSave(); refresh(); },
+  });
 }
 
 VIEWS.post = async (view) => {
@@ -249,6 +295,25 @@ VIEWS.post = async (view) => {
             <label class="wide">${s.layout === "cover" ? "جمله‌ی پایین عکس (اختیاری)" : "متن خبر"}<textarea data-p="body" rows="${s.layout === "cover" ? 2 : 6}" placeholder="${s.layout === "cover" ? "مثلاً: شهردار پاسخ می‌دهد…" : "خلاصه‌ی خبر…"}">${esc(s.body)}</textarea></label>
             <label class="wide">تهیه و تدوین<input data-p="credit" value="${esc(s.credit)}" placeholder="نام خبرنگار (اختیاری)"></label>
           </div>
+          ${s.freeTexts ? `<p class="small" style="color:var(--primary)">✏️ نوشته‌ها الان «لایه‌ی آزاد» هستند و از «ویرایش آزاد» پایین‌تر ویرایش می‌شوند؛ تغییر این کادرها روی پست اثر ندارد.</p>` : ""}
+        </div>
+        <div class="card ${s.freeTexts ? "muted-card" : ""}"><h3>✍️ قالب‌بندی نوشته (مثل ورد)</h3>
+          <div class="form-grid">
+            <label>اندازه‌ی تیتر <small id="ps-tS">${num(s.tSize || 100)}٪</small><input type="range" min="60" max="150" step="5" data-p="tSize" value="${s.tSize || 100}"></label>
+            <label>اندازه‌ی متن <small id="ps-bS">${num(s.bSize || 100)}٪</small><input type="range" min="60" max="160" step="5" data-p="bSize" value="${s.bSize || 100}"></label>
+            <label>رنگ تیتر<span class="btn-row"><input type="color" data-p="tColor" value="${s.tColor || KR.red}"><button class="btn sm ghost" data-reset="tColor" type="button">پیش‌فرض</button></span></label>
+            <label>رنگ متن<span class="btn-row"><input type="color" data-p="bColor" value="${s.bColor || KR.navy}"><button class="btn sm ghost" data-reset="bColor" type="button">پیش‌فرض</button></span></label>
+            <div class="wide"><span class="small">چینش متن</span><br><div class="seg">${[["justify", "⇔ تراز دوطرفه"], ["right", "⇥ راست‌چین"], ["center", "≡ وسط‌چین"], ["left", "⇤ چپ‌چین"]].map(([v, l]) => `<button type="button" data-balign="${v}" class="${(s.bAlign || "justify") === v ? "active" : ""}">${l}</button>`).join("")}</div></div>
+          </div>
+          <p class="small muted">برای رنگ دوم در تیتر، واژه‌ها را بین دو ستاره بنویسید: *این بخش* رنگ دیگری می‌گیرد.</p>
+        </div>
+        <div class="card"><h3>🎨 ویرایش آزاد (مثل کنوا)</h3>
+          <p class="small muted">متن، شکل، خط، عکس و لوگوی دلخواه اضافه کنید؛ هر چیزی را با انگشت جابه‌جا و بزرگ‌وکوچک کنید، رنگ، سایه، کادر و شفافیت بدهید.</p>
+          <div class="btn-row">
+            <button class="btn primary" id="ps-design">🎨 باز کردن ویرایشگر لایه‌ای</button>
+            ${s.layers?.length ? `<span class="small muted">${num(s.layers.length)} لایه</span><button class="btn sm danger" id="ps-clear-layers">🗑 پاک کردن لایه‌ها</button>` : ""}
+            ${s.freeTexts ? `<button class="btn sm" id="ps-auto">↩️ بازگشت به چیدمان خودکار نوشته‌ها</button>` : ""}
+          </div>
         </div>
       </div>
       <div class="teaser-preview">
@@ -266,9 +331,22 @@ VIEWS.post = async (view) => {
   $$("[data-p]", view).forEach((el) => el.addEventListener(el.type === "checkbox" ? "change" : "input", () => {
     const k = el.dataset.p;
     s[k] = el.type === "checkbox" ? el.checked : el.type === "range" ? Number(el.value) : el.value;
+    if (k === "tSize" || k === "bSize") $(k === "tSize" ? "#ps-tS" : "#ps-bS").textContent = `${num(el.value)}٪`;
     postSave();
     drawPost();
   }));
+  $$("[data-reset]", view).forEach((b) => (b.onclick = () => { s[b.dataset.reset] = ""; postSave(); refresh(); }));
+  $$("[data-balign]", view).forEach((b) => (b.onclick = () => { s.bAlign = b.dataset.balign; postSave(); refresh(); }));
+  $("#ps-design").onclick = openPostDesigner;
+  if ($("#ps-clear-layers")) $("#ps-clear-layers").onclick = () => {
+    if (!confirm("همه‌ی لایه‌های آزاد پاک شود؟")) return;
+    s.layers = []; s.freeTexts = false; postSave(); refresh();
+  };
+  if ($("#ps-auto")) $("#ps-auto").onclick = () => {
+    if (!confirm("نوشته‌ها دوباره خودکار چیده شوند؟ (لایه‌های متنیِ ساخته‌شده از نوشته‌ها حذف می‌شوند؛ شکل‌ها و عکس‌ها می‌مانند)")) return;
+    s.layers = (s.layers || []).filter((l) => !l.tpl);
+    s.freeTexts = false; postSave(); refresh();
+  };
   $("#ps-file").onchange = (ev) => {
     const f = ev.target.files[0];
     if (!f) return;
@@ -276,7 +354,7 @@ VIEWS.post = async (view) => {
     img.onload = () => { PS.img = img; s.focus = 50; s.zoom = 100; drawPost(); };
     img.src = URL.createObjectURL(f);
   };
-  $("#ps-new").onclick = () => { if (!confirm("نوشته‌های این پست پاک شود؟")) return; PS.s = { ...postDefaults(), credit: s.credit, layout: s.layout }; PS.img = null; postSave(); refresh(); };
+  $("#ps-new").onclick = () => { if (!confirm("نوشته‌های این پست پاک شود؟")) return; PS.s = { ...postDefaults(), credit: s.credit, layout: s.layout, tSize: s.tSize, bSize: s.bSize, bAlign: s.bAlign }; PS.img = null; postSave(); refresh(); };
   const blob = () => new Promise((r) => $("#ps-canvas").toBlob(r, "image/png"));
   const name = () => `kermanravi-${(s.title || "post").replace(/\*/g, "").slice(0, 30).trim().replace(/\s+/g, "-")}.png`;
   $("#ps-dl").onclick = async () => {
@@ -297,6 +375,6 @@ VIEWS.post = async (view) => {
     const r = await uploadOne("/api/documents", file, { category: "photo", tags: "پست اینستاگرام", notes: `${s.title.replace(/\*/g, "")}\n${s.body}` }, () => {});
     toast(r.ok ? "در بایگانی ذخیره شد ✔" : r.error);
   };
-  if (document.fonts) document.fonts.load(`900 60px Vazirmatn`).then(drawPost).catch(drawPost);
+  if (document.fonts) document.fonts.load(`900 60px Vazirmatn`).then(() => drawPost()).catch(() => drawPost());
   drawPost();
 };

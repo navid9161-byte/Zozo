@@ -28,6 +28,7 @@ function teaserDefaults() {
     footerText: "www.kermanravi.ir", logoId: "brand", captionsText: "", autoTime: true, manual: [], captionSize: 1,
     clips: [], musicId: null, musicVolume: 0.35, keepAudio: true, videoVolume: 1,
     intro: false, introText: "", outro: false, outroText: "", fade: true, transition: "fade", story_id: null,
+    layers: [], layersSize: null,
   };
 }
 
@@ -432,7 +433,7 @@ function mediaEl(m) {
   if (m.kind === "video") {
     el = document.createElement("video");
     el.muted = true; el.playsInline = true; el.preload = "auto";
-    el.addEventListener("seeked", () => { if (!TZ.playing) drawPreview(); });
+    el.addEventListener("seeked", () => { if (!TZ.playing) { drawPreview(); if (typeof DZ !== "undefined" && DZ.onImg) DZ.onImg(); } });
     el.addEventListener("loadeddata", () => { if (!TZ.playing) drawPreview(); });
   } else {
     el = new Image();
@@ -457,16 +458,38 @@ function clipAt(t) {
   return {};
 }
 
+// لایه‌های دلخواه (ویرایشگر لایه‌ای) — با اندازه‌ی بوم فعلی هم‌مقیاس می‌شوند
+function drawTzLayers(ctx, W, H, t) {
+  const s = TZ.s;
+  if (!s.layers?.length || typeof drawLayers !== "function") return;
+  const [lw, lh] = s.layersSize || outSize();
+  ctx.save();
+  ctx.scale(W / lw, H / lh);
+  drawLayers(ctx, s.layers, t);
+  ctx.restore();
+}
+
 function drawPreview() {
   const cv = $("#tz-canvas");
   if (!cv) return;
   const [W, H] = outSize();
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   const ctx = cv.getContext("2d");
+  const tl = timeline();
+  const t = Math.min(TZ.t, Math.max(0, tl.total - 0.01));
+  drawFrame(ctx, W, H, t);
+  drawTzLayers(ctx, W, H, t);
+  const range = $("#tz-range");
+  if (range) { range.max = tl.total || 1; range.value = t; }
+  const lbl = $("#tz-time");
+  if (lbl) lbl.textContent = `${num(t.toFixed(1))} / ${num(tl.total.toFixed(1))} ثانیه`;
+}
+
+// یک فریم تیزر در زمان t (بدون لایه‌های دلخواه)
+function drawFrame(ctx, W, H, t) {
   ctx.fillStyle = "#111";
   ctx.fillRect(0, 0, W, H);
   const tl = timeline();
-  const t = Math.min(TZ.t, Math.max(0, tl.total - 0.01));
   const at = clipAt(t);
   if (at.card) { drawCard(ctx, W, H, at.card === "intro" ? (TZ.s.introText || TZ.s.headline) : TZ.s.outroText, at.card === "outro"); }
   else if (at.clip) {
@@ -493,10 +516,45 @@ function drawPreview() {
     drawBrand(ctx, W, H);
     drawHeadline(ctx, W, H);
   }
-  const range = $("#tz-range");
-  if (range) { range.max = tl.total || 1; range.value = t; }
-  const lbl = $("#tz-time");
-  if (lbl) lbl.textContent = `${num(t.toFixed(1))} / ${num(tl.total.toFixed(1))} ثانیه`;
+}
+
+function openTeaserDesigner() {
+  const s = TZ.s;
+  stopPlay();
+  const [W, H] = outSize();
+  const tl = timeline();
+  const dur = Math.max(1, +(tl.total || 10).toFixed(1));
+  let layers = JSON.parse(JSON.stringify(s.layers || []));
+  // اگر قالب (اندازه) عوض شده، لایه‌ها را به اندازه‌ی تازه ببریم
+  if (s.layersSize && (s.layersSize[0] !== W || s.layersSize[1] !== H)) {
+    const sx = W / s.layersSize[0], sy = H / s.layersSize[1], sc = Math.min(sx, sy);
+    layers.forEach((l) => { l.x *= sx; l.y *= sy; l.w *= sx; l.h *= sy; if (l.size) l.size = Math.round(l.size * sc); });
+  }
+  openDesigner({
+    w: W, h: H, layers, timed: true, duration: dur, title: "🎨 لایه‌های دلخواه ریلز",
+    background: (ctx, w, h, t) => drawFrame(ctx, w, h, Math.min(t || 0, dur - 0.01)),
+    onSave: (ls) => { s.layers = ls; s.layersSize = [W, H]; saveDraft(); refresh(); },
+  });
+}
+
+// لایه‌ها ← چند تصویر شفاف؛ هر بازه‌ی زمانی که مجموعه‌ی لایه‌های فعالش فرق کند یک تصویر جدا
+function layerOverlays(total) {
+  const s = TZ.s, ls = (s.layers || []).filter((l) => !l.hidden);
+  if (!ls.length) return [];
+  const st = (l) => Math.max(0, l.start ?? 0), en = (l) => Math.min(total, l.end ?? total);
+  const cuts = [...new Set([0, total, ...ls.flatMap((l) => [st(l), en(l)])])].filter((x) => x >= 0 && x <= total).sort((a, b) => a - b);
+  const out = [];
+  for (let i = 0; i < cuts.length - 1; i++) {
+    const a = cuts[i], b = cuts[i + 1];
+    if (b - a < 0.05) continue;
+    const mid = (a + b) / 2;
+    const act = ls.filter((l) => st(l) <= mid && en(l) > mid);
+    if (!act.length) continue;
+    const key = act.map((l) => l.id).join(",");
+    if (out.length && out[out.length - 1].key === key && Math.abs(out[out.length - 1].end - a) < 0.01) { out[out.length - 1].end = b; continue; }
+    out.push({ key, act, start: a, end: b });
+  }
+  return out;
 }
 
 // پخش پیش‌نمایش (تقریبی)
@@ -636,6 +694,14 @@ VIEWS.teaser = async (view, params) => {
           <button class="btn sm" id="tz-savebrand" style="margin-top:8px">⭐ ذخیره‌ی نام رسانه، لوگو و قالب برای دفعه‌های بعد</button>
         </div>
 
+        <div class="card step"><h3>🎨 لایه‌های دلخواه (مثل کنوا)</h3>
+          <p class="small muted">روی ویدیو هر چیزی بگذارید: متن با رنگ و کادر و سایه، شکل، خط، عکس، لوگو. هر لایه را با انگشت جابه‌جا و بزرگ‌وکوچک کنید و تعیین کنید از چه ثانیه‌ای تا چه ثانیه‌ای دیده شود.</p>
+          <div class="btn-row">
+            <button class="btn primary" id="tz-design">🎨 باز کردن ویرایشگر لایه‌ای</button>
+            ${s.layers?.length ? `<span class="small muted">${num(s.layers.length)} لایه</span><button class="btn sm danger" id="tz-clear-layers">🗑 پاک کردن لایه‌ها</button>` : ""}
+          </div>
+        </div>
+
         <div class="card step"><h3>صدا</h3>
           <div class="form-grid">
             <label><span><input type="checkbox" data-k="keepAudio" ${s.keepAudio ? "checked" : ""}> صدای خود ویدیوها</span>
@@ -684,6 +750,8 @@ VIEWS.teaser = async (view, params) => {
   $$("[data-fmt]", view).forEach((b) => (b.onclick = () => { s.format = b.dataset.fmt; saveDraft(); refresh(); }));
   $$("[data-tpl]", view).forEach((b) => (b.onclick = () => { s.template = b.dataset.tpl; s.accent = ""; saveDraft(); refresh(); }));
   $("#tz-accent-reset").onclick = () => { s.accent = ""; saveDraft(); refresh(); };
+  $("#tz-design").onclick = openTeaserDesigner;
+  if ($("#tz-clear-layers")) $("#tz-clear-layers").onclick = () => { if (!confirm("همه‌ی لایه‌های دلخواه پاک شود؟")) return; s.layers = []; saveDraft(); refresh(); };
   $("#tz-new").onclick = () => { if (!confirm("همه‌ی تنظیمات این تیزر پاک شود؟")) return; const keep = { brand: s.brand, template: s.template, accent: s.accent, logoId: s.logoId, kicker: s.kicker }; TZ.s = { ...teaserDefaults(), ...keep }; saveDraft(); refresh(); };
   $("#tz-play").onclick = togglePlay;
   $("#tz-range").oninput = (ev) => { stopPlay(); TZ.t = Number(ev.target.value); drawPreview(); };
@@ -861,6 +929,13 @@ async function renderTeaser() {
     }
     const caps = captionTimes();
     for (const c of caps) overlays.push({ image: png(layerCanvas((ctx, W, H) => drawCaption(ctx, W, H, c.text))), start: c.start, end: c.end });
+    if (s.layers?.length) {
+      await layersReady(s.layers);
+      const [lw, lh] = s.layersSize || outSize();
+      for (const o of layerOverlays(tl.total)) {
+        overlays.push({ image: png(layerCanvas((ctx, W, H) => { ctx.scale(W / lw, H / lh); drawLayers(ctx, o.act); })), start: o.start, end: o.end });
+      }
+    }
     const clips = s.clips.map((c) => ({ media_id: c.media_id, duration: clipDur(c), start: c.start || 0, zoom: c.zoom !== false, gray: !!c.gray }));
     if (s.intro) clips.unshift({ card: png(layerCanvas((ctx, W, H) => drawCard(ctx, W, H, s.introText || s.headline, false))), duration: INTRO_DUR, zoom: true });
     if (s.outro) clips.push({ card: png(layerCanvas((ctx, W, H) => drawCard(ctx, W, H, s.outroText, true))), duration: OUTRO_DUR, zoom: false });
