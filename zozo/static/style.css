@@ -580,3 +580,12 @@ dialog.designer:not([open]) { display: none; }
   border: 1px solid var(--line); border-inline-start: 6px solid var(--tc); background: var(--card); color: var(--text); cursor: pointer; font: inherit; }
 .tpl-card:hover { background: var(--bg); }
 .tpl-card small { color: var(--muted); }
+.steps.simple .adv { display: none !important; }
+.cap2 { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 13.5px; }
+.cap2 .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cap2 .tm { grid-column: 1 / -1; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; justify-content: flex-start; }
+.cap2 input { width: 86px; text-align: center; direction: ltr; }
+.tapbox { background: var(--primary-soft); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.tapbox b { font-size: 17px; }
+.btn.big { font-size: 18px; padding: 12px 22px; }
+.ps-slides { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }

@@ -536,3 +536,91 @@ class Worker:
 
 
 worker = Worker()
+
+
+# ───────────────────────── زیرنویس خودکار ریلز ─────────────────────────
+
+
+def words_in(path: str, start: float = 0, duration: float | None = None) -> list[dict[str, Any]]:
+    """واژه‌های گفته‌شده در یک تکه از فایل با زمان دقیق هر واژه (ثانیه، نسبت به آغاز تکه)."""
+    from vosk import KaldiRecognizer
+
+    rec = KaldiRecognizer(model.get(), SAMPLE_RATE)
+    rec.SetWords(True)
+    cmd = ["ffmpeg", "-v", "error", "-nostdin", "-ss", f"{max(0.0, start):.2f}"]
+    if duration:
+        cmd += ["-t", f"{duration:.2f}"]
+    cmd += ["-i", path, "-vn", "-af", AUDIO_FILTER, "-ac", "1", "-ar", str(SAMPLE_RATE), "-f", "s16le", "-"]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    words: list[dict[str, Any]] = []
+    try:
+        assert proc.stdout
+        while chunk := proc.stdout.read(SAMPLE_RATE * 2):
+            if rec.AcceptWaveform(chunk):
+                words += json.loads(rec.Result()).get("result", [])
+        words += json.loads(rec.FinalResult()).get("result", [])
+    finally:
+        proc.wait()
+    return [{"word": textnorm.fix_persian(w["word"], digits=True), "start": w["start"], "end": w["end"]} for w in words]
+
+
+def group_words(words: list[dict[str, Any]], max_words: int = 7, max_sec: float = 3.2) -> list[dict[str, Any]]:
+    """واژه‌ها ← زیرنویس‌های کوتاه؛ شکستن در مکث‌ها، یا وقتی سطر زیادی بلند شد."""
+    caps: list[dict[str, Any]] = []
+    cur: list[dict[str, Any]] = []
+    for w in words:
+        if cur and (w["start"] - cur[-1]["end"] > 0.55 or len(cur) >= max_words or w["end"] - cur[0]["start"] > max_sec):
+            caps.append(cur)
+            cur = []
+        cur.append(w)
+    if cur:
+        caps.append(cur)
+    out = []
+    for i, c in enumerate(caps):
+        end = c[-1]["end"] + 0.25
+        if i + 1 < len(caps):
+            end = min(end, caps[i + 1][0]["start"] - 0.02)
+        out.append({"text": " ".join(w["word"] for w in c), "start": round(c[0]["start"], 2), "end": round(end, 2)})
+    return out
+
+
+def align_lines(lines: list[str], words: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """زیرنویس‌هایی که کاربر خودش نوشته ← زمان واقعی گفتنشان (به نسبت شمار واژه‌ها روی واژه‌های شنیده‌شده)."""
+    if not words:
+        return []
+    counts = [max(1, len(line.split())) for line in lines]
+    total, n = sum(counts), len(words)
+    out, acc = [], 0
+    for line, c in zip(lines, counts):
+        i0 = min(n - 1, round(acc * n / total))
+        acc += c
+        i1 = max(i0, min(n - 1, round(acc * n / total) - 1))
+        out.append({"text": line, "start": round(words[i0]["start"], 2), "end": round(words[i1]["end"] + 0.2, 2)})
+    for a, b in zip(out, out[1:]):
+        a["end"] = min(a["end"], b["start"] - 0.02)
+    return out
+
+
+def auto_captions(clips: list[dict[str, Any]], offset: float = 0, lines: list[str] | None = None) -> dict[str, Any]:
+    """صدای تکه‌های ویدیو (به ترتیب تیزر) ← زیرنویس زمان‌بندی‌شده روی خط زمان تیزر."""
+    from . import teaser
+
+    if model_path() is None:
+        raise db.ValidationError("مدل تبدیل گفتار به متن هنوز آماده نیست؛ از بخش «صوت به متن» وضعیتش را ببینید.")
+    words: list[dict[str, Any]] = []
+    t = float(offset or 0)
+    with documents.HEAVY:
+        for c in clips:
+            dur = max(0.3, float(c.get("duration") or 0))
+            if c.get("media_id"):
+                m = teaser.get_media(int(c["media_id"]))
+                if m["kind"] == "video" and m.get("has_audio"):
+                    for w in words_in(m["path"], float(c.get("start") or 0), dur):
+                        if w["start"] < dur:
+                            words.append({**w, "start": w["start"] + t, "end": min(w["end"], dur) + t})
+            t += dur
+    if not words:
+        return {"captions": [], "words": 0}
+    clean = [x.strip() for x in (lines or []) if x.strip()]
+    caps = align_lines(clean, words) if clean else group_words(words)
+    return {"captions": caps, "words": len(words), "aligned": bool(clean)}

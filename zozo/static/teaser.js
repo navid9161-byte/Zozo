@@ -28,7 +28,7 @@ function teaserDefaults() {
     footerText: "www.kermanravi.ir", logoId: "brand", captionsText: "", autoTime: true, manual: [], captionSize: 1,
     clips: [], musicId: null, musicVolume: 0.35, keepAudio: true, videoVolume: 1,
     intro: false, introText: "", outro: false, outroText: "", fade: true, transition: "fade", story_id: null,
-    layers: [], layersSize: null,
+    layers: [], layersSize: null, capStyle: "box", capY: 0.66,
   };
 }
 
@@ -62,7 +62,17 @@ function captionTimes() {
   const lines = s.captionsText.split("\n").map((x) => x.trim()).filter(Boolean);
   const tl = timeline();
   if (!lines.length || tl.main <= 0) return [];
-  if (!s.autoTime && s.manual.length === lines.length) return lines.map((text, i) => ({ text, start: s.manual[i][0], end: s.manual[i][1] }));
+  if (!s.autoTime && s.manual.length) {
+    // زمان‌های دستی/خودکارِ گفتار برای خط‌هایی که دارند؛ خط‌های اضافه در زمانِ باقی‌مانده پخش می‌شوند
+    const out = lines.slice(0, s.manual.length).map((text, i) => ({ text, start: s.manual[i][0], end: s.manual[i][1] }));
+    const rest = lines.slice(s.manual.length);
+    if (rest.length) {
+      let a = out.length ? out[out.length - 1].end + 0.05 : tl.mainStart + 0.3;
+      const d = Math.max(0.8, (tl.mainEnd - 0.2 - a) / rest.length);
+      rest.forEach((text) => { out.push({ text, start: +a.toFixed(2), end: +(a + d - 0.05).toFixed(2) }); a += d; });
+    }
+    return out;
+  }
   // اگر تیتر فقط روی تکه‌ی اول است، زیرنویس‌ها بعد از آن شروع شوند (مثل ریلزهای صفحه)
   const hEnd = s.headlineMode === "first" && s.headline.trim() ? headlineEnd(tl) : tl.mainStart;
   const a = (tl.mainEnd - hEnd > 2 ? hEnd : tl.mainStart) + 0.3, b = tl.mainEnd - 0.2;
@@ -192,7 +202,7 @@ function drawBrand(ctx, W, H, phase = "main") {
 }
 
 function drawCaption(ctx, W, H, text) {
-  if (tpl().style === "kr") return krCaption(ctx, W, H, text);
+  if (tpl().style === "kr" || (TZ.s.capStyle && TZ.s.capStyle !== "auto")) return krCaption(ctx, W, H, text);
   const s = TZ.s, t = tpl();
   setup(ctx);
   const base = Math.min(W, H), vertical = H > W;
@@ -372,21 +382,41 @@ function krHeadline(ctx, W, H) {
   lines.forEach((l, i) => drawRichLine(ctx, l, right - px, top + py + lh * (i + 0.5)));
 }
 
+// زیرنویس با سبک انتخابی: کادر سفید (مثل صفحه)، نوشته‌ی سفید با سایه، کادر تیره، زرد با سایه
+const CAP_STYLES = { box: "کادر سفید (مثل صفحه)", shadow: "نوشته‌ی سفید با سایه", dark: "کادر تیره", yellow: "نوشته‌ی زرد با سایه" };
 function krCaption(ctx, W, H, text) {
   const s = TZ.s;
   setup(ctx);
   const base = Math.min(W, H), vertical = H > W;
-  const fs = base * (vertical ? 0.05 : 0.042) * (Number(s.captionSize) || 1);
-  ctx.font = `700 ${fs}px ${FONT}`;
-  const lines = wrapRich(ctx, richWords(text, KR.navy, KR.red), W * 0.66).slice(0, 4);
-  const lh = fs * 1.45, px = fs * 0.5, py = fs * 0.3;
+  const st = CAP_STYLES[s.capStyle] ? s.capStyle : "box";
+  const fs = base * (vertical ? 0.054 : 0.044) * (Number(s.captionSize) || 1);
+  ctx.font = `800 ${fs}px ${FONT}`;
+  const base_c = { box: KR.navy, shadow: "#ffffff", dark: "#ffffff", yellow: "#ffd23f" }[st];
+  const hi_c = { box: KR.red, shadow: "#ffd23f", dark: "#ffd23f", yellow: "#ffffff" }[st];
+  const lines = wrapRich(ctx, richWords(text, base_c, hi_c), W * 0.78).slice(0, 4);
+  const lh = fs * 1.45, px = fs * 0.55, py = fs * 0.32;
   const bw = Math.max(...lines.map((l) => l.w)) + px * 2, bhh = lines.length * lh + py * 2;
-  const cy = H * (vertical ? 0.66 : 0.66), top = cy - bhh / 2;
-  ctx.fillStyle = "rgba(255,255,255,.88)";
-  rr(ctx, W / 2 - bw / 2, top, bw, bhh, fs * 0.35);
-  ctx.fill();
-  // هر سطر وسط‌چین
-  lines.forEach((l, i) => drawRichLine(ctx, l, W / 2 + l.w / 2, top + py + lh * (i + 0.5)));
+  const cy = H * Math.min(0.92, Math.max(0.12, Number(s.capY) || 0.66));
+  const top = Math.min(H - bhh - H * 0.02, cy - bhh / 2);
+  if (st === "box" || st === "dark") {
+    ctx.fillStyle = st === "box" ? "rgba(255,255,255,.82)" : "rgba(10,16,28,.72)";
+    rr(ctx, W / 2 - bw / 2, top, bw, bhh, fs * 0.35);
+    ctx.fill();
+  } else {
+    ctx.shadowColor = "rgba(0,0,0,.9)"; ctx.shadowBlur = fs * 0.35; ctx.shadowOffsetY = fs * 0.06;
+    ctx.lineJoin = "round"; ctx.strokeStyle = "rgba(0,0,0,.75)"; ctx.lineWidth = fs * 0.14;
+  }
+  lines.forEach((l, i) => {
+    const y = top + py + lh * (i + 0.5);
+    if (st === "shadow" || st === "yellow") {
+      let x = W / 2 + l.w / 2;
+      const sp = ctx.measureText(" ").width;
+      ctx.textAlign = "right";
+      for (const t of l.words) { ctx.strokeText(t.w, x, y); x -= t.tw + sp; }
+    }
+    drawRichLine(ctx, l, W / 2 + l.w / 2, y);
+  });
+  ctx.shadowColor = "transparent"; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
 }
 
 function drawMedia(ctx, el, W, H, fit, zoom = 1, gray = false) {
@@ -639,10 +669,13 @@ VIEWS.teaser = async (view, params) => {
   }
   const s = TZ.s;
   view.innerHTML = `
-    <div class="page-title"><h2>🎬 تیزرساز</h2><div class="btn-row"><button class="btn" id="tz-new">🆕 تیزر تازه</button></div></div>
+    <div class="page-title"><h2>🎬 تیزرساز</h2><div class="btn-row">
+      <div class="seg"><button id="tz-simple" class="${TZ.simple ? "active" : ""}">✨ ساده</button><button id="tz-adv" class="${TZ.simple ? "" : "active"}">⚙️ همه‌ی تنظیمات</button></div>
+      <button class="btn" id="tz-new">🆕 تیزر تازه</button></div></div>
+    ${TZ.simple ? `<p class="small muted">حالت ساده: فقط ویدیو را بگذارید، تیتر و نام گوینده را بنویسید، «🎙 زیرنویس خودکار» را بزنید و «ساخت ویدیو». بقیه با تنظیمات ذخیره‌شده‌ی کرمان راوی ساخته می‌شود.</p>` : ""}
     <div class="teaser-layout">
-      <div class="steps">
-        <div class="card step"><h3>قالب و اندازه</h3>
+      <div class="steps ${TZ.simple ? "simple" : ""}">
+        <div class="card step adv"><h3>قالب و اندازه</h3>
           <div class="chips">${Object.entries(FORMATS).map(([k, l]) => `<button class="chip ${s.format === k ? "active" : ""}" data-fmt="${k}">${l}</button>`).join("")}</div>
           <div class="form-grid">
             <label>کیفیت<select data-k="quality"><option value="720" ${s.quality === "720" ? "selected" : ""}>۷۲۰ (سریع، مناسب شبکه‌های اجتماعی)</option><option value="1080" ${s.quality === "1080" ? "selected" : ""}>۱۰۸۰ (کندتر، حافظه‌ی بیشتر)</option></select></label>
@@ -659,26 +692,41 @@ VIEWS.teaser = async (view, params) => {
           <details><summary class="small">کتابخانه‌ی فایل‌های قبلی (${num(TZ.media.length)})</summary><div class="media-grid" id="tz-lib" style="margin-top:8px"></div></details>
         </div>
 
-        <div class="card step"><h3>تیتر و نوشته‌ها</h3>
+        <div class="card step"><h3>تیتر و نام‌ها</h3>
           <div class="form-grid">
-            <label>روتیتر / برچسب<input data-k="kicker" value="${esc(s.kicker)}" placeholder="مثلاً فوری، گزارش، ویدیو"></label>
-            <label>نام رسانه (کارت‌ها)<input data-k="brand" value="${esc(s.brand)}" placeholder="مثلاً خبرگزاری …"></label>
-            <label class="wide">نوشته‌ی نوار پایین (قالب کرمان راوی)<input data-k="footerText" value="${esc(s.footerText || "")}" class="ltr" placeholder="www.kermanravi.ir"></label>
+            <label class="adv">روتیتر / برچسب<input data-k="kicker" value="${esc(s.kicker)}" placeholder="مثلاً فوری، گزارش، ویدیو"></label>
+            <label class="adv">نام رسانه (کارت‌ها)<input data-k="brand" value="${esc(s.brand)}" placeholder="مثلاً خبرگزاری …"></label>
+            <label class="wide adv">نوشته‌ی نوار پایین (قالب کرمان راوی)<input data-k="footerText" value="${esc(s.footerText || "")}" class="ltr" placeholder="www.kermanravi.ir"></label>
             <label class="wide">تیتر<textarea data-k="headline" rows="2" placeholder="تیتر اصلی کلیپ">${esc(s.headline)}</textarea>
               <small>در قالب «کرمان راوی» واژه‌هایی را که بین دو ستاره بنویسید سرمه‌ای می‌شوند، مثلاً: برگزاری *رویداد* سولار</small></label>
             <label>نام گوینده (نوار پایین)<input data-k="speakerName" value="${esc(s.speakerName || "")}" placeholder="مثلاً حمید علیزاده"></label>
             <label>سمت گوینده<input data-k="speakerTitle" value="${esc(s.speakerTitle || "")}" placeholder="مثلاً مدیر دفتر …"></label>
             <label class="wide">تهیه و تدوین<input data-k="credit" value="${esc(s.credit || "")}" placeholder="نام خبرنگار (در ابتدای کلیپ نمایش داده می‌شود)"></label>
-            <label>جای تیتر<select data-k="headlinePos"><option value="top" ${s.headlinePos === "top" ? "selected" : ""}>بالا</option><option value="bottom" ${s.headlinePos === "bottom" ? "selected" : ""}>پایین</option></select></label>
-            <label>نمایش تیتر<select data-k="headlineMode"><option value="all" ${s.headlineMode === "all" ? "selected" : ""}>در تمام کلیپ</option><option value="first" ${s.headlineMode === "first" ? "selected" : ""}>فقط روی تکه‌ی اول</option></select></label>
-            <label class="wide">زیرنویس‌ها (هر خط یک زیرنویس)<textarea data-k="captionsText" rows="5" placeholder="جمله‌ی اول&#10;جمله‌ی دوم&#10;…">${esc(s.captionsText)}</textarea>
-              <small>واژه‌های مهم را بین دو ستاره بنویسید تا قرمز شوند: حدود *۱۴۰ مگاوات* نصب شده. زمان هر زیرنویس خودکار بر اساس طول جمله تقسیم می‌شود. <a href="#" id="tz-manual">${s.autoTime ? "تنظیم دستی زمان‌ها" : "زمان‌بندی خودکار"}</a>${s.story_id ? ` · <a href="#" id="tz-fromstory">ساخت از متن سوژه</a>` : ""}</small></label>
-            <div class="wide captions" id="tz-times"></div>
-            <label>اندازه‌ی زیرنویس<select data-k="captionSize"><option value="0.85" ${s.captionSize == 0.85 ? "selected" : ""}>کوچک</option><option value="1" ${s.captionSize == 1 ? "selected" : ""}>معمولی</option><option value="1.2" ${s.captionSize == 1.2 ? "selected" : ""}>بزرگ</option></select></label>
+            <label class="adv">جای تیتر<select data-k="headlinePos"><option value="top" ${s.headlinePos === "top" ? "selected" : ""}>بالا</option><option value="bottom" ${s.headlinePos === "bottom" ? "selected" : ""}>پایین</option></select></label>
+            <label class="adv">نمایش تیتر<select data-k="headlineMode"><option value="all" ${s.headlineMode === "all" ? "selected" : ""}>در تمام کلیپ</option><option value="first" ${s.headlineMode === "first" ? "selected" : ""}>فقط روی تکه‌ی اول</option></select></label>
           </div>
         </div>
 
-        <div class="card step"><h3>ظاهر و لوگو</h3>
+        <div class="card step"><h3>زیرنویس</h3>
+          <div class="btn-row" style="margin-bottom:8px">
+            <button class="btn primary" id="tz-asr">🎙 زیرنویس خودکار از صدای ویدیو</button>
+            <button class="btn" id="tz-tap">👆 زمان‌بندی با ضربه</button>
+            ${s.story_id ? `<button class="btn sm" id="tz-fromstory">📝 از متن سوژه</button>` : ""}
+          </div>
+          <p class="small muted" style="margin-top:0">«زیرنویس خودکار» حرف‌های داخل ویدیو را می‌شنود و هر جمله را دقیقاً همان لحظه‌ای که گفته می‌شود نشان می‌دهد. اگر خودتان زیرنویس را نوشته باشید، فقط زمانش را با گفتار هماهنگ می‌کند. بعد می‌توانید متن را اصلاح کنید.</p>
+          <div class="form-grid"><label class="wide">زیرنویس‌ها (هر خط یک زیرنویس)<textarea data-k="captionsText" rows="5" placeholder="جمله‌ی اول&#10;جمله‌ی دوم&#10;…">${esc(s.captionsText)}</textarea>
+            <small>واژه‌های مهم را بین دو ستاره بنویسید تا رنگی شوند: حدود *۱۴۰ مگاوات* نصب شده.
+            ${s.autoTime ? "" : ` · <a href="#" id="tz-manual">تقسیم دوباره‌ی زمان بر اساس طول جمله</a>`}</small></label></div>
+          <div class="captions" id="tz-tapbox" hidden></div>
+          <div class="captions" id="tz-times"></div>
+          <div class="form-grid" style="margin-top:10px">
+            <label>ظاهر زیرنویس<select data-k="capStyle">${Object.entries(CAP_STYLES).map(([k, l]) => `<option value="${k}" ${s.capStyle === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+            <label>اندازه<select data-k="captionSize"><option value="0.85" ${s.captionSize == 0.85 ? "selected" : ""}>کوچک</option><option value="1" ${s.captionSize == 1 ? "selected" : ""}>معمولی</option><option value="1.2" ${s.captionSize == 1.2 ? "selected" : ""}>بزرگ</option><option value="1.4" ${s.captionSize == 1.4 ? "selected" : ""}>خیلی بزرگ</option></select></label>
+            <label class="wide">جای زیرنویس (بالا ↔ پایین)<input type="range" min="0.3" max="0.9" step="0.01" data-k="capY" value="${s.capY ?? 0.66}"></label>
+          </div>
+        </div>
+
+        <div class="card step adv"><h3>ظاهر و لوگو</h3>
           <div class="templates">${Object.entries(TEMPLATES).map(([k, t]) => `<button data-tpl="${k}" class="${s.template === k ? "active" : ""}" style="background:linear-gradient(135deg, ${t.c1}, ${t.c2});color:${t.cardText}"><span style="background:${t.accent};color:${t.kick};padding:0 5px;border-radius:4px">${t.name}</span></button>`).join("")}</div>
           <div class="color-row" style="margin-top:10px">
             <label>رنگ اصلی <input type="color" data-k="accent" value="${s.accent || tpl().accent}"></label>
@@ -694,7 +742,7 @@ VIEWS.teaser = async (view, params) => {
           <button class="btn sm" id="tz-savebrand" style="margin-top:8px">⭐ ذخیره‌ی نام رسانه، لوگو و قالب برای دفعه‌های بعد</button>
         </div>
 
-        <div class="card step"><h3>🎨 لایه‌های دلخواه (مثل کنوا)</h3>
+        <div class="card step adv"><h3>🎨 لایه‌های دلخواه (مثل کنوا)</h3>
           <p class="small muted">روی ویدیو هر چیزی بگذارید: متن با رنگ و کادر و سایه، شکل، خط، عکس، لوگو. هر لایه را با انگشت جابه‌جا و بزرگ‌وکوچک کنید و تعیین کنید از چه ثانیه‌ای تا چه ثانیه‌ای دیده شود.</p>
           <div class="btn-row">
             <button class="btn primary" id="tz-design">🎨 باز کردن ویرایشگر لایه‌ای</button>
@@ -702,7 +750,7 @@ VIEWS.teaser = async (view, params) => {
           </div>
         </div>
 
-        <div class="card step"><h3>صدا</h3>
+        <div class="card step adv"><h3>صدا</h3>
           <div class="form-grid">
             <label><span><input type="checkbox" data-k="keepAudio" ${s.keepAudio ? "checked" : ""}> صدای خود ویدیوها</span>
               <input type="range" min="0" max="2" step="0.1" data-k="videoVolume" value="${s.videoVolume}"></label>
@@ -716,8 +764,8 @@ VIEWS.teaser = async (view, params) => {
 
         <div class="card step"><h3>ساخت</h3>
           <div class="form-grid">
-            <label class="wide">نام این تیزر (برای فهرست)<input data-k="title" value="${esc(s.title)}" placeholder="خالی = تیتر"></label>
-            <label class="wide">مربوط به سوژه<select data-k="story_id"><option value=""></option>${REFS.stories.map((x) => `<option value="${x.id}" ${x.id === Number(s.story_id) ? "selected" : ""}>${esc(x.title)}</option>`).join("")}</select></label>
+            <label class="wide adv">نام این تیزر (برای فهرست)<input data-k="title" value="${esc(s.title)}" placeholder="خالی = تیتر"></label>
+            <label class="wide adv">مربوط به سوژه<select data-k="story_id"><option value=""></option>${REFS.stories.map((x) => `<option value="${x.id}" ${x.id === Number(s.story_id) ? "selected" : ""}>${esc(x.title)}</option>`).join("")}</select></label>
           </div>
           <p class="small muted" id="tz-sum"></p>
           <button class="btn primary big" id="tz-render">🎬 ساخت ویدیو</button>
@@ -738,9 +786,8 @@ VIEWS.teaser = async (view, params) => {
     const k = el.dataset.k;
     let v = el.type === "checkbox" ? el.checked : el.value;
     if (["musicId", "story_id"].includes(k)) v = v ? Number(v) : null;
-    if (["musicVolume", "videoVolume", "captionSize"].includes(k)) v = Number(v);
+    if (["musicVolume", "videoVolume", "captionSize", "capY"].includes(k)) v = Number(v);
     s[k] = v;
-    if (k === "captionsText" && !s.autoTime) s.manual = [];
     saveDraft();
     if (k === "captionsText" || k === "intro" || k === "outro") drawTimes();
     summary();
@@ -755,18 +802,17 @@ VIEWS.teaser = async (view, params) => {
   $("#tz-new").onclick = () => { if (!confirm("همه‌ی تنظیمات این تیزر پاک شود؟")) return; const keep = { brand: s.brand, template: s.template, accent: s.accent, logoId: s.logoId, kicker: s.kicker }; TZ.s = { ...teaserDefaults(), ...keep }; saveDraft(); refresh(); };
   $("#tz-play").onclick = togglePlay;
   $("#tz-range").oninput = (ev) => { stopPlay(); TZ.t = Number(ev.target.value); drawPreview(); };
-  $("#tz-manual").onclick = (ev) => {
-    ev.preventDefault();
-    s.autoTime = !s.autoTime;
-    if (!s.autoTime) s.manual = captionTimes().map((c) => [c.start, c.end]);
-    saveDraft(); refresh();
-  };
+  if ($("#tz-manual")) $("#tz-manual").onclick = (ev) => { ev.preventDefault(); s.autoTime = true; s.manual = []; saveDraft(); refresh(); };
+  $("#tz-simple").onclick = () => { TZ.simple = true; lsSet("tzSimple", "1"); refresh(); };
+  $("#tz-adv").onclick = () => { TZ.simple = false; lsSet("tzSimple", "0"); refresh(); };
+  $("#tz-asr").onclick = autoCaptions;
+  $("#tz-tap").onclick = startTapTiming;
   if ($("#tz-fromstory")) $("#tz-fromstory").onclick = async (ev) => {
     ev.preventDefault();
     const st = await api(`/api/stories/${s.story_id}`);
     if (!st.body) return toast("متن این سوژه خالی است");
     const r = await api("/api/ai/captions", { method: "POST", body: { text: st.body, n: 6 } });
-    s.captionsText = r.lines.join("\n"); saveDraft(); refresh();
+    s.captionsText = r.lines.join("\n"); s.autoTime = true; s.manual = []; saveDraft(); refresh();
   };
   $("#tz-savebrand").onclick = async () => {
     await api("/api/prefs/teaser_brand", { method: "PUT", body: { value: { brand: s.brand, template: s.template, accent: s.accent, logoId: s.logoId, kicker: s.kicker, footerText: s.footerText, credit: s.credit, headlineMode: s.headlineMode, fit: s.fit, headlinePos: s.headlinePos, outroText: s.outroText, quality: s.quality } } });
@@ -875,15 +921,95 @@ function addClip(m) {
   saveDraft(); drawClips(); drawTimes(); summary(); drawPreview();
 }
 
+// فهرست زیرنویس‌ها با زمان؛ هر کدام قابل جابه‌جایی ±۰٫۲ ثانیه و پخش از همان‌جا
 function drawTimes() {
   const box = $("#tz-times");
   if (!box) return;
   const s = TZ.s;
   const caps = captionTimes();
-  if (s.autoTime || !caps.length) { box.innerHTML = caps.length ? `<div class="small muted">${caps.map((c) => `${num(c.start.toFixed(1))}–${num(c.end.toFixed(1))}ث: ${esc(c.text.slice(0, 30))}`).join(" · ")}</div>` : ""; return; }
-  box.innerHTML = `<div class="small muted">زمان شروع و پایان هر زیرنویس (ثانیه):</div>` + caps.map((c, i) => `<div class="cap"><span class="small">${esc(c.text)}</span>
-    <input type="number" step="0.1" value="${c.start}" data-mi="${i}" data-mj="0"><input type="number" step="0.1" value="${c.end}" data-mi="${i}" data-mj="1"></div>`).join("");
-  $$("[data-mi]", box).forEach((el) => (el.onchange = () => { s.manual[Number(el.dataset.mi)][Number(el.dataset.mj)] = Number(el.value) || 0; saveDraft(); drawPreview(); }));
+  if (!caps.length) { box.innerHTML = ""; return; }
+  box.innerHTML = `<div class="small muted">${s.autoTime ? "زمان‌ها خودکار بر اساس طول جمله‌اند؛ هر کدام را تغییر دهید دستی می‌شود." : "زمان هر زیرنویس (ثانیه):"}</div>`
+    + caps.map((c, i) => `<div class="cap2"><button class="btn sm ghost" data-cplay="${i}" title="پخش از همین‌جا">▶</button>
+      <span class="t">${esc(c.text.replace(/\*/g, ""))}</span>
+      <span class="tm"><button class="btn sm ghost" data-nudge="${i}:0:-0.2">−</button><input type="number" step="0.1" value="${c.start}" data-mi="${i}" data-mj="0"><button class="btn sm ghost" data-nudge="${i}:0:0.2">+</button>
+      تا <input type="number" step="0.1" value="${c.end}" data-mi="${i}" data-mj="1"></span></div>`).join("");
+  const toManual = () => { if (s.autoTime || s.manual.length < caps.length) { s.manual = caps.map((c) => [c.start, c.end]); s.autoTime = false; } };
+  $$("[data-mi]", box).forEach((el) => (el.onchange = () => { toManual(); s.manual[Number(el.dataset.mi)][Number(el.dataset.mj)] = Number(enDigits(el.value)) || 0; saveDraft(); drawPreview(); }));
+  $$("[data-nudge]", box).forEach((b) => (b.onclick = () => {
+    const [i, j, d] = b.dataset.nudge.split(":").map(Number);
+    toManual();
+    const m = s.manual[i];
+    m[j] = +Math.max(0, m[j] + d).toFixed(2);
+    if (j === 0) { m[1] = +Math.max(m[0] + 0.3, m[1]).toFixed(2); if (i > 0) s.manual[i - 1][1] = Math.min(s.manual[i - 1][1], +(m[0] - 0.02).toFixed(2)); }
+    saveDraft(); drawTimes(); TZ.t = m[0] + 0.05; drawPreview();
+  }));
+  $$("[data-cplay]", box).forEach((b) => (b.onclick = () => { stopPlay(); TZ.t = caps[Number(b.dataset.cplay)].start; togglePlay(); }));
+}
+
+// زیرنویس خودکار: گفتار ویدیوها ← متن و زمان (یا هماهنگ کردن زمانِ متنِ نوشته‌شده با گفتار)
+async function autoCaptions() {
+  const s = TZ.s;
+  if (!s.clips.some((c) => c.kind === "video")) return toast("اول ویدیوی دارای صدا اضافه کنید");
+  const lines = s.captionsText.split("\n").map((x) => x.trim()).filter(Boolean);
+  const btn = $("#tz-asr");
+  btn.disabled = true; btn.textContent = "در حال شنیدن ویدیو… (چند ثانیه)";
+  try {
+    const tl = timeline();
+    const r = await api("/api/teasers/autocaption", { method: "POST", body: {
+      offset: tl.mainStart, lines,
+      clips: s.clips.map((c) => ({ media_id: c.media_id, start: c.start || 0, duration: clipDur(c) })) } });
+    if (!r.captions.length) toast("گفتاری در ویدیوها شنیده نشد", 5000);
+    else {
+      if (!r.aligned) s.captionsText = r.captions.map((c) => c.text).join("\n");
+      s.manual = r.captions.map((c) => [c.start, c.end]);
+      s.autoTime = false;
+      saveDraft();
+      toast(r.aligned ? "زمان زیرنویس‌ها با گفتار هماهنگ شد ✔" : "زیرنویس از روی گفتار ساخته شد ✔ متن را بخوانید و اگر لازم بود اصلاح کنید.", 5000);
+      refresh();
+      return;
+    }
+  } catch (err) { if (!(err instanceof LoginRequired)) toast(err.message, 6000); }
+  btn.disabled = false; btn.textContent = "🎙 زیرنویس خودکار از صدای ویدیو";
+}
+
+// زمان‌بندی با ضربه: ویدیو پخش می‌شود و با هر ضربه زیرنویس بعدی شروع می‌شود
+function startTapTiming() {
+  const s = TZ.s;
+  const lines = s.captionsText.split("\n").map((x) => x.trim()).filter(Boolean);
+  if (!lines.length) return toast("اول زیرنویس‌ها را بنویسید (هر خط یکی)");
+  const tl = timeline();
+  const box = $("#tz-tapbox");
+  const marks = [];
+  let idx = 0;
+  const show = () => {
+    box.hidden = false;
+    box.innerHTML = idx < lines.length
+      ? `<div class="tapbox"><div class="small muted">وقتی گوینده شروع به گفتن این جمله کرد ضربه بزنید (${num(idx + 1)} از ${num(lines.length)}):</div>
+          <b>${esc(lines[idx].replace(/\*/g, ""))}</b>
+          <div class="btn-row"><button class="btn primary big" id="tap-now">👆 الان</button><button class="btn" id="tap-stop">⏹ پایان</button></div></div>`
+      : `<div class="tapbox"><b>همه‌ی زیرنویس‌ها زمان گرفتند ✔</b><div class="btn-row"><button class="btn primary" id="tap-stop">ذخیره</button></div></div>`;
+    if ($("#tap-now")) $("#tap-now").onclick = () => {
+      const t = +TZ.t.toFixed(2);
+      if (marks.length) marks[marks.length - 1][1] = +(t - 0.02).toFixed(2);
+      marks.push([t, +(Math.min(tl.mainEnd - 0.05, t + 4)).toFixed(2)]);
+      idx++; show();
+    };
+    $("#tap-stop").onclick = finish;
+  };
+  const finish = () => {
+    stopPlay();
+    if (marks.length) {
+      marks[marks.length - 1][1] = +Math.min(tl.mainEnd - 0.05, Math.max(marks[marks.length - 1][0] + 0.8, TZ.t)).toFixed(2);
+      s.manual = marks; s.autoTime = false; saveDraft();
+      toast("زمان‌ها ذخیره شد ✔");
+    }
+    box.hidden = true; refresh();
+  };
+  stopPlay();
+  TZ.t = tl.mainStart;
+  show();
+  togglePlay();
+  box.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 async function uploadMedia(fileList, addToClips) {
@@ -956,6 +1082,7 @@ async function renderTeaser() {
   btn.textContent = "🎬 ساخت ویدیو";
 }
 
+try { TZ.simple = lsGet("tzSimple", "1") !== "0"; } catch { TZ.simple = true; }
 const TZ_STATUS = { queued: ["در صف", "gray"], rendering: ["در حال ساخت", "amber"], done: ["آماده", "green"], error: ["خطا", "red"], cancelled: ["لغو شد", "gray"] };
 
 function drawList(list) {

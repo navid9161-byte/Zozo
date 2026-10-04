@@ -471,6 +471,15 @@ def media_thumb(mid: int):
     return FileResponse(m["thumb"], media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
 
 
+@app.post("/api/teasers/autocaption")
+def teasers_autocaption(data: dict[str, Any]):
+    """زیرنویس خودکار از صدای ویدیوها (یا زمان‌بندی زیرنویس‌های نوشته‌شده با گفتار)."""
+    clips = data.get("clips") or []
+    if not clips:
+        raise HTTPException(400, "اول ویدیو اضافه کنید")
+    return transcribe.auto_captions(clips, float(data.get("offset") or 0), data.get("lines"))
+
+
 @app.get("/api/teasers")
 def teasers_list():
     return teaser.list_teasers()

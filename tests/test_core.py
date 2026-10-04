@@ -276,3 +276,18 @@ def test_invoice_templates():
     invoices.set_default_template(first["default"])
     invoices.delete_template(t2["id"])
     assert all(t["id"] != t2["id"] for t in invoices.list_templates()["items"])
+
+
+def test_caption_grouping_and_alignment():
+    from zozo import transcribe
+
+    words = [{"word": w, "start": i * 0.4, "end": i * 0.4 + 0.3} for i, w in enumerate("الف ب پ ت ث ج چ ح خ د".split())]
+    words[5] = {**words[5], "start": 3.5, "end": 3.8}  # مکث پیش از واژه‌ی ششم
+    for w in words[6:]:
+        w["start"] += 1.5
+        w["end"] += 1.5
+    caps = transcribe.group_words(words)
+    assert caps[0]["text"] == "الف ب پ ت ث" and caps[1]["start"] == 3.5
+    assert all(a["end"] < b["start"] for a, b in zip(caps, caps[1:]))
+    al = transcribe.align_lines(["سطر اول نوشته", "سطر دوم که بلندتر است"], words)
+    assert al[0]["start"] == 0 and al[1]["end"] > al[1]["start"] > al[0]["start"]
