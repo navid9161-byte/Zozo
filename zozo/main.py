@@ -571,7 +571,34 @@ def enum_digits(s: str) -> str:
 @app.get("/api/invoices")
 def invoices_list():
     return {"items": invoices.list_all(), "profile": invoices.get_profile(), "status": invoices.STATUS,
-            "methods": invoices.METHODS}
+            "methods": invoices.METHODS, "templates": invoices.list_templates()}
+
+
+@app.get("/api/invoice-templates")
+def invoice_templates():
+    return invoices.list_templates()
+
+
+@app.post("/api/invoice-templates", status_code=201)
+def invoice_template_create(data: dict[str, Any]):
+    return invoices.save_template(data)
+
+
+@app.put("/api/invoice-templates/{tid}")
+def invoice_template_update(tid: int, data: dict[str, Any]):
+    return invoices.save_template(data, tid)
+
+
+@app.delete("/api/invoice-templates/{tid}")
+def invoice_template_delete(tid: int):
+    invoices.delete_template(tid)
+    return {"ok": True}
+
+
+@app.post("/api/invoice-templates/{tid}/default")
+def invoice_template_default(tid: int):
+    invoices.set_default_template(tid)
+    return {"ok": True}
 
 
 @app.get("/api/invoice-profile")

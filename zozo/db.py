@@ -504,6 +504,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     )
     if "payments" not in {r["name"] for r in conn.execute("PRAGMA table_info(invoices)")}:
         conn.execute("ALTER TABLE invoices ADD COLUMN payments TEXT")
+    if "template_id" not in {r["name"] for r in conn.execute("PRAGMA table_info(invoices)")}:
+        conn.execute("ALTER TABLE invoices ADD COLUMN template_id INTEGER")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tx_invoice ON transactions(invoice_id)")
 
 

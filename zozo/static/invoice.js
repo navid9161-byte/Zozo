@@ -16,59 +16,58 @@ function drawInvoice(ctx, inv) {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, W, H);
 
-  // ── سربرگ: نوار روشن، نوار تیره‌ی کج زیر عنوان، نام رسانه، شماره فاکتور
-  const hTop = 56, hBot = 176;
-  let g = ctx.createLinearGradient(0, hTop, 0, hBot);
-  g.addColorStop(0, "#e3ebf6"); g.addColorStop(1, "#c9d8ec");
-  ctx.fillStyle = g;
-  rr(ctx, m, hTop, W - 2 * m, hBot - hTop, 14);
-  ctx.fill();
-  ctx.fillStyle = C;
-  ctx.beginPath();
-  ctx.moveTo(m, hBot - 6); ctx.lineTo(W - m, hBot - 6); ctx.lineTo(W - m, hBot + 26); ctx.lineTo(m + 30, hBot + 26); ctx.closePath();
-  ctx.fill();
-  // نوار تیره‌ی پشت عنوان (متوازی‌الاضلاع)
-  const tx1 = W * 0.27, tx2 = W * 0.6;
-  g = ctx.createLinearGradient(tx1, 0, tx2, 0);
+  // ── سربرگ (مطابق نمونه‌ی چاپی): بلوک روشن کج سمت راست با نام رسانه، نوار آبی پهن با عنوان سند
+  //    (نوشته‌ی سفید با دور تیره)، نوار روشن کج پایین چپ با شماره‌ی فاکتور، باریکه‌ی آبی زیر بلوک راست
+  const L0 = 52, R0 = W - 52;
+  const pale = "#d5e1ef", pale2 = "#e6edf6";
+  const poly = (pts, fill) => { ctx.beginPath(); pts.forEach(([x, yy], k) => (k ? ctx.lineTo(x, yy) : ctx.moveTo(x, yy))); ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); };
+  // نوار آبی اصلی + باریکه‌ی پایینش
+  let g = ctx.createLinearGradient(L0, 0, R0, 0);
   g.addColorStop(0, C); g.addColorStop(1, dark);
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.moveTo(tx1 + 40, hTop + 6); ctx.lineTo(tx2 + 40, hTop + 6); ctx.lineTo(tx2, hBot - 6); ctx.lineTo(tx1, hBot - 6); ctx.closePath();
-  ctx.fill();
-  // عنوان سند در قرص روشن
-  ctx.font = `900 54px ${FONT}`;
-  const tw = ctx.measureText(p.doc_title || "").width + 70;
-  const tcx = (tx1 + tx2) / 2 + 20;
-  ctx.fillStyle = "rgba(255,255,255,.88)";
-  rr(ctx, tcx - tw / 2, hTop + 22, tw, hBot - hTop - 56, 40);
-  ctx.fill();
-  ctx.fillStyle = C; ctx.textAlign = "center";
-  ctx.fillText(p.doc_title || "", tcx, (hTop + hBot) / 2 - 8);
+  poly([[L0, 66], [1140, 66], [1180, 176], [R0, 176], [R0, 206], [596, 206], [574, 170], [L0, 170]], g);
+  // بلوک روشن راست (نام رسانه)
+  g = ctx.createLinearGradient(1060, 0, R0, 0);
+  g.addColorStop(0, pale); g.addColorStop(1, pale2);
+  poly([[1060, 40], [R0, 40], [R0, 176], [1112, 176]], g);
+  // نوار روشن پایین چپ (شماره فاکتور)
+  g = ctx.createLinearGradient(L0, 0, 590, 0);
+  g.addColorStop(0, pale2); g.addColorStop(1, pale);
+  poly([[L0, 166], [562, 166], [590, 246], [L0, 246]], g);
+  // عنوان سند: سفید با دور سرمه‌ای
+  ctx.font = `900 64px ${FONT}`;
+  ctx.textAlign = "center";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "#1f3a63"; ctx.lineWidth = 7;
+  const tcx = 800, tcy = 128;
+  ctx.strokeText(p.doc_title || "", tcx, tcy);
+  ctx.fillStyle = "#fff";
+  ctx.fillText(p.doc_title || "", tcx, tcy);
   // نام رسانه یا لوگو
   const right = W - m - 40;
+  const nameRight = R0 - 90;
   if (INV.logo && INV.logo.naturalWidth && p.logo_media_id) {
-    const lh = 100, lw = Math.min(460, lh * INV.logo.naturalWidth / INV.logo.naturalHeight);
-    ctx.drawImage(INV.logo, right - lw, hTop + 10, lw, lw * INV.logo.naturalHeight / INV.logo.naturalWidth);
+    const lh = 112, lw = Math.min(460, lh * INV.logo.naturalWidth / INV.logo.naturalHeight);
+    ctx.drawImage(INV.logo, nameRight - lw, 52, lw, lw * INV.logo.naturalHeight / INV.logo.naturalWidth);
   } else {
-    ctx.textAlign = "right"; ctx.fillStyle = "#2a5a97";
-    ctx.font = `900 84px ${FONT}`;
-    ctx.fillText(p.media_name || "", right, (hTop + hBot) / 2 + 6);
-    if (p.media_tagline) { ctx.font = `700 22px ${FONT}`; ctx.fillStyle = C; ctx.fillText(p.media_tagline, right - 30, hTop + 20); }
+    ctx.textAlign = "right"; ctx.fillStyle = "#2b4f86";
+    ctx.font = `900 100px ${FONT}`;
+    ctx.fillText(p.media_name || "", nameRight, 116);
+    if (p.media_tagline) {
+      const nw = ctx.measureText(p.media_name || "").width;
+      ctx.font = `700 23px ${FONT}`; ctx.fillStyle = "#2b4f86"; ctx.textAlign = "center";
+      ctx.fillText(p.media_tagline, nameRight - nw * 0.42, 54);
+    }
   }
-  // شماره و تاریخ
-  ctx.textAlign = "left"; ctx.fillStyle = C; ctx.font = `700 32px ${FONT}`;
-  ctx.direction = "rtl";
-  const numText = `شماره فاکتور :  ${fa(inv.number || "")}`;
-  ctx.textAlign = "right";
-  const numW = ctx.measureText(numText).width;
-  ctx.fillText(numText, m + 40 + numW, (hTop + hBot) / 2 - (inv.date ? 16 : 0));
-  if (inv.date) { ctx.font = `700 26px ${FONT}`; ctx.fillText(`تاریخ :  ${fa(inv.date)}`, m + 40 + numW, (hTop + hBot) / 2 + 26); }
+  // شماره (و در صورت انتخاب، تاریخ) در نوار روشن چپ
+  ctx.direction = "rtl"; ctx.textAlign = "right"; ctx.fillStyle = "#4f6584"; ctx.font = `400 31px ${FONT}`;
+  ctx.fillText(`شماره فاکتور :  ${fa(inv.number || "")}`, 500, p.show_date === "yes" && inv.date ? 194 : 208);
+  if (p.show_date === "yes" && inv.date) { ctx.font = `400 25px ${FONT}`; ctx.fillText(`تاریخ :  ${fa(inv.date)}`, 500, 230); }
 
   // ── نام مشتری
   ctx.textAlign = "right"; ctx.fillStyle = ink; ctx.font = `900 48px ${FONT}`;
-  ctx.fillText(inv.customer || "", right, 268);
+  ctx.fillText(inv.customer || "", right, 300);
   let extra = [inv.customer_code && `شناسه: ${inv.customer_code}`, inv.customer_phone && `تلفن: ${inv.customer_phone}`, inv.customer_address].filter(Boolean).join("   •   ");
-  if (extra) { ctx.font = `400 24px ${FONT}`; ctx.fillStyle = "#555"; ctx.fillText(fa(extra), right, 310); }
+  if (extra) { ctx.font = `400 24px ${FONT}`; ctx.fillStyle = "#555"; ctx.fillText(fa(extra), right, 342); }
 
   // ── جدول
   const tL = m + 40, tR = W - m - 40;
@@ -76,7 +75,7 @@ function drawInvoice(ctx, inv) {
   cols[1] = tR - tL - cols.reduce((a, b) => a + b, 0);
   const xs = [tR]; // لبه‌ی راست هر ستون
   cols.forEach((w) => xs.push(xs[xs.length - 1] - w));
-  let y = extra ? 340 : 316;
+  let y = extra ? 368 : 346;
   const line = (x1, y1, x2, y2, w = 2) => { ctx.strokeStyle = "#333"; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); };
   const cellText = (txt, c, yy, h, opts = {}) => {
     const x1 = xs[c + 1], x2 = xs[c];
@@ -92,11 +91,10 @@ function drawInvoice(ctx, inv) {
   };
   const top = y;
   // ردیف عنوان جدول
-  ctx.fillStyle = "#eeeeee"; ctx.fillRect(tL, y, tR - tL, 50);
-  ctx.textAlign = "right"; ctx.font = `700 24px ${FONT}`; ctx.fillStyle = ink;
-  ctx.fillText(p.table_title || "", tR - 14, y + 26);
-  line(tL, y + 50, tR, y + 50);
-  y += 50;
+  ctx.textAlign = "right"; ctx.font = `700 23px ${FONT}`; ctx.fillStyle = ink;
+  ctx.fillText(p.table_title || "", tR - 14, y + 24);
+  line(tL, y + 46, tR, y + 46, 1.5);
+  y += 46;
   // سر ستون‌ها
   const unit = p.unit ? `(${p.unit})` : "";
   const heads = ["ردیف", p.col_title, p.col_date, p.col_qty, `${p.col_unit}\n${unit}`, `${p.col_total}\n${unit}`];
@@ -152,7 +150,7 @@ function drawInvoice(ctx, inv) {
   }
   // خطوط جدول
   ctx.strokeStyle = "#333";
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = 2;
   ctx.strokeRect(tL, top, tR - tL, y - top);
   for (let c = 1; c < 6; c++) {
     const x = xs[c];
@@ -192,24 +190,36 @@ function drawInvoice(ctx, inv) {
 
   if (["paid", "partial"].includes(inv.status) && inv.payments?.length) drawPaidStamp(ctx, inv, m + 270, payTop + 60);
 
-  // ── پانویس: نشانی و تماس
-  const fTop = H - 168, fMid = H - 98, fBot = H - 54;
-  g = ctx.createLinearGradient(0, fTop, 0, fMid);
-  g.addColorStop(0, "#dfe8f4"); g.addColorStop(1, "#c7d6ea");
-  ctx.fillStyle = g;
-  rr(ctx, m, fTop, W - 2 * m, fMid - fTop, 10);
-  ctx.fill();
+  // ── پانویس (مطابق نمونه): نوار روشن با نشانی، آیکون مکان در دایره، نوار تیره‌ی تماس، گوشه‌ی آبی کج راست
+  const fT = H - 196, fB = fT + 84, sB = fB + 58;
+  g = ctx.createLinearGradient(L0, 0, 1460, 0);
+  g.addColorStop(0, pale); g.addColorStop(1, pale2);
+  poly([[L0, fT], [1462, fT], [1428, fB], [L0, fB]], g);
+  g = ctx.createLinearGradient(1380, 0, R0, 0);
+  g.addColorStop(0, C); g.addColorStop(1, dark);
+  poly([[1478, fT + 52], [R0, fT + 52], [R0, sB], [1392, sB]], g);
   ctx.fillStyle = C;
-  ctx.fillRect(m, fMid, W - 2 * m - 220, fBot - fMid);
+  ctx.fillRect(158, fB, 1100 - 158, sB - fB);
   // آیکون مکان
-  const ix = W - m - 90, iy = (fTop + fMid) / 2;
-  ctx.strokeStyle = dark; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.arc(ix, iy, 28, 0, Math.PI * 2); ctx.stroke();
-  ctx.fillStyle = dark;
-  ctx.beginPath(); ctx.arc(ix, iy - 5, 11, Math.PI, 0); ctx.lineTo(ix, iy + 14); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(ix, iy - 5, 4, 0, Math.PI * 2); ctx.fill();
-  if (p.address) { ctx.fillStyle = C; ctx.font = `700 30px ${FONT}`; ctx.textAlign = "right"; ctx.fillText(fa(p.address), ix - 50, iy + 2); }
-  if (p.contact) { ctx.fillStyle = "#fff"; ctx.font = `700 24px ${FONT}`; ctx.textAlign = "right"; ctx.fillText(fa(p.contact), W - m - 240, (fMid + fBot) / 2 + 2); }
+  const ix = 1318, iy = fB - 4;
+  ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(ix, iy, 34, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = "#2c3e55"; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(ix, iy, 34, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = "#2c3e55";
+  ctx.beginPath(); ctx.arc(ix, iy - 6, 12, Math.PI, 0); ctx.lineTo(ix, iy + 15); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(ix, iy - 6, 4.5, 0, Math.PI * 2); ctx.fill();
+  if (p.address) {
+    ctx.fillStyle = "#5b6f88"; ctx.font = `500 31px ${FONT}`; ctx.textAlign = "right";
+    let fs = 31;
+    while (ctx.measureText(fa(p.address)).width > 1230 - L0 - 30 && fs > 20) { fs -= 1; ctx.font = `500 ${fs}px ${FONT}`; }
+    ctx.fillText(fa(p.address), 1250, (fT + fB) / 2 + 2);
+  }
+  if (p.contact) {
+    ctx.fillStyle = "#fff"; ctx.font = `700 27px ${FONT}`; ctx.textAlign = "right";
+    let fs = 27;
+    while (ctx.measureText(fa(p.contact)).width > 1100 - 158 - 30 && fs > 18) { fs -= 1; ctx.font = `700 ${fs}px ${FONT}`; }
+    ctx.fillText(fa(p.contact), 1085, (fB + sB) / 2 + 2);
+  }
 }
 
 // مهر «پرداخت شد» با تاریخ و شماره‌ی رسید آخرین پرداخت
@@ -274,24 +284,45 @@ const PROFILE_FIELDS = [
   ["col_unit", "ستون قیمت واحد"], ["col_total", "ستون جمع"], ["unit", "واحد پول"], ["payee", "واریز به نام"],
   ["sheba", "شماره شبا"], ["card", "شماره کارت"], ["bank", "نام بانک"], ["address", "نشانی (پانویس)"],
   ["contact", "تماس (نوار پایین)"], ["tax_note", "یادداشت مالیاتی (آبی)", "longtext"], ["color", "رنگ اصلی", "color"],
+  ["show_date", "تاریخ فاکتور زیر شماره بیاید؟", "yesno"],
 ];
 
 VIEWS.invoices = async (view, params) => {
   if (params.get("id")) return renderInvoiceEditor(view, Number(params.get("id")));
   const d = await api("/api/invoices");
+  const tpls = d.templates.items;
+  const tf = params.get("t") || "";
+  const tName = (id) => tpls.find((t) => t.id === id)?.name || "";
+  const items = tf ? d.items.filter((v) => String(v.template_id || d.templates.default) === tf) : d.items;
   view.innerHTML = `
     <div class="page-title"><h2>🧾 صورتحساب‌ها</h2><div class="btn-row">
-      <button class="btn primary" id="inv-new">+ صورتحساب جدید</button><button class="btn" id="inv-prof">⚙️ سربرگ و اطلاعات پرداخت</button></div></div>
-    ${invSummaryHTML(d.items, d.profile.unit)}
-    ${!d.profile.payee && !d.profile.sheba ? `<div class="warn-bar">اول از «⚙️ سربرگ و اطلاعات پرداخت» نام، شبا و نشانی را ثبت کنید تا در همه‌ی فاکتورها بیاید.</div>` : ""}
-    <div class="list">${d.items.map((v) => `<div class="item" data-inv="${v.id}"><span class="doc-icon">🧾</span><div class="body">
+      <button class="btn primary" id="inv-new">+ صورتحساب جدید</button><button class="btn" id="inv-tpls">🗂 قالب روزنامه‌ها (${num(tpls.length)})</button></div></div>
+    ${tpls.length > 1 ? `<div class="chips"><a class="chip ${!tf ? "active" : ""}" href="#invoices">همه</a>${tpls.map((t) => `<a class="chip ${tf === String(t.id) ? "active" : ""}" href="#invoices?t=${t.id}">${esc(t.name)}</a>`).join("")}</div>` : ""}
+    ${invSummaryHTML(items, d.profile.unit)}
+    ${!d.profile.payee && !d.profile.sheba ? `<div class="warn-bar">اول از «🗂 قالب روزنامه‌ها» برای هر روزنامه سربرگ، شبا و نشانی را ثبت کنید تا در فاکتورهایش بیاید.</div>` : ""}
+    <div class="list">${items.map((v) => `<div class="item" data-inv="${v.id}"><span class="doc-icon">🧾</span><div class="body">
       <div class="title">${esc(v.customer || "بدون نام")} <small class="muted">${fa(v.number)}</small></div>
       <div class="meta"><span class="badge ${INV_BADGE[v.status] || ""}">${esc(v.status_label)}</span>
+        ${tpls.length > 1 ? `<span class="badge">${esc(tName(v.template_id || d.templates.default) || v.profile.media_name || "")}</span>` : ""}
         <span>${fa(v.date || "")}</span><span><b>${invNum(v.payable)}</b> ${esc(v.profile.unit || "")}</span>
         ${v.status === "partial" ? `<span class="small">مانده: <b>${invNum(v.remaining)}</b></span>` : ""}
         ${v.status === "paid" && v.paid_date ? `<span class="small muted">پرداخت ${fa(v.paid_date)}${v.payments.at(-1)?.ref_no ? ` · رسید ${fa(v.payments.at(-1).ref_no)}` : ""}</span>` : ""}</div></div></div>`).join("") || `<div class="card empty center">هنوز صورتحسابی صادر نشده.</div>`}</div>`;
-  $("#inv-new").onclick = async () => { const v = await api("/api/invoices", { method: "POST", body: { items: [{ title: "", qty: 1, unit_price: "" }] } }); location.hash = `#invoices?id=${v.id}`; };
-  $("#inv-prof").onclick = () => editInvoiceProfile();
+  const createWith = async (tid) => {
+    const v = await api("/api/invoices", { method: "POST", body: { template_id: tid, items: [{ title: "", qty: 1, unit_price: "" }] } });
+    location.hash = `#invoices?id=${v.id}`;
+  };
+  $("#inv-new").onclick = () => {
+    if (tpls.length === 1) return createWith(tpls[0].id);
+    // انتخاب روزنامه برای فاکتور تازه
+    $("#dlg-body").innerHTML = `<h3>🧾 فاکتور برای کدام روزنامه؟</h3>
+      <div class="tpl-pick">${tpls.map((t) => `<button class="tpl-card" data-pick="${t.id}" style="--tc:${esc(t.color || "#4a72a8")}">
+        <b>${esc(t.name)}</b><small>${esc(t.media_name || "")}${t.payee ? ` · ${esc(t.payee)}` : ""}</small>${t.id === d.templates.default ? `<span class="badge">پیش‌فرض</span>` : ""}</button>`).join("")}</div>
+      <div class="modal-actions"><button class="btn" id="pk-close">انصراف</button></div>`;
+    $$("[data-pick]").forEach((b) => (b.onclick = () => { $("#dlg").close(); createWith(Number(b.dataset.pick)); }));
+    $("#pk-close").onclick = () => $("#dlg").close();
+    $("#dlg").showModal();
+  };
+  $("#inv-tpls").onclick = () => invTemplatesDialog();
   $$("[data-inv]", view).forEach((el) => (el.onclick = () => (location.hash = `#invoices?id=${el.dataset.inv}`)));
 };
 
@@ -341,29 +372,57 @@ function invPaymentDialog(inv, onDone) {
 function profileFormHTML(p, prefix) {
   return PROFILE_FIELDS.map(([k, l, t]) => `<label class="${t === "longtext" || k === "address" || k === "contact" ? "wide" : ""}">${l}
     ${t === "longtext" ? `<textarea data-${prefix}="${k}" rows="2">${esc(p[k] || "")}</textarea>` : t === "color" ? `<input type="color" data-${prefix}="${k}" value="${esc(p[k] || "#4a72a8")}">`
+    : t === "yesno" ? `<select data-${prefix}="${k}"><option value="">خیر (مثل نمونه)</option><option value="yes" ${p[k] === "yes" ? "selected" : ""}>بله</option></select>`
     : `<input data-${prefix}="${k}" value="${esc(p[k] || "")}" ${["sheba", "card"].includes(k) ? 'class="ltr"' : ""}>`}</label>`).join("")
     + `<label class="wide">لوگوی رسانه (اختیاری؛ به‌جای نام)<span class="btn-row"><label class="btn sm">🖼 انتخاب لوگو<input type="file" data-${prefix}-logo accept="image/*" hidden></label>
       ${p.logo_media_id ? `<button type="button" class="btn sm" data-${prefix}-nologo>حذف لوگو</button>` : ""}</span></label>`;
 }
 
-async function editInvoiceProfile() {
-  const p = await api("/api/invoice-profile");
-  $("#dlg-body").innerHTML = `<h3>⚙️ سربرگ و اطلاعات پرداخت</h3><p class="small muted">این اطلاعات در فاکتورهای جدید قرار می‌گیرد.</p>
-    <div class="form-grid">${profileFormHTML(p, "pf")}</div>
-    <div class="modal-actions"><button class="btn primary" id="pf-save">ذخیره</button><button class="btn" id="pf-close">بستن</button></div>`;
-  const collect = () => Object.fromEntries($$("[data-pf]").map((el) => [el.dataset.pf, el.value]));
-  $("[data-pf-logo]").onchange = async (ev) => {
+// ───── مدیریت قالب‌ها (هر روزنامه یک قالب جدا) ─────
+async function invTemplatesDialog() {
+  const d = await api("/api/invoice-templates");
+  $("#dlg-body").innerHTML = `<h3>🗂 قالب روزنامه‌ها</h3>
+    <p class="small muted">برای هر روزنامه یک قالب جدا بسازید: سربرگ، رنگ، لوگو، اطلاعات پرداخت، نشانی و شماره‌گذاری فاکتورها برای هر قالب جداست.</p>
+    <div class="list">${d.items.map((t) => `<div class="item"><span class="sw" style="--c:${esc(t.color || "#4a72a8")};width:14px;height:40px"></span><div class="body">
+      <div class="title">${esc(t.name)} ${t.id === d.default ? `<span class="badge green">پیش‌فرض</span>` : ""}</div>
+      <div class="meta small">${esc(t.media_name || "")}${t.payee ? ` · واریز به ${esc(t.payee)}` : ""}</div>
+      <div class="btn-row" style="margin-top:6px"><button class="btn sm" data-ed="${t.id}">✏️ ویرایش</button><button class="btn sm" data-cp="${t.id}">⧉ کپی</button>
+        ${t.id !== d.default ? `<button class="btn sm" data-df="${t.id}">⭐ پیش‌فرض</button>` : ""}${d.items.length > 1 ? `<button class="btn sm danger" data-rm="${t.id}">🗑</button>` : ""}</div></div></div>`).join("")}</div>
+    <div class="modal-actions"><button class="btn primary" id="tp-new">+ قالب روزنامه‌ی جدید</button><button class="btn" id="tp-close">بستن</button></div>`;
+  const reopen = () => invTemplatesDialog();
+  $$("[data-ed]").forEach((b) => (b.onclick = () => editInvTemplate(d.items.find((t) => t.id === Number(b.dataset.ed)))));
+  $$("[data-cp]").forEach((b) => (b.onclick = async () => { const src = d.items.find((t) => t.id === Number(b.dataset.cp)); const t = await api("/api/invoice-templates", { method: "POST", body: { copy_from: src.id, name: `${src.name} (کپی)` } }); editInvTemplate(t); }));
+  $$("[data-df]").forEach((b) => (b.onclick = async () => { await api(`/api/invoice-templates/${b.dataset.df}/default`, { method: "POST" }); reopen(); }));
+  $$("[data-rm]").forEach((b) => (b.onclick = async () => { if (!confirm("این قالب حذف شود؟ (فاکتورهای قبلی‌اش دست نمی‌خورند)")) return; await api(`/api/invoice-templates/${b.dataset.rm}`, { method: "DELETE" }); reopen(); }));
+  $("#tp-new").onclick = async () => { const t = await api("/api/invoice-templates", { method: "POST", body: { copy_from: d.default, name: "روزنامه‌ی جدید" } }); editInvTemplate(t); };
+  $("#tp-close").onclick = () => { $("#dlg").close(); refresh(); };
+  if (!$("#dlg").open) $("#dlg").showModal();
+}
+
+async function editInvTemplate(t) {
+  await loadRefs();
+  $("#dlg-body").innerHTML = `<h3>✏️ قالب «${esc(t.name)}»</h3>
+    <div class="form-grid">
+      <label>نام قالب (برای انتخاب)<input data-tp="name" value="${esc(t.name || "")}" placeholder="مثلاً عصر رسانه"></label>
+      <label>رسانه / کارفرما در بخش مالی<select data-tp="outlet_id"><option value=""></option>${REFS.outlets.map((o) => `<option value="${o.id}" ${o.id === t.outlet_id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label>
+      ${profileFormHTML(t, "tp")}
+    </div>
+    <div class="modal-actions"><button class="btn primary" id="tp-save">ذخیره</button><button class="btn" id="tp-back">← قالب‌ها</button></div>`;
+  const collect = () => Object.fromEntries($$("[data-tp]").map((el) => [el.dataset.tp, el.value]));
+  const put = (extra = {}) => api(`/api/invoice-templates/${t.id}`, { method: "PUT", body: { ...collect(), ...extra } });
+  $("[data-tp-logo]").onchange = async (ev) => {
     const r = await uploadOne("/api/media", ev.target.files[0], {}, () => {});
-    if (r.ok) { await api("/api/invoice-profile", { method: "PUT", body: { ...collect(), logo_media_id: r.data.added[0].id } }); toast("لوگو ذخیره شد"); $("#dlg").close(); editInvoiceProfile(); }
+    if (r.ok) { editInvTemplate(await put({ logo_media_id: r.data.added[0].id })); toast("لوگو ذخیره شد"); }
   };
-  if ($("[data-pf-nologo]")) $("[data-pf-nologo]").onclick = async () => { await api("/api/invoice-profile", { method: "PUT", body: { ...collect(), logo_media_id: null } }); $("#dlg").close(); editInvoiceProfile(); };
-  $("#pf-save").onclick = async () => { await api("/api/invoice-profile", { method: "PUT", body: collect() }); $("#dlg").close(); toast("ذخیره شد ✔"); refresh(); };
-  $("#pf-close").onclick = () => $("#dlg").close();
-  $("#dlg").showModal();
+  if ($("[data-tp-nologo]")) $("[data-tp-nologo]").onclick = async () => editInvTemplate(await put({ logo_media_id: null }));
+  $("#tp-save").onclick = async () => { await put(); toast("قالب ذخیره شد ✔"); invTemplatesDialog(); };
+  $("#tp-back").onclick = () => invTemplatesDialog();
+  if (!$("#dlg").open) $("#dlg").showModal();
 }
 
 async function renderInvoiceEditor(view, id) {
-  const [inv] = await Promise.all([api(`/api/invoices/${id}`), loadRefs()]);
+  const [inv, tpls] = await Promise.all([api(`/api/invoices/${id}`), api("/api/invoice-templates"), loadRefs()]);
+  INV.tpls = tpls;
   await loadInvLogo(inv.profile);
   const st = inv;
   view.innerHTML = `
@@ -377,6 +436,7 @@ async function renderInvoiceEditor(view, id) {
           <label>تلفن<input data-f="customer_phone" value="${esc(inv.customer_phone || "")}" class="ltr"></label>
           <label>شناسه / کد ملی / اقتصادی<input data-f="customer_code" value="${esc(inv.customer_code || "")}"></label>
           <label class="wide">نشانی<input data-f="customer_address" value="${esc(inv.customer_address || "")}"></label>
+          <label>قالب (روزنامه)<select id="inv-tpl">${INV.tpls.items.map((t) => `<option value="${t.id}" ${t.id === (inv.template_id || INV.tpls.default) ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
           <label>رسانه / کارفرما (برای گزارش مالی)<select data-f="outlet_id"><option value=""></option>${REFS.outlets.map((o) => `<option value="${o.id}" ${o.id === inv.outlet_id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label>
           <label>وضعیت<select id="inv-status">${Object.entries({ draft: "پیش‌نویس", issued: "صادرشده", partial: "پرداخت ناقص", paid: "پرداخت‌شده", cancelled: "باطل‌شده" }).map(([k, l]) => `<option value="${k}" ${k === inv.status ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         </div></div>
@@ -391,7 +451,7 @@ async function renderInvoiceEditor(view, id) {
         </div>
         <details class="card"><summary><b>سربرگ و اطلاعات پرداخت همین فاکتور</b></summary>
           <div class="form-grid" style="margin-top:10px">${profileFormHTML(inv.profile, "pr")}</div>
-          <button class="btn sm" id="inv-asdefault" style="margin-top:8px">⭐ ذخیره به‌عنوان پیش‌فرض فاکتورهای بعدی</button>
+          <button class="btn sm" id="inv-asdefault" style="margin-top:8px">⭐ ذخیره‌ی این تغییرات در قالب «${esc(INV.tpls.items.find((t) => t.id === (inv.template_id || INV.tpls.default))?.name || "")}»</button>
         </details>
       </div>
       <div class="teaser-preview">
@@ -502,7 +562,13 @@ async function renderInvoiceEditor(view, id) {
     refresh();
   }));
   $("#inv-add").onclick = () => { items.push({ title: "", date: "", qty: 1, qty_label: "", unit_price: 0 }); drawItems(); };
-  $("#inv-asdefault").onclick = async () => { await api("/api/invoice-profile", { method: "PUT", body: profile }); toast("پیش‌فرض ذخیره شد ⭐"); };
+  $("#inv-asdefault").onclick = async () => { await api(`/api/invoice-templates/${inv.template_id || INV.tpls.default}`, { method: "PUT", body: profile }); toast("در قالب ذخیره شد ⭐"); };
+  $("#inv-tpl").onchange = async (ev) => {
+    if (!confirm("سربرگ و اطلاعات پرداخت این فاکتور با قالب انتخاب‌شده عوض شود؟")) { ev.target.value = inv.template_id || INV.tpls.default; return; }
+    clearTimeout(INV.saveT);
+    await api(`/api/invoices/${id}`, { method: "PATCH", body: { template_id: Number(ev.target.value) } });
+    refresh();
+  };
   const fname = () => `invoice-${(st.number || id)}`.replace(/[^\w\-]+/g, "-");
   $("#inv-pdf").onclick = async () => { await document.fonts?.ready; draw(); downloadBlob(canvasToPdf($("#inv-canvas")), `${fname()}.pdf`); };
   $("#inv-png").onclick = () => $("#inv-canvas").toBlob((b) => downloadBlob(b, `${fname()}.png`), "image/png");

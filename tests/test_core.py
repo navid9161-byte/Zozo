@@ -252,3 +252,27 @@ def test_invoice_payments_and_dashboard():
         assert d["recent_payments"][0]["number"] == v["number"]
         assert len(d["trend"]) == 6 and len(d["aging"]) == 4
         assert services.finance_dashboard(conn, "year")["months"] >= 1
+
+
+def test_invoice_templates():
+    from zozo import invoices
+
+    first = invoices.list_templates()
+    assert len(first["items"]) >= 1
+    with db.connect() as conn:
+        outlet = db.create(conn, "outlets", {"name": "روزنامه کرمان"})
+    t2 = invoices.save_template({"name": "روزنامه کرمان", "media_name": "کرمان", "payee": "فرسنگی", "outlet_id": outlet["id"]})
+    assert t2["id"] != first["default"] and t2["media_name"] == "کرمان"
+    a = invoices.create({"template_id": t2["id"], "customer": "الف"})
+    b = invoices.create({"template_id": t2["id"], "customer": "ب"})
+    assert a["number"].endswith("-0001") and b["number"].endswith("-0002")  # شماره‌گذاری جدا
+    assert a["profile"]["media_name"] == "کرمان" and a["outlet_id"] == outlet["id"] and a["template_id"] == t2["id"]
+    c = invoices.create({"customer": "پ"})  # قالب پیش‌فرض
+    assert c["profile"]["media_name"] != "کرمان"
+    moved = invoices.update(c["id"], {"template_id": t2["id"]})
+    assert moved["profile"]["media_name"] == "کرمان"
+    invoices.set_default_template(t2["id"])
+    assert invoices.get_profile()["media_name"] == "کرمان"
+    invoices.set_default_template(first["default"])
+    invoices.delete_template(t2["id"])
+    assert all(t["id"] != t2["id"] for t in invoices.list_templates()["items"])

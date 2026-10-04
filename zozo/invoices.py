@@ -35,6 +35,7 @@ DEFAULT_PROFILE: dict[str, Any] = {
     "contact": "",
     "color": "#4a72a8",
     "logo_media_id": None,
+    "show_date": "",
 }
 
 STATUS = {"draft": "پیش‌نویس", "issued": "صادرشده", "partial": "پرداخت ناقص", "paid": "پرداخت‌شده",
@@ -44,10 +45,92 @@ METHODS = {"card": "کارت به کارت", "sheba": "واریز به شبا / 
            "other": "سایر"}
 
 
+# ───── قالب‌ها: هر روزنامه/رسانه یک قالب جدا (سربرگ، اطلاعات پرداخت، شماره‌گذاری مستقل) ─────
+TEMPLATE_KEYS = ("name", "outlet_id")
+
+
+def _templates(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    raw = db.kv_get(conn, "invoice_templates")
+    if raw:
+        items = json.loads(raw)
+    else:  # مهاجرت از نسخه‌ی تک‌سربرگ
+        old = db.kv_get(conn, "invoice_profile")
+        prof = {**DEFAULT_PROFILE, **(json.loads(old) if old else {})}
+        items = [{"id": 1, "name": prof.get("media_name") or "قالب اصلی", "outlet_id": None, **prof}]
+        db.kv_set(conn, "invoice_templates", json.dumps(items, ensure_ascii=False))
+        db.kv_set(conn, "invoice_default_template", "1")
+    return [{**DEFAULT_PROFILE, **t} for t in items]
+
+
+def _save_templates(conn: sqlite3.Connection, items: list[dict[str, Any]]) -> None:
+    db.kv_set(conn, "invoice_templates", json.dumps(items, ensure_ascii=False))
+
+
+def _default_tid(conn: sqlite3.Connection, items: list[dict[str, Any]] | None = None) -> int:
+    items = items or _templates(conn)
+    tid = int(db.kv_get(conn, "invoice_default_template") or 0)
+    return tid if any(t["id"] == tid for t in items) else items[0]["id"]
+
+
+def _template(conn: sqlite3.Connection, tid: Any = None) -> dict[str, Any]:
+    items = _templates(conn)
+    tid = int(tid) if str(tid or "").strip() else _default_tid(conn, items)
+    t = next((t for t in items if t["id"] == tid), None)
+    if not t:
+        raise db.NotFound("قالب پیدا نشد")
+    return t
+
+
+def _profile_of(t: dict[str, Any]) -> dict[str, Any]:
+    return {k: t.get(k, v) for k, v in DEFAULT_PROFILE.items()}
+
+
+def list_templates() -> dict[str, Any]:
+    with db.connect() as conn:
+        items = _templates(conn)
+        return {"items": items, "default": _default_tid(conn, items)}
+
+
+def save_template(data: dict[str, Any], tid: int | None = None) -> dict[str, Any]:
+    with db.connect() as conn:
+        items = _templates(conn)
+        clean = {k: data[k] for k in (*DEFAULT_PROFILE, *TEMPLATE_KEYS) if k in data}
+        if "outlet_id" in clean:
+            clean["outlet_id"] = int(clean["outlet_id"]) if str(clean["outlet_id"] or "").strip() else None
+        if tid is None:
+            base = _template(conn, data.get("copy_from")) if data.get("copy_from") else DEFAULT_PROFILE
+            new = {**_profile_of(base), "outlet_id": None, **clean, "id": max(t["id"] for t in items) + 1}
+            new["name"] = (new.get("name") or new.get("media_name") or f"قالب {len(items) + 1}").strip()
+            items.append(new)
+            tid = new["id"]
+        else:
+            t = next((t for t in items if t["id"] == tid), None)
+            if not t:
+                raise db.NotFound("قالب پیدا نشد")
+            t.update(clean)
+            if not str(t.get("name") or "").strip():
+                t["name"] = t.get("media_name") or "قالب"
+        _save_templates(conn, items)
+        return next(t for t in _templates(conn) if t["id"] == tid)
+
+
+def delete_template(tid: int) -> None:
+    with db.connect() as conn:
+        items = _templates(conn)
+        if len(items) <= 1:
+            raise db.ValidationError("دست‌کم یک قالب باید بماند")
+        _save_templates(conn, [t for t in items if t["id"] != tid])
+
+
+def set_default_template(tid: int) -> None:
+    with db.connect() as conn:
+        _template(conn, tid)
+        db.kv_set(conn, "invoice_default_template", str(tid))
+
+
+# سازگاری با نسخه‌ی قبل: «سربرگ» = قالب پیش‌فرض
 def _profile(conn: sqlite3.Connection) -> dict[str, Any]:
-    raw = db.kv_get(conn, "invoice_profile")
-    value = json.loads(raw) if raw else {}
-    return {**DEFAULT_PROFILE, **{k: v for k, v in value.items() if k in DEFAULT_PROFILE}}
+    return _profile_of(_template(conn))
 
 
 def get_profile() -> dict[str, Any]:
@@ -56,10 +139,10 @@ def get_profile() -> dict[str, Any]:
 
 
 def save_profile(data: dict[str, Any]) -> dict[str, Any]:
-    clean = {k: data[k] for k in DEFAULT_PROFILE if k in data}
     with db.connect() as conn:
-        db.kv_set(conn, "invoice_profile", json.dumps({**_profile(conn), **clean}, ensure_ascii=False))
-        return _profile(conn)
+        tid = _default_tid(conn)
+    save_template({k: data[k] for k in DEFAULT_PROFILE if k in data}, tid)
+    return get_profile()
 
 
 def _items(raw: Any) -> list[dict[str, Any]]:
@@ -101,9 +184,15 @@ def _row(r: sqlite3.Row) -> dict[str, Any]:
     return d
 
 
-def next_number(conn: sqlite3.Connection) -> str:
+def _seq_key(tid: int, year: str) -> str:
+    return f"invoice_seq:{year}" if tid == 1 else f"invoice_seq:{tid}:{year}"
+
+
+def next_number(conn: sqlite3.Connection, tid: int | None = None) -> str:
+    """شماره‌ی بعدی؛ هر قالب (روزنامه) شماره‌گذاری جدای خودش را دارد."""
+    tid = tid or _default_tid(conn)
     year = db.today_str()[:4]
-    seq = int(db.kv_get(conn, f"invoice_seq:{year}") or 0) + 1
+    seq = int(db.kv_get(conn, _seq_key(tid, year)) or 0) + 1
     return f"{year}-{seq:04d}"
 
 
@@ -125,7 +214,7 @@ def get(inv_id: int) -> dict[str, Any]:
 
 
 FIELDS = ("number", "date", "customer", "customer_phone", "customer_address", "customer_code", "notes", "status",
-          "outlet_id")
+          "outlet_id", "template_id")
 
 
 def _clean(conn: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
@@ -141,6 +230,10 @@ def _clean(conn: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
             raise db.ValidationError(str(e)) from None
     if "status" in vals and vals["status"] not in STATUS:
         raise db.ValidationError("وضعیت نامعتبر است")
+    if vals.get("template_id"):
+        vals["template_id"] = _template(conn, vals["template_id"])["id"]
+        if "profile" not in data:  # قالب عوض شد: سربرگ و اطلاعات پرداخت از قالب تازه
+            vals["profile"] = json.dumps(_profile_of(_template(conn, vals["template_id"])), ensure_ascii=False)
     if "outlet_id" in vals and vals["outlet_id"]:
         vals["outlet_id"] = int(vals["outlet_id"])
         if not conn.execute("SELECT 1 FROM outlets WHERE id=?", (vals["outlet_id"],)).fetchone():
@@ -157,17 +250,22 @@ def _clean(conn: sqlite3.Connection, data: dict[str, Any]) -> dict[str, Any]:
 
 def create(data: dict[str, Any]) -> dict[str, Any]:
     with db.connect() as conn:
+        tpl = _template(conn, data.get("template_id"))
+        data = {**data, "template_id": tpl["id"]}
+        if "profile" not in data:
+            data["profile"] = _profile_of(tpl)
+        if tpl.get("outlet_id") and not data.get("outlet_id"):
+            data["outlet_id"] = tpl["outlet_id"]
         vals = _clean(conn, data)
         if not vals.get("number"):
-            vals["number"] = next_number(conn)
+            vals["number"] = next_number(conn, tpl["id"])
         year = vals["number"][:4]
-        if vals["number"] == next_number(conn):
-            db.kv_set(conn, f"invoice_seq:{year}", str(int(vals["number"].split("-")[-1])))
+        if vals["number"] == next_number(conn, tpl["id"]):
+            db.kv_set(conn, _seq_key(tpl["id"], year), str(int(vals["number"].split("-")[-1])))
         vals.setdefault("date", db.today_str())
         vals.setdefault("status", "draft")
         vals.setdefault("items", "[]")
         vals.setdefault("discount", 0)
-        vals.setdefault("profile", json.dumps(_profile(conn), ensure_ascii=False))
         vals["created_at"] = vals["updated_at"] = db.now_str()
         cols = ", ".join(vals)
         cur = conn.execute(f"INSERT INTO invoices ({cols}) VALUES ({', '.join('?' * len(vals))})", list(vals.values()))
@@ -294,7 +392,7 @@ def all_payments(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 def duplicate(inv_id: int) -> dict[str, Any]:
     src = get(inv_id)
-    return create({"customer": src["customer"], "customer_phone": src["customer_phone"],
+    return create({"template_id": src.get("template_id"), "customer": src["customer"], "customer_phone": src["customer_phone"],
                    "customer_address": src["customer_address"], "customer_code": src["customer_code"],
                    "items": src["items"], "discount": src["discount"], "notes": src["notes"],
                    "profile": src["profile"], "outlet_id": src.get("outlet_id")})

@@ -575,3 +575,8 @@ dialog.designer:not([open]) { display: none; }
 }
 .fd-hb .bar span { background: var(--c1); border-radius: 4px; }
 .fd-svg.nar .ax { font-size: 14px; }
+.tpl-pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 8px 0 14px; }
+.tpl-card { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: start; padding: 14px; border-radius: 12px;
+  border: 1px solid var(--line); border-inline-start: 6px solid var(--tc); background: var(--card); color: var(--text); cursor: pointer; font: inherit; }
+.tpl-card:hover { background: var(--bg); }
+.tpl-card small { color: var(--muted); }
