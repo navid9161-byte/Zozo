@@ -416,9 +416,9 @@ def list_documents(category: str | None = None, story_id: int | None = None, tag
     if story_id:
         where.append("d.story_id = ?")
         params.append(story_id)
-    if tag:
-        where.append("d.tags LIKE ?")
-        params.append(f"%{tag}%")
+    if tag:  # برچسب دقیق (نه بخشی از برچسب دیگر)
+        where.append("(',' || replace(COALESCE(d.tags,''), '، ', ',') || ',') LIKE ?")
+        params.append(f"%,{tag},%")
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY d.id DESC"

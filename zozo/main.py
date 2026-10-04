@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe
+from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices
 from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -514,6 +514,79 @@ def teasers_thumb(tid: int):
 @app.get("/api/teasers/{tid}/srt")
 def teasers_srt(tid: int):
     return PlainTextResponse(teaser.teaser_srt(tid), headers={"Content-Disposition": f'attachment; filename="teaser-{tid}.srt"'})
+
+
+# ───────────────────────── اسناد ثبتی: تمدید ─────────────────────────
+
+
+@app.post("/api/legal_docs/{doc_id}/renew")
+def legal_renew(doc_id: int, data: dict[str, Any]):
+    with db.connect() as conn:
+        d = db.get(conn, "legal_docs", doc_id)
+        if data.get("new_expiry"):
+            try:
+                new = jalali.normalize(enum_digits(data["new_expiry"]))
+            except ValueError as e:
+                raise db.ValidationError(str(e)) from None
+        else:
+            months = db.to_int(data.get("months") or d["renew_months"] or 12, "ماه")
+            new = jalali.add_months(d["expiry_date"] or db.today_str(), months)
+        log_line = f"{db.today_str()}: تمدید از {d['expiry_date'] or '—'} تا {new}"
+        db.set_system(conn, "legal_docs", doc_id, last_reminded=None,
+                      renew_log="\n".join(x for x in (d.get("renew_log"), log_line) if x))
+        rec = db.update(conn, "legal_docs", doc_id, {"expiry_date": new, "status": "active"})
+        if data.get("expense") and (amount := db.to_int(data.get("amount") or d["amount"] or 0, "مبلغ")):
+            db.create(conn, "transactions", {"tx_date": db.today_str(), "kind": "expense", "amount": amount,
+                                             "category": "تمدید اسناد", "description": f"تمدید: {d['title']}"})
+        return rec
+
+
+def enum_digits(s: str) -> str:
+    return str(s).translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
+
+
+# ───────────────────────── صورتحساب ─────────────────────────
+
+
+@app.get("/api/invoices")
+def invoices_list():
+    return {"items": invoices.list_all(), "profile": invoices.get_profile(), "status": invoices.STATUS}
+
+
+@app.get("/api/invoice-profile")
+def invoice_profile_get():
+    return invoices.get_profile()
+
+
+@app.put("/api/invoice-profile")
+def invoice_profile_put(data: dict[str, Any]):
+    return invoices.save_profile(data)
+
+
+@app.post("/api/invoices", status_code=201)
+def invoices_create(data: dict[str, Any]):
+    return invoices.create(data)
+
+
+@app.get("/api/invoices/{inv_id}")
+def invoices_get(inv_id: int):
+    return invoices.get(inv_id)
+
+
+@app.patch("/api/invoices/{inv_id}")
+def invoices_update(inv_id: int, data: dict[str, Any]):
+    return invoices.update(inv_id, data)
+
+
+@app.post("/api/invoices/{inv_id}/duplicate", status_code=201)
+def invoices_duplicate(inv_id: int):
+    return invoices.duplicate(inv_id)
+
+
+@app.delete("/api/invoices/{inv_id}")
+def invoices_delete(inv_id: int):
+    invoices.delete(inv_id)
+    return {"ok": True}
 
 
 # ───────────────────────── تبدیل صوت به متن ─────────────────────────

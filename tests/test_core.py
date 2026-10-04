@@ -190,3 +190,34 @@ def test_ocr_noise_filter():
     assert not textnorm.is_noise_line("کلنگ‌زنی ایستگاه شماره ۱۴")
     assert not textnorm.is_noise_line("کرمان راوی")
     assert textnorm.drop_noise("۳0515 بح\nمتن درست خبر\n۱ 123") == "متن درست خبر"
+
+
+def test_legal_docs_reminders_and_renew():
+    with db.connect() as conn:
+        d = db.create(conn, "legal_docs", {"title": "پروانه‌ی انتشار", "expiry_date": "1405/07/20", "remind_days": 15,
+                                           "remind_every": "weekly", "renew_months": 12, "owner_name": "مریم",
+                                           "owner_phone": "09120000000"})
+        assert scheduler.check_legal_docs(conn, "1405/07/01") == 0      # هنوز زود است
+        assert scheduler.check_legal_docs(conn, "1405/07/06") == 1      # ۱۴ روز مانده
+        assert scheduler.check_legal_docs(conn, "1405/07/07") == 0      # همان هفته، تکراری نه
+        assert scheduler.check_legal_docs(conn, "1405/07/20") == 1      # روز سررسید
+        assert scheduler.check_legal_docs(conn, "1405/07/21") == 1      # منقضی
+        assert db.get(conn, "legal_docs", d["id"])["status"] == "expired"
+        body = conn.execute("SELECT body FROM notifications WHERE kind='legal' ORDER BY id DESC").fetchone()[0]
+        assert "مریم" in body and "09120000000" in body
+
+
+def test_invoice_flow():
+    from zozo import invoices
+
+    invoices.save_profile({"media_name": "عصر رسانه", "payee": "مهدیه", "sheba": "IR123"})
+    inv = invoices.create({"customer": "دهیاری علی‌آباد", "items": [
+        {"title": "آگهی نوبت اول", "date": "۱۴۰۵/۰۶/۱۱", "qty": 2, "qty_label": "۲ کادر داخلی", "unit_price": "15,000,000"},
+        {"title": "آگهی نوبت دوم", "qty": 2, "unit_price": 15000000}], "discount": "10,000,000"})
+    assert inv["subtotal"] == 60000000 and inv["payable"] == 50000000
+    assert inv["profile"]["payee"] == "مهدیه" and inv["number"].endswith("-0001")
+    assert invoices.create({})["number"].endswith("-0002")
+    invoices.update(inv["id"], {"status": "paid"})
+    with db.connect() as conn:
+        tx = db.list_records(conn, "transactions", filters={"category": "صورتحساب"})
+    assert tx and tx[0]["amount"] == 50000000

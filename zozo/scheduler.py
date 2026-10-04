@@ -69,6 +69,43 @@ def check_stories(conn: sqlite3.Connection, now: str) -> int:
     return n
 
 
+def check_legal_docs(conn: sqlite3.Connection, today: str) -> int:
+    """یادآوری سررسید اسناد: از «چند روز قبل» تا روز سررسید، با تکرار روزانه/هفتگی؛ پس از سررسید ← منقضی."""
+    n = 0
+    rows = conn.execute("SELECT * FROM legal_docs WHERE status='active' AND expiry_date IS NOT NULL").fetchall()
+    for r in rows:
+        days = jalali.days_between(today, r["expiry_date"])
+        if days < 0:
+            conn.execute("UPDATE legal_docs SET status='expired' WHERE id=?", (r["id"],))
+            title, slot = f"⛔ سند «{r['title']}» منقضی شد", "expired"
+        elif days <= (r["remind_days"] if r["remind_days"] is not None else 15):
+            every = r["remind_every"] or "weekly"
+            last = r["last_reminded"]
+            if every == "once":
+                slot = "first"
+            else:
+                slot = today
+                if every == "weekly" and days > 0 and last and 0 <= jalali.days_between(last, today) < 7:
+                    continue
+            title = (f"📜 امروز سررسید «{r['title']}» است" if days == 0
+                     else f"📜 {days} روز تا سررسید «{r['title']}»")
+            if days == 0:
+                slot = "due"
+        else:
+            continue
+        body = "\n".join(x for x in (
+            f"تاریخ سررسید: {r['expiry_date']}",
+            r["owner_name"] and f"صاحب سند: {r['owner_name']}",
+            r["owner_phone"] and f"تلفن: {r['owner_phone']}",
+            r["number"] and f"شماره: {r['number']}",
+        ) if x)
+        if notify.add(conn, "legal", title, body, link=f"#legal_docs?id={r['id']}",
+                      dedup=f"legal:{r['id']}:{r['expiry_date']}:{slot}"):
+            conn.execute("UPDATE legal_docs SET last_reminded=? WHERE id=?", (today, r["id"]))
+            n += 1
+    return n
+
+
 def check_daily(conn: sqlite3.Connection, now_dt: dt.datetime) -> None:
     today = db.today_str()
     minutes = now_dt.hour * 60 + now_dt.minute
@@ -87,6 +124,7 @@ def check_daily(conn: sqlite3.Connection, now_dt: dt.datetime) -> None:
             notify.add(conn, "salary", f"💵 امروز روز واریز حقوق {o['name']} است",
                        "پس از واریز، از بخش «مالی» دریافتی را ثبت کنید.", link="#finance",
                        dedup=f"salary:{o['id']}:{month}")
+        check_legal_docs(conn, today)
         # پایان قراردادها تا سه روز دیگر
         soon = jalali.add_days(today, 3)
         for c in conn.execute("SELECT id, title, end_date FROM contracts WHERE status='active' AND end_date BETWEEN ? AND ?",

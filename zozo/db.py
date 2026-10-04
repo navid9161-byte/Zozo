@@ -282,6 +282,52 @@ ENTITIES: dict[str, Entity] = {
             ),
         ),
         Entity(
+            name="legal_docs",
+            label="سند / سررسید",
+            label_plural="اسناد ثبتی و سررسیدها",
+            icon="📜",
+            title_field="title",
+            date_field="expiry_date",
+            closed_statuses=("archived",),
+            order_by="CASE status WHEN 'active' THEN 0 WHEN 'expired' THEN 1 ELSE 2 END, "
+                     "CASE WHEN expiry_date IS NULL THEN 1 ELSE 0 END, expiry_date, id DESC",
+            search_fields=("title", "number", "owner_name", "owner_phone", "owner_national_id", "owner_address",
+                           "issuer", "notes"),
+            fields=(
+                Field("title", "عنوان سند", required=True, help="مثلاً پروانه‌ی انتشار، قرارداد اجاره، بیمه‌ی خودرو"),
+                Field("doc_type", "نوع", "choice", default="license", choices={
+                    "license": "پروانه / مجوز", "contract": "قرارداد", "deed": "سند ملکی / ثبتی", "insurance": "بیمه",
+                    "id_card": "کارت / مدرک شناسایی", "check": "چک / سفته", "tax": "مالیات / عوارض",
+                    "membership": "عضویت / کارت خبرنگاری", "other": "سایر",
+                }),
+                Field("number", "شماره سند / پلاک ثبتی"),
+                Field("issuer", "صادرکننده / مرجع"),
+                Field("issue_date", "تاریخ صدور", "date"),
+                Field("expiry_date", "تاریخ سررسید / انقضا", "date"),
+                Field("remind_days", "چند روز قبل یادآوری شود", "int", default=15),
+                Field("remind_every", "تکرار یادآوری تا رسیدگی", "choice", default="weekly", choices={
+                    "once": "فقط یک بار", "daily": "هر روز", "weekly": "هر هفته",
+                }),
+                Field("renew_months", "دوره‌ی تمدید (ماه)", "int", help="مثلاً ۱۲ برای سالانه؛ خالی = تمدیدی ندارد"),
+                Field("amount", "مبلغ (اجاره، حق بیمه، …)", "money"),
+                Field("status", "وضعیت", "choice", default="active", choices={
+                    "active": "فعال", "expired": "منقضی‌شده", "archived": "بایگانی‌شده",
+                }),
+                Field("owner_name", "نام صاحب سند"),
+                Field("owner_national_id", "کد ملی / شناسه", list_hidden=True),
+                Field("owner_phone", "تلفن همراه صاحب سند", "phone", list_hidden=True),
+                Field("owner_phone2", "تلفن ثابت", "phone", list_hidden=True),
+                Field("owner_email", "ایمیل", list_hidden=True),
+                Field("owner_address", "نشانی", "longtext", list_hidden=True),
+                Field("owner_postal_code", "کد پستی", list_hidden=True),
+                Field("owner_extra", "سایر اطلاعات صاحب سند", "longtext", list_hidden=True,
+                      help="نام پدر، شماره شناسنامه، وکیل، …"),
+                Field("notes", "یادداشت", "longtext"),
+                Field("last_reminded", "آخرین یادآوری", system=True),
+                Field("renew_log", "سابقه‌ی تمدید", "longtext", system=True),
+            ),
+        ),
+        Entity(
             name="feeds",
             label="منبع رصد",
             label_plural="منابع رصد خبر (RSS)",
@@ -419,6 +465,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_feed_items_pub ON feed_items(published DESC);
         CREATE VIRTUAL TABLE IF NOT EXISTS feed_fts USING fts5(
             norm, item_id UNINDEXED, tokenize='unicode61 remove_diacritics 0');
+
+        -- صورتحساب‌ها
+        CREATE TABLE IF NOT EXISTS invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            number TEXT, date TEXT, customer TEXT, customer_phone TEXT, customer_address TEXT, customer_code TEXT,
+            items TEXT, discount INTEGER DEFAULT 0, profile TEXT, notes TEXT, status TEXT DEFAULT 'draft',
+            paid_date TEXT, outlet_id INTEGER REFERENCES outlets(id) ON DELETE SET NULL,
+            created_at TEXT, updated_at TEXT
+        );
 
         -- تبدیل صوت به متن
         CREATE TABLE IF NOT EXISTS transcripts (

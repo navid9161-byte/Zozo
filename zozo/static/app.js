@@ -103,6 +103,8 @@ const NAV_MORE = [
   ["reminders", "⏰", "یادآوری‌ها", "یک‌باره یا تکرارشونده"],
   ["news", "📡", "رصد خبر", "خبرهای خبرگزاری‌ها و کلیدواژه‌ها"],
   ["finance", "💰", "مالی", "درآمد، هزینه و طلب‌ها"],
+  ["invoices", "🧾", "صورتحساب", "صدور فاکتور و خروجی PDF"],
+  ["legal_docs", "📜", "اسناد و سررسیدها", "یادآوری انقضا و تمدید اسناد"],
   ["contacts", "👥", "منابع و مخاطبین", "دفترچه‌ی تلفن خبری"],
   ["notes", "🗒️", "یادداشت‌ها", "ایده‌ها و پیش‌نویس‌ها"],
   ["tools", "✍️", "ابزار نوشتن", "اصلاح متن، خلاصه، شمارش کلمات"],
@@ -249,6 +251,18 @@ function itemHTML(e, r) {
       if (r.active === "no") { cls = "done"; m.push(`<span class="badge gray">غیرفعال</span>`); }
       snippet = r.url;
       break;
+    case "legal_docs": {
+      const closed = r.status !== "active";
+      cls = r.status === "archived" ? "done" : "";
+      m.push(esc(choiceLabel(e, "doc_type", r.doc_type)));
+      if (r.status !== "active") m.push(`<span class="badge ${r.status === "expired" ? "red" : "gray"}">${esc(choiceLabel(e, "status", r.status))}</span>`);
+      if (r.expiry_date) m.push(deadlineBadge(r.expiry_date, null, closed).replace("⏳", "📅"));
+      if (r.owner_name) m.push(`👤 ${esc(r.owner_name)}`);
+      if (r.owner_phone) m.push(`<a href="tel:${esc(enDigits(r.owner_phone))}" onclick="event.stopPropagation()">📞 ${fa(esc(r.owner_phone))}</a>`);
+      if (r.number) m.push(`شماره ${fa(esc(r.number))}`);
+      if (r.renew_months) m.push(`🔁 هر ${num(r.renew_months)} ماه`);
+      break;
+    }
     case "keywords":
       m.push(r.notify === "yes" ? "🔔 اعلان می‌دهد" : "🔕 بدون اعلان");
       break;
@@ -297,6 +311,7 @@ document.addEventListener("click", async (ev) => {
 });
 
 const ENTITY_FILTERS = {
+  legal_docs: ["status", "doc_type"],
   stories: ["status", "outlet_id", "kind"],
   reminders: ["status"],
   notes: ["kind"],
@@ -452,6 +467,19 @@ const FORM_EXTRAS = {
     await api(`/api/contracts/${rec.id}`, { method: "PATCH", body: { paid_amount: (rec.paid_amount || 0) + n } });
     $("#modal").close(); toast("✔ دریافتی ثبت شد"); refresh();
   }]] : [],
+  legal_docs: (rec) => rec ? [
+    ["🔁 تمدید", async () => {
+      const months = prompt("چند ماه تمدید شود؟ (یا تاریخ جدید سررسید مثل ۱۴۰۶/۰۷/۱۲)", rec.renew_months || 12);
+      if (!months) return;
+      const isDate = /\d{4}[/-]\d{1,2}[/-]\d{1,2}/.test(enDigits(months));
+      const expense = rec.amount ? confirm(`هزینه‌ی تمدید (${moneyShort(rec.amount)}) در بخش مالی ثبت شود؟`) : false;
+      await api(`/api/legal_docs/${rec.id}/renew`, { method: "POST", body: isDate ? { new_expiry: enDigits(months), expense } : { months: enDigits(months), expense } });
+      $("#modal").close(); toast("✔ تمدید شد"); refresh();
+    }],
+    ["📎 پیوست‌ها", () => { $("#modal").close(); location.hash = `#archive?tag=${encodeURIComponent("سند:" + rec.id)}`; }],
+    ...(rec.owner_phone ? [["📞 تماس با صاحب سند", () => (location.href = `tel:${enDigits(rec.owner_phone)}`)]] : []),
+    ...(rec.renew_log ? [["🕘 سابقه‌ی تمدید", () => alert(rec.renew_log)]] : []),
+  ] : [],
   contacts: (rec) => rec ? [["📞 امروز تماس گرفتم", async () => {
     await api(`/api/contacts/${rec.id}`, { method: "PATCH", body: { last_contact: META.today } });
     $("#modal").close(); toast("ثبت شد"); refresh();
@@ -735,6 +763,7 @@ VIEWS.finance = async (view, params) => {
       <div class="btn-row"><a class="btn" href="#finance?m=${f.prev_month}">→</a><b>${esc(f.month_label)}</b><a class="btn" href="#finance?m=${f.next_month}">←</a></div></div>
     <div class="quick-actions">
       <button id="f-inc">➕ ثبت دریافتی</button><button id="f-exp">➖ ثبت هزینه</button>
+      <button data-go="#invoices">🧾 صورتحساب</button><button data-go="#legal_docs">📜 اسناد و سررسیدها</button>
       <button data-go="#transactions">💳 همه‌ی تراکنش‌ها</button><button data-go="#contracts">📑 قراردادها</button><button data-go="#outlets">🏢 رسانه‌ها</button>
       <button id="f-csv">⬇️ خروجی اکسل این ماه</button>
     </div>
@@ -756,6 +785,8 @@ VIEWS.finance = async (view, params) => {
       <div class="card"><h3>📰 کارکرد ${esc(f.month_label)}</h3>
         ${f.work.length ? f.work.map((w) => `<div class="row"><span>${esc(w.outlet)}</span><span>${num(w.n)} کار ${w.fees ? `· ${moneyWords(w.fees)}` : ""}</span></div>`).join("") : `<div class="empty">در این ماه کاری منتشر یا تحویل نشده.</div>`}
       </div>
+      ${f.legal_due.length ? `<div class="card"><h3>📜 سررسید اسناد (۶۰ روز آینده) <a class="small" href="#legal_docs">همه</a></h3>${f.legal_due.map((r) => `<div class="row" data-go="#legal_docs?id=${r.id}"><span>${esc(r.title)}${r.owner_name ? ` <small class="muted">(${esc(r.owner_name)})</small>` : ""}</span>${deadlineBadge(r.expiry_date, null, r.status !== "active")}</div>`).join("")}</div>` : ""}
+      ${f.invoices_open.length ? `<div class="card"><h3>🧾 صورتحساب‌های پرداخت‌نشده</h3>${f.invoices_open.map((r) => `<div class="row" data-go="#invoices?id=${r.id}"><span>${esc(r.customer || "")}</span><small class="muted">${fa(r.number)}</small></div>`).join("")}</div>` : ""}
       <div class="card"><h3>🏢 درآمد به تفکیک رسانه <small>۱۲ ماه</small></h3>${hbars(f.by_outlet)}</div>
       <div class="card"><h3>📥 منابع درآمد این ماه</h3>${hbars(f.income_categories)}</div>
       <div class="card"><h3>📤 هزینه‌های این ماه</h3>${hbars(f.expense_categories, "exp")}</div>
@@ -795,7 +826,9 @@ function markTerms(text, terms) {
 
 VIEWS.archive = async (view, params) => {
   const storyId = params.get("story") || "";
+  const tagFilter = params.get("tag") || "";
   const qs = new URLSearchParams();
+  if (tagFilter) qs.set("tag", tagFilter);
   if (archive.cat) qs.set("category", archive.cat);
   if (storyId) qs.set("story_id", storyId);
   const [data] = await Promise.all([api(`/api/documents?${qs}`), loadRefs()]);
@@ -826,7 +859,7 @@ VIEWS.archive = async (view, params) => {
   };
   view.innerHTML = `
     <div class="page-title"><h2>🗄️ بایگانی اسناد ${story ? `<small class="muted">— ${esc(story.title)}</small>` : ""}</h2>
-      ${storyId ? `<a class="btn sm" href="#archive">همه‌ی اسناد</a>` : ""}</div>
+      ${storyId || tagFilter ? `<a class="btn sm" href="#archive">همه‌ی اسناد</a>` : ""}</div>
     <form class="search-big" id="a-search"><input type="search" name="q" placeholder="جستجو در متن همه‌ی اسناد…" value="${esc(archive.q)}"><button class="btn primary">جستجو</button></form>
     <div class="chips"><button class="chip ${!archive.cat ? "active" : ""}" data-cat="">همه</button>${Object.entries(cats).map(([k, l]) => `<button class="chip ${archive.cat === k ? "active" : ""}" data-cat="${k}">${esc(l)}</button>`).join("")}</div>
     <div id="a-results"></div>
@@ -834,7 +867,7 @@ VIEWS.archive = async (view, params) => {
       <div class="form-grid" style="margin-top:10px">
         <label>دسته<select id="u-cat"><option value="">خودکار</option>${Object.entries(cats).map(([k, l]) => `<option value="${k}" ${archive.cat === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
         <label>مربوط به سوژه<select id="u-story"><option value=""></option>${REFS.stories.map((s) => `<option value="${s.id}" ${String(s.id) === storyId ? "selected" : ""}>${esc(s.title)}</option>`).join("")}</select></label>
-        <label>برچسب‌ها<input id="u-tags" placeholder="با ویرگول جدا کنید"></label>
+        <label>برچسب‌ها<input id="u-tags" placeholder="با ویرگول جدا کنید" value="${esc(tagFilter)}"></label>
         <label>تاریخ سند<div class="date-wrap"><input id="u-date" placeholder="${fa(META.today)}"><button type="button" id="u-dp">📅</button></div></label>
         <label class="wide">توضیح<textarea id="u-notes" rows="2" placeholder="مثلاً: متن کامل مصاحبه با مدیرکل…"></textarea></label>
       </div>

@@ -127,6 +127,12 @@ def finance_summary(conn: sqlite3.Connection, month: str | None = None) -> dict[
         "avg_income": round(year_income / 12), "by_outlet": by_outlet,
         "expense_categories": exp_cat, "income_categories": inc_cat,
         "salaries": salaries, "work": work, "receivables": receivables(conn),
+        "legal_due": [dict(r) for r in conn.execute(
+            "SELECT id, title, expiry_date, owner_name, amount, status FROM legal_docs WHERE status != 'archived' "
+            "AND expiry_date IS NOT NULL AND expiry_date <= ? ORDER BY expiry_date LIMIT 10",
+            (jalali.add_days(today, 60),))],
+        "invoices_open": [dict(r) for r in conn.execute(
+            "SELECT id, number, customer, status FROM invoices WHERE status = 'issued' ORDER BY id DESC LIMIT 10")],
         "prev_month": jalali.prev_months(month, 2)[0], "next_month": jalali.month_key(jalali.add_months(m_from, 1)),
     }
 
@@ -169,6 +175,10 @@ def calendar(conn: sqlite3.Connection, month: str) -> dict[str, Any]:
     for r in conn.execute("SELECT id, title, end_date FROM contracts WHERE end_date BETWEEN ? AND ?", (a, b)):
         events.append({"date": r["end_date"], "kind": "contract", "entity": "contracts", "id": r["id"],
                        "title": f"پایان قرارداد: {r['title']}"})
+    for r in conn.execute("SELECT id, title, expiry_date, status FROM legal_docs WHERE expiry_date BETWEEN ? AND ? "
+                          "AND status != 'archived'", (a, b)):
+        events.append({"date": r["expiry_date"], "kind": "contract", "entity": "legal_docs", "id": r["id"],
+                       "title": f"سررسید: {r['title']}", "done": r["status"] == "expired"})
     days = int(b[-2:])
     for r in conn.execute("SELECT id, name, pay_day FROM outlets WHERE active='yes' AND monthly_salary > 0 AND pay_day > 0"):
         d = min(int(r["pay_day"]), days)
