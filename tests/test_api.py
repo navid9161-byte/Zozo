@@ -150,3 +150,23 @@ def test_ocr_image_persian(client):
     documents.worker.run_pending()
     text = client.get(f"/api/documents/{doc_id}/pages").json()["pages"][0]["raw"]
     assert "Kerman" in text
+
+
+def test_story_suggestion(client, monkeypatch):
+    from zozo import suggest
+
+    login(client)
+    png = _png(800, 600, (40, 90, 160, 255))
+    monkeypatch.setattr(suggest, "fetch_page", lambda url: {
+        "lead": "شورای شهر کرمان امروز بودجه‌ی عمرانی سال آینده را تصویب کرد. این بودجه شامل پروژه‌های حمل‌ونقل عمومی است.",
+        "paragraphs": ["رئیس شورا گفت با این بودجه سه خط اتوبوس تندرو در شهر کرمان راه‌اندازی می‌شود و ناوگان نوسازی خواهد شد."],
+        "image": png, "image_url": "https://ex.ir/a.png"})
+    s = client.post("/api/stories", json={"title": "تصویب بودجه‌ی عمرانی شهر", "source_url": "https://ex.ir/n/1"}).json()
+    r = client.post(f"/api/stories/{s['id']}/suggest").json()
+    assert r["post"]["title"] == "تصویب بودجه‌ی عمرانی شهر"
+    assert "بودجه" in r["post"]["body"]
+    assert r["reel"]["captions"] and r["source_fetched"]
+    if shutil.which("ffmpeg"):
+        assert r["media_id"]
+        # بار دوم عکس از کش می‌آید
+        assert client.post(f"/api/stories/{s['id']}/suggest").json()["media_id"] == r["media_id"]

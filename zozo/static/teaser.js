@@ -711,6 +711,10 @@ VIEWS.teaser = async (view, params) => {
   if ($("#tz-logo-x")) $("#tz-logo-x").onclick = () => { s.logoId = null; saveDraft(); refresh(); };
   $("#tz-render").onclick = renderTeaser;
 
+  if (params.get("auto")) {
+    history.replaceState(null, "", "#teaser");
+    setTimeout(() => renderTeaser(), 400);
+  }
   drawClips();
   drawLib();
   drawTimes();

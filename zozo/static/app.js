@@ -448,6 +448,7 @@ function fieldHTML(e, f, values) {
 
 const FORM_EXTRAS = {
   stories: (rec) => rec ? [
+    ["✨ پیشنهاد پست و ریلز", () => { $("#modal").close(); openSuggestion(rec.id); }],
     ["⏰ یادآوری برای این سوژه", () => openForm("reminders", null, { story_id: rec.id, title: rec.title })],
     ["🎬 ساخت تیزر", () => { $("#modal").close(); location.hash = `#teaser?story=${rec.id}`; }],
     ["✍️ ویرایشگر متن", () => { $("#modal").close(); location.hash = `#tools?story=${rec.id}`; }],
@@ -1067,7 +1068,7 @@ VIEWS.news = async (view, params) => {
       <div class="body"><div class="title"><a href="${esc(n.link)}" target="_blank" rel="noopener" data-read="${n.id}">${markTerms(n.title, newsState.terms)}</a></div>
         <div class="meta"><span>${esc(n.feed_name || "")}</span><span>${relTime(n.published)}</span>${n.matched ? `<span class="badge primary">🔎 ${esc(n.matched)}</span>` : ""}</div>
         ${n.summary ? `<div class="snippet">${markTerms(n.summary, newsState.terms)}</div>` : ""}</div>
-      <div class="side"><button class="btn sm" data-tostory="${n.id}" title="ساخت سوژه از این خبر">+ سوژه</button></div>
+      <div class="side"><button class="btn sm" data-tostory="${n.id}" title="ساخت سوژه از این خبر">+ سوژه</button><button class="btn sm" data-suggest="${n.id}" title="سوژه + پست و ریلز آماده">✨ پست/ریلز</button></div>
     </div>`).join("") + (newsState.more ? `<button class="btn" id="news-more">بیشتر…</button>` : "") : `<div class="card empty center">خبری پیدا نشد.</div>`;
     if ($("#news-more")) $("#news-more").onclick = () => load(true);
   };
@@ -1112,6 +1113,13 @@ VIEWS.news = async (view, params) => {
     }
     const r = ev.target.closest("[data-read]");
     if (r) { api(`/api/news/${r.dataset.read}/flag`, { method: "POST", body: { is_read: 1 } }); r.closest(".item").classList.add("read"); return; }
+    const sgb = ev.target.closest("[data-suggest]");
+    if (sgb) {
+      const story = await api(`/api/news/${sgb.dataset.suggest}/story`, { method: "POST" });
+      invalidateRefs();
+      openSuggestion(story.id);
+      return;
+    }
     const st = ev.target.closest("[data-tostory]");
     if (st) {
       const story = await api(`/api/news/${st.dataset.tostory}/story`, { method: "POST" });

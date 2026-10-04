@@ -211,8 +211,7 @@ function drawPostFooter(ctx, band) {
   }
 }
 
-function drawPost() {
-  const cv = $("#ps-canvas");
+function drawPost(cv = $("#ps-canvas")) {
   if (!cv) return;
   cv.width = POST_W; cv.height = POST_H;
   const ctx = cv.getContext("2d");

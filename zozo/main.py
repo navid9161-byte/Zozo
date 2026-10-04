@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices
+from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest
 from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -514,6 +514,20 @@ def teasers_thumb(tid: int):
 @app.get("/api/teasers/{tid}/srt")
 def teasers_srt(tid: int):
     return PlainTextResponse(teaser.teaser_srt(tid), headers={"Content-Disposition": f'attachment; filename="teaser-{tid}.srt"'})
+
+
+@app.post("/api/stories/{story_id}/image")
+def stories_image(story_id: int, data: dict[str, Any]):
+    teaser.get_media(int(data["media_id"]))
+    with db.connect() as conn:
+        db.get(conn, "stories", story_id)
+        db.kv_set(conn, f"story_img:{story_id}", str(int(data["media_id"])))
+    return {"ok": True}
+
+
+@app.post("/api/stories/{story_id}/suggest")
+def stories_suggest(story_id: int):
+    return suggest.suggest(story_id)
 
 
 # ───────────────────────── اسناد ثبتی: تمدید ─────────────────────────
