@@ -76,8 +76,12 @@ def receivables(conn: sqlite3.Connection) -> dict[str, Any]:
         "SELECT c.id, c.title, c.amount, COALESCE(c.paid_amount,0) paid, c.amount - COALESCE(c.paid_amount,0) AS due, "
         "c.end_date, o.name AS outlet_name FROM contracts c LEFT JOIN outlets o ON o.id=c.outlet_id "
         "WHERE c.status != 'cancelled' AND c.amount > COALESCE(c.paid_amount,0) ORDER BY c.end_date")]
-    total = sum(s["due"] for s in stories) + sum(c["due"] for c in contracts)
-    return {"stories": stories, "contracts": contracts, "total": total}
+    from . import invoices
+
+    invs = [{"id": i["id"], "number": i["number"], "customer": i["customer"], "date": i["date"], "payable": i["payable"],
+             "paid": i["paid_total"], "due": i["remaining"], "status": i["status"]} for i in invoices.open_invoices(conn)]
+    total = sum(s["due"] for s in stories) + sum(c["due"] for c in contracts) + sum(i["due"] for i in invs)
+    return {"stories": stories, "contracts": contracts, "invoices": invs, "total": total}
 
 
 def finance_summary(conn: sqlite3.Connection, month: str | None = None) -> dict[str, Any]:
@@ -131,9 +135,109 @@ def finance_summary(conn: sqlite3.Connection, month: str | None = None) -> dict[
             "SELECT id, title, expiry_date, owner_name, amount, status FROM legal_docs WHERE status != 'archived' "
             "AND expiry_date IS NOT NULL AND expiry_date <= ? ORDER BY expiry_date LIMIT 10",
             (jalali.add_days(today, 60),))],
-        "invoices_open": [dict(r) for r in conn.execute(
-            "SELECT id, number, customer, status FROM invoices WHERE status = 'issued' ORDER BY id DESC LIMIT 10")],
         "prev_month": jalali.prev_months(month, 2)[0], "next_month": jalali.month_key(jalali.add_months(m_from, 1)),
+    }
+
+
+PERIODS = {"month": 1, "3m": 3, "6m": 6, "12m": 12, "year": 0, "all": -1}
+
+
+def finance_dashboard(conn: sqlite3.Connection, period: str = "12m", month: str | None = None) -> dict[str, Any]:
+    """داشبورد مالی: شاخص‌ها، روند ماهانه، ترکیب درآمد/هزینه، طلب‌ها و سن مطالبات."""
+    from . import invoices
+
+    today = db.today_str()
+    end_key = month or jalali.month_key(today)
+    if period not in PERIODS:
+        period = "12m"
+    n = PERIODS[period]
+    if period == "year":
+        n = int(end_key[5:7])
+    elif period == "all":
+        first = conn.execute("SELECT MIN(tx_date) FROM transactions").fetchone()[0] or today
+        jy, jm = int(first[:4]), int(first[5:7])
+        ey, em = int(end_key[:4]), int(end_key[5:7])
+        n = max(1, min(60, (ey * 12 + em) - (jy * 12 + jm) + 1))
+    keys = jalali.prev_months(end_key, n)
+    d_from, d_to = jalali.month_range(keys[0])[0], jalali.month_range(keys[-1])[1]
+    # بازه‌ی قبلی هم‌اندازه برای مقایسه
+    prev_keys = jalali.prev_months(keys[0], n + 1)[:-1]
+    p_from, p_to = jalali.month_range(prev_keys[0])[0], jalali.month_range(prev_keys[-1])[1]
+
+    def sums(a: str, b: str) -> tuple[int, int]:
+        r = conn.execute("SELECT COALESCE(SUM(CASE WHEN kind='income' THEN amount END),0) i, "
+                         "COALESCE(SUM(CASE WHEN kind='expense' THEN amount END),0) e FROM transactions "
+                         "WHERE tx_date BETWEEN ? AND ?", (a, b)).fetchone()
+        return r["i"], r["e"]
+
+    income, expense = sums(d_from, d_to)
+    p_income, p_expense = sums(p_from, p_to)
+    all_inv = [invoices._row(r) for r in conn.execute("SELECT * FROM invoices WHERE status NOT IN ('draft','cancelled')")]
+    payments = invoices.all_payments(conn)
+    billed_in = [i for i in all_inv if d_from <= (i["date"] or "") <= d_to]
+    collected = sum(p["amount"] for p in payments if d_from <= p["date"] <= d_to)
+
+    # روند ماهانه (دست‌کم ۶ ماه تا نمودار معنا داشته باشد)
+    trend_keys = keys if len(keys) >= 6 else jalali.prev_months(end_key, 6)
+    trend = []
+    for k in trend_keys:
+        a, b = jalali.month_range(k)
+        i, e = sums(a, b)
+        trend.append({"key": k, "label": jalali.month_label(k), "income": i, "expense": e,
+                      "billed": sum(x["payable"] for x in all_inv if a <= (x["date"] or "") <= b),
+                      "collected": sum(p["amount"] for p in payments if a <= p["date"] <= b)})
+
+    def group(sql: str) -> list[dict[str, Any]]:
+        return [dict(r) for r in conn.execute(sql, (d_from, d_to))]
+
+    inc_cat = group("SELECT COALESCE(NULLIF(category,''),'بدون دسته') name, SUM(amount) total FROM transactions "
+                    "WHERE kind='income' AND tx_date BETWEEN ? AND ? GROUP BY name ORDER BY total DESC")
+    exp_cat = group("SELECT COALESCE(NULLIF(category,''),'بدون دسته') name, SUM(amount) total FROM transactions "
+                    "WHERE kind='expense' AND tx_date BETWEEN ? AND ? GROUP BY name ORDER BY total DESC")
+    by_outlet = group("SELECT COALESCE(o.name,'بدون رسانه') name, SUM(t.amount) total FROM transactions t "
+                      "LEFT JOIN outlets o ON o.id=t.outlet_id WHERE t.kind='income' AND t.tx_date BETWEEN ? AND ? "
+                      "GROUP BY name ORDER BY total DESC")
+
+    rec = receivables(conn)
+    rec_parts = [
+        {"key": "invoices", "name": "صورتحساب‌ها", "total": sum(i["due"] for i in rec["invoices"])},
+        {"key": "stories", "name": "دستمزد کارها", "total": sum(s["due"] for s in rec["stories"])},
+        {"key": "contracts", "name": "قراردادها", "total": sum(c["due"] for c in rec["contracts"])},
+    ]
+    # سن مطالبات (از تاریخ فاکتور یا انتشار کار)
+    buckets = [{"name": "تا ۳۰ روز", "total": 0, "n": 0}, {"name": "۳۱ تا ۶۰ روز", "total": 0, "n": 0},
+               {"name": "۶۱ تا ۹۰ روز", "total": 0, "n": 0}, {"name": "بیش از ۹۰ روز", "total": 0, "n": 0}]
+    debtors: dict[str, int] = {}
+    aged = [(i["date"], i["due"], i["customer"] or "بی‌نام") for i in rec["invoices"]]
+    aged += [((s["published_date"] or (s["completed_at"] or "")[:10] or today), s["due"], s["outlet_name"] or "بدون رسانه")
+             for s in rec["stories"]]
+    aged += [(c["end_date"] or today, c["due"], c["outlet_name"] or c["title"]) for c in rec["contracts"]]
+    for date, due, who in aged:
+        try:
+            days = max(0, jalali.days_between(date, today))
+        except (ValueError, TypeError):
+            days = 0
+        b = buckets[0 if days <= 30 else 1 if days <= 60 else 2 if days <= 90 else 3]
+        b["total"] += due
+        b["n"] += 1
+        debtors[who] = debtors.get(who, 0) + due
+    billed_total = sum(i["payable"] for i in billed_in)
+    return {
+        "period": period, "from": d_from, "to": d_to, "label_from": jalali.month_label(keys[0]),
+        "label_to": jalali.month_label(keys[-1]), "months": len(keys),
+        "kpi": {
+            "income": income, "expense": expense, "net": income - expense,
+            "prev_income": p_income, "prev_expense": p_expense, "prev_net": p_income - p_expense,
+            "billed": billed_total, "billed_count": len(billed_in), "collected": collected,
+            "receivable": rec["total"], "receivable_count": len(aged),
+            "collection_rate": round(100 * collected / billed_total) if billed_total else None,
+            "overdue": buckets[2]["total"] + buckets[3]["total"],
+        },
+        "trend": trend, "income_categories": inc_cat, "expense_categories": exp_cat, "by_outlet": by_outlet,
+        "receivable_parts": rec_parts, "aging": buckets,
+        "debtors": [{"name": k, "total": v} for k, v in sorted(debtors.items(), key=lambda x: -x[1])[:6]],
+        "open_invoices": rec["invoices"][:10],
+        "recent_payments": payments[:8],
     }
 
 

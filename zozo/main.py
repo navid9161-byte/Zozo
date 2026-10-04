@@ -205,6 +205,12 @@ def finance(month: str | None = None):
         return services.finance_summary(conn, _month(month))
 
 
+@app.get("/api/finance/dashboard")
+def finance_dashboard(period: str = "12m", month: str | None = None):
+    with db.connect() as conn:
+        return services.finance_dashboard(conn, period, _month(month))
+
+
 @app.get("/api/finance/csv")
 def finance_csv(month: str | None = None):
     month = _month(month) or jalali.month_key(db.today_str())
@@ -564,7 +570,8 @@ def enum_digits(s: str) -> str:
 
 @app.get("/api/invoices")
 def invoices_list():
-    return {"items": invoices.list_all(), "profile": invoices.get_profile(), "status": invoices.STATUS}
+    return {"items": invoices.list_all(), "profile": invoices.get_profile(), "status": invoices.STATUS,
+            "methods": invoices.METHODS}
 
 
 @app.get("/api/invoice-profile")
@@ -590,6 +597,16 @@ def invoices_get(inv_id: int):
 @app.patch("/api/invoices/{inv_id}")
 def invoices_update(inv_id: int, data: dict[str, Any]):
     return invoices.update(inv_id, data)
+
+
+@app.post("/api/invoices/{inv_id}/payments", status_code=201)
+def invoices_add_payment(inv_id: int, data: dict[str, Any]):
+    return invoices.add_payment(inv_id, data)
+
+
+@app.delete("/api/invoices/{inv_id}/payments/{pay_id}")
+def invoices_delete_payment(inv_id: int, pay_id: int):
+    return invoices.delete_payment(inv_id, pay_id)
 
 
 @app.post("/api/invoices/{inv_id}/duplicate", status_code=201)

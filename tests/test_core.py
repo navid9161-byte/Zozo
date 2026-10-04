@@ -221,3 +221,34 @@ def test_invoice_flow():
     with db.connect() as conn:
         tx = db.list_records(conn, "transactions", filters={"category": "صورتحساب"})
     assert tx and tx[0]["amount"] == 50000000
+
+
+def test_invoice_payments_and_dashboard():
+    from zozo import invoices, services
+
+    inv = invoices.create({"customer": "شهرداری", "items": [{"title": "آگهی", "qty": 1, "unit_price": 30000000}]})
+    invoices.update(inv["id"], {"status": "issued"})
+    with db.connect() as conn:
+        rec = services.receivables(conn)
+    assert any(i["id"] == inv["id"] and i["due"] == 30000000 for i in rec["invoices"])
+    v = invoices.add_payment(inv["id"], {"amount": "10,000,000", "ref_no": "۱۲۳۴۵", "method": "card"})
+    assert v["status"] == "partial" and v["remaining"] == 20000000
+    v = invoices.add_payment(inv["id"], {"ref_no": "778899"})  # بدون مبلغ = باقی‌مانده
+    assert v["status"] == "paid" and v["paid_total"] == 30000000 and v["paid_date"]
+    with db.connect() as conn:
+        txs = [dict(r) for r in conn.execute("SELECT * FROM transactions WHERE invoice_id=?", (inv["id"],))]
+        assert sorted(t["amount"] for t in txs) == [10000000, 20000000]
+        assert {t["ref_no"] for t in txs} == {"12345", "778899"}
+        # پاک کردن دریافتی از «دریافت و پرداخت» پرداخت فاکتور را هم برمی‌دارد
+        db.delete(conn, "transactions", txs[0]["id"])
+    v = invoices.get(inv["id"])
+    assert v["status"] == "partial" and len(v["payments"]) == 1
+    v = invoices.delete_payment(inv["id"], v["payments"][0]["id"])
+    assert v["status"] == "issued" and v["paid_total"] == 0
+    invoices.add_payment(inv["id"], {"ref_no": "1"})
+    with db.connect() as conn:
+        d = services.finance_dashboard(conn, "month")
+        assert d["kpi"]["collected"] >= 30000000 and d["kpi"]["income"] >= 30000000
+        assert d["recent_payments"][0]["number"] == v["number"]
+        assert len(d["trend"]) == 6 and len(d["aging"]) == 4
+        assert services.finance_dashboard(conn, "year")["months"] >= 1

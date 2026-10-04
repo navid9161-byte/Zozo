@@ -755,12 +755,12 @@ function hbars(rows, cls = "") {
   return rows.map((r) => `<div class="hbar ${cls}"><span>${esc(r.name)}</span><div class="bar"><span style="width:${(100 * r.total) / max}%"></span></div><b class="small">${moneyWords(r.total)}</b></div>`).join("");
 }
 
-VIEWS.finance = async (view, params) => {
+async function financeMonthView(view, params) {
   const month = params.get("m") || "";
   const f = await api(`/api/finance${month ? `?month=${month}` : ""}`);
   const r = f.receivables;
   view.innerHTML = `
-    <div class="page-title"><h2>💰 مالی</h2>
+    <div class="page-title"><h2>💰 مالی</h2>${financeTabs("month")}
       <div class="btn-row"><a class="btn" href="#finance?m=${f.prev_month}">→</a><b>${esc(f.month_label)}</b><a class="btn" href="#finance?m=${f.next_month}">←</a></div></div>
     <div class="quick-actions">
       <button id="f-inc">➕ ثبت دریافتی</button><button id="f-exp">➖ ثبت هزینه</button>
@@ -780,14 +780,14 @@ VIEWS.finance = async (view, params) => {
       ${f.salaries.length ? `<div class="card"><h3>💵 حقوق‌های ثابت این ماه</h3>${f.salaries.map((s) => `<div class="row"><span>${esc(s.name)}${s.pay_day ? ` <small class="muted">(روز ${num(s.pay_day)})</small>` : ""}</span>
         ${s.received >= s.expected ? `<span class="badge green">دریافت شد ✓</span>` : `<span>${s.received ? `<span class="badge amber">${moneyWords(s.received)} از ${moneyWords(s.expected)}</span>` : `<span class="badge red">دریافت نشده</span>`} <button class="btn sm" data-sal="${s.id}">ثبت دریافت</button></span>`}</div>`).join("")}</div>` : ""}
       <div class="card"><h3>🧾 طلب‌ها <span class="count">${moneyShort(r.total)}</span></h3>
-        ${r.stories.length || r.contracts.length ? `${r.stories.map((s) => `<div class="row"><span><a href="#stories?id=${s.id}">${esc(s.title)}</a><br><small class="muted">${esc(s.outlet_name || "")} ${s.published_date ? "· " + fa(s.published_date) : ""}</small></span><span class="btn-row"><b>${moneyWords(s.due)}</b><button class="btn sm" data-paid="${s.id}">دریافت شد</button></span></div>`).join("")}
-        ${r.contracts.map((c) => `<div class="row"><span><a href="#contracts?id=${c.id}">📑 ${esc(c.title)}</a><br><small class="muted">${esc(c.outlet_name || "")}</small></span><b>${moneyWords(c.due)}</b></div>`).join("")}` : `<div class="empty">طلبی ندارید. 🎉<br>برای پیگیری دستمزد، در فرم هر سوژه بخش «انتشار و دستمزد» را پر کنید.</div>`}
+        ${r.stories.length || r.contracts.length || r.invoices.length ? `${r.stories.map((s) => `<div class="row"><span><a href="#stories?id=${s.id}">${esc(s.title)}</a><br><small class="muted">${esc(s.outlet_name || "")} ${s.published_date ? "· " + fa(s.published_date) : ""}</small></span><span class="btn-row"><b>${moneyWords(s.due)}</b><button class="btn sm" data-paid="${s.id}">دریافت شد</button></span></div>`).join("")}
+        ${r.contracts.map((c) => `<div class="row"><span><a href="#contracts?id=${c.id}">📑 ${esc(c.title)}</a><br><small class="muted">${esc(c.outlet_name || "")}</small></span><b>${moneyWords(c.due)}</b></div>`).join("")}
+        ${r.invoices.map((v) => `<div class="row"><span><a href="#invoices?id=${v.id}">🧾 ${esc(v.customer || "صورتحساب")}</a><br><small class="muted">${fa(v.number)}${v.paid ? ` · پرداخت‌شده ${moneyWords(v.paid)}` : ""}</small></span><b>${moneyWords(v.due)}</b></div>`).join("")}` : `<div class="empty">طلبی ندارید. 🎉<br>برای پیگیری دستمزد، در فرم هر سوژه بخش «انتشار و دستمزد» را پر کنید.</div>`}
       </div>
       <div class="card"><h3>📰 کارکرد ${esc(f.month_label)}</h3>
         ${f.work.length ? f.work.map((w) => `<div class="row"><span>${esc(w.outlet)}</span><span>${num(w.n)} کار ${w.fees ? `· ${moneyWords(w.fees)}` : ""}</span></div>`).join("") : `<div class="empty">در این ماه کاری منتشر یا تحویل نشده.</div>`}
       </div>
       ${f.legal_due.length ? `<div class="card"><h3>📜 سررسید اسناد (۶۰ روز آینده) <a class="small" href="#legal_docs">همه</a></h3>${f.legal_due.map((r) => `<div class="row" data-go="#legal_docs?id=${r.id}"><span>${esc(r.title)}${r.owner_name ? ` <small class="muted">(${esc(r.owner_name)})</small>` : ""}</span>${deadlineBadge(r.expiry_date, null, r.status !== "active")}</div>`).join("")}</div>` : ""}
-      ${f.invoices_open.length ? `<div class="card"><h3>🧾 صورتحساب‌های پرداخت‌نشده</h3>${f.invoices_open.map((r) => `<div class="row" data-go="#invoices?id=${r.id}"><span>${esc(r.customer || "")}</span><small class="muted">${fa(r.number)}</small></div>`).join("")}</div>` : ""}
       <div class="card"><h3>🏢 درآمد به تفکیک رسانه <small>۱۲ ماه</small></h3>${hbars(f.by_outlet)}</div>
       <div class="card"><h3>📥 منابع درآمد این ماه</h3>${hbars(f.income_categories)}</div>
       <div class="card"><h3>📤 هزینه‌های این ماه</h3>${hbars(f.expense_categories, "exp")}</div>
@@ -806,7 +806,7 @@ VIEWS.finance = async (view, params) => {
     toast("✔ دریافتی ثبت شد");
     refresh();
   }));
-};
+}
 
 // ═════════════════════════ بایگانی اسناد ═════════════════════════
 const archive = { q: "", cat: "", results: null };

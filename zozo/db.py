@@ -84,7 +84,7 @@ STORY_KIND = {
     "news": "خبر", "report": "گزارش", "interview": "مصاحبه", "teaser": "تیزر / ویدیو",
     "column": "یادداشت / ستون", "photo": "عکس", "translation": "ترجمه", "podcast": "پادکست", "other": "سایر",
 }
-INCOME_CATEGORIES = ("حقوق", "دستمزد کار", "قرارداد", "پاداش", "تدریس / کارگاه", "سایر درآمد")
+INCOME_CATEGORIES = ("حقوق", "دستمزد کار", "صورتحساب", "قرارداد", "پاداش", "تدریس / کارگاه", "سایر درآمد")
 EXPENSE_CATEGORIES = (
     "ایاب‌وذهاب", "اینترنت و تلفن", "تجهیزات", "اشتراک و نرم‌افزار", "کتاب و نشریه",
     "غذا و پذیرایی", "آموزش", "مالیات و بیمه", "سایر هزینه",
@@ -261,6 +261,8 @@ ENTITIES: dict[str, Entity] = {
                 Field("outlet_id", "رسانه / کارفرما", "ref", ref="outlets"),
                 Field("story_id", "مربوط به سوژه", "ref", ref="stories", list_hidden=True),
                 Field("contract_id", "مربوط به قرارداد", "ref", ref="contracts", list_hidden=True),
+                Field("ref_no", "شماره رسید / پیگیری", list_hidden=True),
+                Field("invoice_id", "صورتحساب", "int", system=True),
             ),
         ),
         Entity(
@@ -472,7 +474,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
             number TEXT, date TEXT, customer TEXT, customer_phone TEXT, customer_address TEXT, customer_code TEXT,
             items TEXT, discount INTEGER DEFAULT 0, profile TEXT, notes TEXT, status TEXT DEFAULT 'draft',
             paid_date TEXT, outlet_id INTEGER REFERENCES outlets(id) ON DELETE SET NULL,
-            created_at TEXT, updated_at TEXT
+            payments TEXT, created_at TEXT, updated_at TEXT
         );
 
         -- تبدیل صوت به متن
@@ -500,6 +502,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    if "payments" not in {r["name"] for r in conn.execute("PRAGMA table_info(invoices)")}:
+        conn.execute("ALTER TABLE invoices ADD COLUMN payments TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tx_invoice ON transactions(invoice_id)")
 
 
 def now_str() -> str:
@@ -735,6 +740,10 @@ def delete(conn: sqlite3.Connection, entity: str, rec_id: int) -> dict[str, Any]
     ent = get_entity(entity)
     row = get(conn, entity, rec_id)
     conn.execute(f"DELETE FROM {ent.name} WHERE id = ?", (int(rec_id),))
+    if entity == "transactions" and row.get("invoice_id"):
+        from . import invoices  # جلوگیری از import چرخه‌ای
+
+        invoices.on_transaction_deleted(conn, row)
     return row
 
 

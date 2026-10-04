@@ -163,6 +163,7 @@ function drawInvoice(ctx, inv) {
 
   // ── اطلاعات پرداخت
   y += 64;
+  const payTop = y;
   ctx.textAlign = "right"; ctx.fillStyle = ink;
   const payLines = [];
   if (p.payee) payLines.push([`خواهشمند است مبلغ فاکتور بنام ${p.payee}`, ""]);
@@ -189,6 +190,8 @@ function drawInvoice(ctx, inv) {
     wrapText(ctx, inv.notes, W - 2 * m - 80).slice(0, 3).forEach((l) => { ctx.fillText(l, right, y); y += 42; });
   }
 
+  if (["paid", "partial"].includes(inv.status) && inv.payments?.length) drawPaidStamp(ctx, inv, m + 270, payTop + 60);
+
   // ── پانویس: نشانی و تماس
   const fTop = H - 168, fMid = H - 98, fBot = H - 54;
   g = ctx.createLinearGradient(0, fTop, 0, fMid);
@@ -207,6 +210,33 @@ function drawInvoice(ctx, inv) {
   ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(ix, iy - 5, 4, 0, Math.PI * 2); ctx.fill();
   if (p.address) { ctx.fillStyle = C; ctx.font = `700 30px ${FONT}`; ctx.textAlign = "right"; ctx.fillText(fa(p.address), ix - 50, iy + 2); }
   if (p.contact) { ctx.fillStyle = "#fff"; ctx.font = `700 24px ${FONT}`; ctx.textAlign = "right"; ctx.fillText(fa(p.contact), W - m - 240, (fMid + fBot) / 2 + 2); }
+}
+
+// مهر «پرداخت شد» با تاریخ و شماره‌ی رسید آخرین پرداخت
+function drawPaidStamp(ctx, inv, cx, cy) {
+  const last = inv.payments[inv.payments.length - 1];
+  const full = inv.status === "paid";
+  const col = full ? "#1d7a3a" : "#b26a00";
+  const lines = [[full ? "پرداخت شد" : "پرداخت ناقص", 52, 900], [`تاریخ: ${fa(last.date)}`, 28, 700]];
+  if (last.ref_no) lines.push([`شماره رسید: ${fa(last.ref_no)}`, 28, 700]);
+  if (!full) lines.push([`مانده: ${invNum(inv.remaining ?? 0)}`, 26, 700]);
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-0.12);
+  ctx.globalAlpha = 0.88;
+  setup(ctx);
+  let w = 0;
+  lines.forEach(([t, sz, wt]) => { ctx.font = `${wt} ${sz}px ${FONT}`; w = Math.max(w, ctx.measureText(t).width); });
+  w += 70;
+  const h = lines.reduce((a, [, sz]) => a + sz * 1.45, 0) + 34;
+  ctx.strokeStyle = col; ctx.lineWidth = 5;
+  rr(ctx, -w / 2, -h / 2, w, h, 22); ctx.stroke();
+  ctx.lineWidth = 2;
+  rr(ctx, -w / 2 + 9, -h / 2 + 9, w - 18, h - 18, 16); ctx.stroke();
+  ctx.fillStyle = col; ctx.textAlign = "center";
+  let y = -h / 2 + 17;
+  lines.forEach(([t, sz, wt]) => { ctx.font = `${wt} ${sz}px ${FONT}`; y += sz * 1.45; ctx.fillText(t, 0, y - sz * 0.72); });
+  ctx.restore();
 }
 
 // ساخت PDF ساده (یک صفحه‌ی A4 افقی با تصویر JPEG) — بدون کتابخانه‌ی خارجی
@@ -252,15 +282,61 @@ VIEWS.invoices = async (view, params) => {
   view.innerHTML = `
     <div class="page-title"><h2>🧾 صورتحساب‌ها</h2><div class="btn-row">
       <button class="btn primary" id="inv-new">+ صورتحساب جدید</button><button class="btn" id="inv-prof">⚙️ سربرگ و اطلاعات پرداخت</button></div></div>
+    ${invSummaryHTML(d.items, d.profile.unit)}
     ${!d.profile.payee && !d.profile.sheba ? `<div class="warn-bar">اول از «⚙️ سربرگ و اطلاعات پرداخت» نام، شبا و نشانی را ثبت کنید تا در همه‌ی فاکتورها بیاید.</div>` : ""}
     <div class="list">${d.items.map((v) => `<div class="item" data-inv="${v.id}"><span class="doc-icon">🧾</span><div class="body">
       <div class="title">${esc(v.customer || "بدون نام")} <small class="muted">${fa(v.number)}</small></div>
-      <div class="meta"><span class="badge ${{ paid: "green", issued: "", draft: "gray", cancelled: "red" }[v.status]}">${esc(v.status_label)}</span>
-        <span>${fa(v.date || "")}</span><span><b>${invNum(v.payable)}</b> ${esc(v.profile.unit || "")}</span><span>${num(v.items.length)} ردیف</span></div></div></div>`).join("") || `<div class="card empty center">هنوز صورتحسابی صادر نشده.</div>`}</div>`;
+      <div class="meta"><span class="badge ${INV_BADGE[v.status] || ""}">${esc(v.status_label)}</span>
+        <span>${fa(v.date || "")}</span><span><b>${invNum(v.payable)}</b> ${esc(v.profile.unit || "")}</span>
+        ${v.status === "partial" ? `<span class="small">مانده: <b>${invNum(v.remaining)}</b></span>` : ""}
+        ${v.status === "paid" && v.paid_date ? `<span class="small muted">پرداخت ${fa(v.paid_date)}${v.payments.at(-1)?.ref_no ? ` · رسید ${fa(v.payments.at(-1).ref_no)}` : ""}</span>` : ""}</div></div></div>`).join("") || `<div class="card empty center">هنوز صورتحسابی صادر نشده.</div>`}</div>`;
   $("#inv-new").onclick = async () => { const v = await api("/api/invoices", { method: "POST", body: { items: [{ title: "", qty: 1, unit_price: "" }] } }); location.hash = `#invoices?id=${v.id}`; };
   $("#inv-prof").onclick = () => editInvoiceProfile();
   $$("[data-inv]", view).forEach((el) => (el.onclick = () => (location.hash = `#invoices?id=${el.dataset.inv}`)));
 };
+
+const INV_BADGE = { paid: "green", partial: "amber", issued: "", draft: "gray", cancelled: "red" };
+
+function invSummaryHTML(items, unit) {
+  const live = items.filter((v) => !["draft", "cancelled"].includes(v.status));
+  if (!live.length) return "";
+  const billed = live.reduce((a, v) => a + v.payable, 0), paid = live.reduce((a, v) => a + v.paid_total, 0);
+  return `<div class="stats">
+    <div class="stat"><div class="v">${moneyWords(billed)}</div><div class="l">جمع فاکتورهای صادرشده (${num(live.length)})</div></div>
+    <div class="stat good"><div class="v">${moneyWords(paid)}</div><div class="l">وصول‌شده</div></div>
+    <div class="stat warn"><div class="v">${moneyWords(billed - paid)}</div><div class="l">مانده‌ی دریافت‌نشده</div></div>
+  </div>`;
+}
+
+// ثبت پرداخت: تاریخ، مبلغ، شماره‌ی رسید، روش
+function invPaymentDialog(inv, onDone) {
+  const methods = { card: "کارت به کارت", sheba: "واریز به شبا / پایا", pos: "کارت‌خوان", cash: "نقد", cheque: "چک", other: "سایر" };
+  $("#dlg-body").innerHTML = `<h3>💳 ثبت پرداخت صورتحساب ${fa(inv.number)}</h3>
+    <p class="small muted">${esc(inv.customer || "")} · قابل پرداخت ${invNum(inv.payable)} · تا حالا ${invNum(inv.paid_total)} · مانده <b>${invNum(inv.remaining)}</b> ${esc(inv.profile.unit || "")}</p>
+    <div class="form-grid">
+      <label>تاریخ پرداخت<input id="py-date" value="${fa(META.today)}"></label>
+      <label>مبلغ (${esc(inv.profile.unit || "")})<input id="py-amount" inputmode="numeric" value="${Number(inv.remaining).toLocaleString("en-US")}"></label>
+      <label>شماره رسید / پیگیری<input id="py-ref" class="ltr" placeholder="مثلاً 123456"></label>
+      <label>روش پرداخت<select id="py-method">${Object.entries(methods).map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select></label>
+      <label class="wide">توضیح (اختیاری)<input id="py-note" placeholder="مثلاً قسط اول"></label>
+    </div>
+    <p class="small muted">این پرداخت خودکار به‌عنوان «دریافتی» در بخش مالی هم ثبت می‌شود.</p>
+    <div class="modal-actions"><button class="btn primary" id="py-save">✔ ثبت پرداخت</button><button class="btn" id="py-close">انصراف</button></div>`;
+  const amt = $("#py-amount");
+  amt.oninput = () => { const v = enDigits(amt.value).replace(/[^\d]/g, ""); amt.value = v ? Number(v).toLocaleString("en-US") : ""; };
+  $("#py-close").onclick = () => { $("#dlg").close(); onDone(false); };
+  $("#py-save").onclick = async () => {
+    try {
+      await api(`/api/invoices/${inv.id}/payments`, { method: "POST", body: {
+        date: enDigits($("#py-date").value), amount: enDigits(amt.value).replace(/[^\d]/g, ""),
+        ref_no: enDigits($("#py-ref").value), method: $("#py-method").value, note: $("#py-note").value } });
+      $("#dlg").close();
+      toast("پرداخت ثبت شد و در درآمدها آمد ✔");
+      onDone(true);
+    } catch (err) { if (!(err instanceof LoginRequired)) toast(err.message); }
+  };
+  $("#dlg").showModal();
+}
 
 function profileFormHTML(p, prefix) {
   return PROFILE_FIELDS.map(([k, l, t]) => `<label class="${t === "longtext" || k === "address" || k === "contact" ? "wide" : ""}">${l}
@@ -302,7 +378,7 @@ async function renderInvoiceEditor(view, id) {
           <label>شناسه / کد ملی / اقتصادی<input data-f="customer_code" value="${esc(inv.customer_code || "")}"></label>
           <label class="wide">نشانی<input data-f="customer_address" value="${esc(inv.customer_address || "")}"></label>
           <label>رسانه / کارفرما (برای گزارش مالی)<select data-f="outlet_id"><option value=""></option>${REFS.outlets.map((o) => `<option value="${o.id}" ${o.id === inv.outlet_id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label>
-          <label>وضعیت<select data-f="status">${Object.entries({ draft: "پیش‌نویس", issued: "صادرشده", paid: "پرداخت‌شده", cancelled: "باطل‌شده" }).map(([k, l]) => `<option value="${k}" ${k === inv.status ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+          <label>وضعیت<select id="inv-status">${Object.entries({ draft: "پیش‌نویس", issued: "صادرشده", partial: "پرداخت ناقص", paid: "پرداخت‌شده", cancelled: "باطل‌شده" }).map(([k, l]) => `<option value="${k}" ${k === inv.status ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         </div></div>
         <div class="card"><h3>ردیف‌ها</h3>
           <div id="inv-items"></div>
@@ -326,6 +402,19 @@ async function renderInvoiceEditor(view, id) {
             ${navigator.canShare ? `<button class="btn" id="inv-share">📤 ارسال</button>` : ""}
           </div>
           <div class="btn-row" style="margin-top:8px"><button class="btn sm" id="inv-dup">📄 کپی این فاکتور</button><button class="btn sm danger" id="inv-del">🗑 حذف</button></div>
+        </div>
+        <div class="card"><h3>💳 پرداخت‌ها <span class="badge ${INV_BADGE[inv.status] || ""}">${esc(inv.status_label)}</span></h3>
+          <div class="stats" style="margin:0 0 10px">
+            <div class="stat"><div class="v">${moneyWords(inv.payable)}</div><div class="l">قابل پرداخت</div></div>
+            <div class="stat good"><div class="v">${moneyWords(inv.paid_total)}</div><div class="l">پرداخت‌شده</div></div>
+            <div class="stat ${inv.remaining ? "warn" : ""}"><div class="v">${moneyWords(inv.remaining)}</div><div class="l">مانده</div></div>
+          </div>
+          ${inv.payments.length ? inv.payments.map((p) => `<div class="row"><span>✅ ${moneyWords(p.amount)} در تاریخ <b>${fa(p.date)}</b>
+              ${p.ref_no ? ` با رسید <b class="ltr" style="display:inline-block">${fa(p.ref_no)}</b>` : ""}
+              <small class="muted">${esc(({ card: "کارت به کارت", sheba: "واریز به شبا", pos: "کارت‌خوان", cash: "نقد", cheque: "چک", other: "" })[p.method] || "")}${p.note ? " · " + esc(p.note) : ""}</small></span>
+              <button class="btn sm ghost" data-delpay="${p.id}" title="حذف این پرداخت">🗑</button></div>`).join("")
+            : `<div class="empty small">هنوز پرداختی ثبت نشده.</div>`}
+          ${inv.remaining > 0 && inv.status !== "cancelled" ? `<button class="btn primary" id="inv-pay" style="margin-top:8px">💳 ثبت پرداخت (کامل یا بخشی)</button>` : ""}
         </div>
       </div>
     </div>`;
@@ -354,7 +443,7 @@ async function renderInvoiceEditor(view, id) {
         const s = calc();
         await api(`/api/invoices/${id}`, { method: "PATCH", body: {
           number: st.number, date: enDigits(st.date || ""), customer: st.customer, customer_phone: st.customer_phone,
-          customer_code: st.customer_code, customer_address: st.customer_address, notes: st.notes, status: st.status,
+          customer_code: st.customer_code, customer_address: st.customer_address, notes: st.notes,
           outlet_id: st.outlet_id || null, discount: s.discount, items: s.items, profile } });
         $("#inv-saved").textContent = "✔ ذخیره شد";
       } catch (err) { $("#inv-saved").textContent = ""; toast(err.message); }
@@ -395,6 +484,23 @@ async function renderInvoiceEditor(view, id) {
     if (r.ok) { profile.logo_media_id = r.data.added[0].id; await loadInvLogo(profile); draw(); save(); }
   };
   if ($("[data-pr-nologo]")) $("[data-pr-nologo]").onclick = () => { profile.logo_media_id = null; INV.logo = null; draw(); save(); };
+  const payDone = (ok) => { if (ok) refresh(); else $("#inv-status").value = st.status; };
+  $("#inv-status").onchange = async (ev) => {
+    const v = ev.target.value;
+    if (v === "paid" || v === "partial") {
+      if (st.remaining > 0) return invPaymentDialog({ ...st, ...calc(), paid_total: st.paid_total, remaining: Math.max(0, calc().payable - st.paid_total) }, payDone);
+    }
+    if (st.payments.length && ["issued", "draft"].includes(v)) { toast("این فاکتور پرداخت ثبت‌شده دارد؛ اول پرداخت‌ها را حذف کنید."); ev.target.value = st.status; return; }
+    await api(`/api/invoices/${id}`, { method: "PATCH", body: { status: v } });
+    st.status = v;
+    toast("وضعیت ذخیره شد");
+  };
+  if ($("#inv-pay")) $("#inv-pay").onclick = () => invPaymentDialog({ ...st, ...calc(), paid_total: st.paid_total, remaining: Math.max(0, calc().payable - st.paid_total) }, payDone);
+  $$("[data-delpay]", view).forEach((b) => (b.onclick = async () => {
+    if (!confirm("این پرداخت حذف شود؟ (دریافتیِ ثبت‌شده در بخش مالی هم پاک می‌شود)")) return;
+    await api(`/api/invoices/${id}/payments/${b.dataset.delpay}`, { method: "DELETE" });
+    refresh();
+  }));
   $("#inv-add").onclick = () => { items.push({ title: "", date: "", qty: 1, qty_label: "", unit_price: 0 }); drawItems(); };
   $("#inv-asdefault").onclick = async () => { await api("/api/invoice-profile", { method: "PUT", body: profile }); toast("پیش‌فرض ذخیره شد ⭐"); };
   const fname = () => `invoice-${(st.number || id)}`.replace(/[^\w\-]+/g, "-");
