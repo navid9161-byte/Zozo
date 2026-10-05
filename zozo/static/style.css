@@ -589,3 +589,4 @@ dialog.designer:not([open]) { display: none; }
 .tapbox b { font-size: 17px; }
 .btn.big { font-size: 18px; padding: 12px 22px; }
 .ps-slides { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.dz-bg { display: flex; flex-direction: column; gap: 6px; padding: 8px; margin-bottom: 10px; border-radius: 10px; background: var(--bg); }

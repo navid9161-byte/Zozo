@@ -222,7 +222,10 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
             dur = _num(c.get("duration") or (total - start), total - start, 0.3, max(0.3, total - start))
         clips.append({"media_id": m["id"], "kind": m["kind"], "path": m["path"], "has_audio": m["has_audio"],
                       "start": round(start, 2), "duration": round(dur, 2), "zoom": bool(c.get("zoom", True)),
-                      "gray": bool(c.get("gray", False))})
+                      "gray": bool(c.get("gray", False)),
+                      # جا و اندازه‌ی عکس/ویدیو در قاب: بزرگ‌نمایی و جابه‌جایی (نسبتی از عرض/ارتفاع قاب)
+                      "scale": _num(c.get("scale"), 1.0, 0.3, 4.0), "ox": _num(c.get("ox"), 0.0, -1.0, 1.0),
+                      "oy": _num(c.get("oy"), 0.0, -1.0, 1.0)})
     total = round(sum(c["duration"] for c in clips), 2)
     if total > MAX_TOTAL_SECONDS:
         raise db.ValidationError(f"مدت کل کلیپ ({total:.0f} ثانیه) بیش از {MAX_TOTAL_SECONDS} ثانیه است")
@@ -259,8 +262,27 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
 # ───────────────────────── ساخت فرمان‌های ffmpeg ─────────────────────────
 
 
-def _place_filter(fit: str, w: int, h: int, bg: str) -> str:
-    """قرار دادن تصویر ورودی [0:v] در قاب W×H. خروجی برچسب [pv]."""
+def _place_filter(fit: str, w: int, h: int, bg: str, scale: float = 1.0, ox: float = 0.0, oy: float = 0.0) -> str:
+    """قرار دادن تصویر ورودی [0:v] در قاب W×H (با بزرگ‌نمایی و جابه‌جایی دلخواه). خروجی برچسب [pv]."""
+    framed = abs(scale - 1) > 0.005 or abs(ox) > 0.002 or abs(oy) > 0.002
+    if framed:
+        ev = f"trunc(iw*{scale:.4f}/2)*2:trunc(ih*{scale:.4f}/2)*2"
+        if fit == "crop":
+            # پر کردن قاب، بزرگ‌نمایی، بعد برش از جای دلخواه (پشت لبه‌ها سیاه نمی‌ماند)
+            sc = max(1.0, scale)
+            return (f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
+                    f"scale=trunc(iw*{sc:.4f}/2)*2:trunc(ih*{sc:.4f}/2)*2,"
+                    f"crop={w}:{h}:'max(0,min(iw-{w},(iw-{w})/2-({ox:.4f})*{w}))':"
+                    f"'max(0,min(ih-{h},(ih-{h})/2-({oy:.4f})*{h}))',setsar=1[pv]")
+        sw, sh = w // 8 * 2, h // 8 * 2
+        if fit == "fit":
+            bgf = f"[a]scale={w}:{h},drawbox=x=0:y=0:w=iw:h=ih:color={bg}:t=fill[bg];"
+        else:
+            bgf = (f"[a]scale={sw}:{sh}:force_original_aspect_ratio=increase,crop={sw}:{sh},"
+                   f"boxblur=8:2,eq=brightness=-0.12,scale={w}:{h}[bg];")
+        return (f"[0:v]split=2[a][b];{bgf}"
+                f"[b]scale={w}:{h}:force_original_aspect_ratio=decrease,scale={ev}[fg];"
+                f"[bg][fg]overlay=(W-w)/2+({ox:.4f})*W:(H-h)/2+({oy:.4f})*H,setsar=1[pv]")
     if fit == "crop":
         return f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1[pv]"
     if fit == "fit":
@@ -287,7 +309,7 @@ def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[st
     use_audio = clip["kind"] == "video" and clip["has_audio"] and spec["keep_audio"]
     if not use_audio:
         args += ["-f", "lavfi", "-t", f"{d:.2f}", "-i", "anullsrc=r=44100:cl=stereo"]
-    fc = [_place_filter(spec["fit"], w, h, spec["bg_color"])]
+    fc = [_place_filter(spec["fit"], w, h, spec["bg_color"], clip.get("scale", 1.0), clip.get("ox", 0.0), clip.get("oy", 0.0))]
     if clip.get("gray"):
         fc[0] = fc[0][: -len("[pv]")] + ",hue=s=0[pv]"
     if clip["kind"] == "image":

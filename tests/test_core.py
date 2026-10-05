@@ -291,3 +291,13 @@ def test_caption_grouping_and_alignment():
     assert all(a["end"] < b["start"] for a, b in zip(caps, caps[1:]))
     al = transcribe.align_lines(["سطر اول نوشته", "سطر دوم که بلندتر است"], words)
     assert al[0]["start"] == 0 and al[1]["end"] > al[1]["start"] > al[0]["start"]
+
+
+def test_clip_framing_filter():
+    from zozo import teaser
+
+    plain = teaser._place_filter("blur", 720, 1280, "#000000")
+    framed = teaser._place_filter("blur", 720, 1280, "#000000", 1.5, 0.2, -0.1)
+    assert plain != framed and "(0.2000)*W" in framed and "1.5000" in framed
+    crop = teaser._place_filter("crop", 720, 1280, "#000000", 0.5, 0, 0)  # برش هیچ‌وقت کوچک‌تر از قاب نمی‌شود
+    assert "1.0000" in crop

@@ -1,7 +1,8 @@
 "use strict";
 // ═════════════════════════ ویرایشگر لایه‌ای (شبیه کنوا) ═════════════════════════
 // یک ویرایشگر مشترک برای پست‌ساز و تیزرساز.
-//   openDesigner({ w, h, layers, background(ctx, w, h, t), timed, duration, title, onSave(layers) })
+//   openDesigner({ w, h, layers, background(ctx, w, h, t), timed, duration, title, onSave(layers),
+//                  bg: { label, move(dx, dy, t), zoom(f, t), reset(t) } })   ← جابه‌جا/بزرگ کردن عکس/ویدیوی زیر لایه‌ها
 // هر لایه: { id, type: text|rect|ellipse|line|image, x, y, w, h, ...ویژگی‌ها, start, end }
 
 const DZ = { imgs: {} };
@@ -191,14 +192,17 @@ function openDesigner(opts) {
     const list = `<div class="dz-layers"><b class="small">لایه‌ها</b>${[...layers].reverse().map((l) => `<div class="dz-li ${l.id === sel ? "on" : ""}" data-sel="${l.id}">
       <span>${{ text: "🔤", rect: "⬛", ellipse: "⚪", line: "➖", image: "🖼" }[l.type]} ${esc((l.type === "text" ? l.text : { rect: "مستطیل", ellipse: "دایره", line: "خط", image: "عکس" }[l.type]) || "").slice(0, 22)}</span>
       <span><button class="btn sm ghost" data-hide="${l.id}" title="پنهان/نمایش">${l.hidden ? "🙈" : "👁"}</button></span></div>`).join("") || `<div class="small muted">هنوز لایه‌ای نیست؛ از دکمه‌های بالا اضافه کنید.</div>`}</div>`;
-    if (!L) { p.innerHTML = list; bindPanel(); return; }
+    const bgBox = opts.bg ? `<div class="dz-bg"><b class="small">📷 ${esc(opts.bg.label || "عکس/ویدیوی زیر لایه‌ها")}</b>
+      <div class="small muted">برای جابه‌جا کردن، جای خالیِ تصویر را بکشید (یا همین‌جا اندازه بدهید):</div>
+      <div class="btn-row"><button class="btn sm" data-bgz="0.9">− کوچک‌تر</button><button class="btn sm" data-bgz="1.1">+ بزرگ‌تر</button><button class="btn sm" data-bgr>↺ اندازه و جای اول</button></div></div>` : "";
+    if (!L) { p.innerHTML = bgBox + list; bindPanel(); return; }
     const col = (k, label, allowNone) => `<label class="dz-f">${label}<span class="btn-row"><input type="color" data-p="${k}" value="${/^#[0-9a-f]{6}$/i.test(L[k] || "") ? L[k] : "#ffffff"}">${allowNone ? `<label class="small"><input type="checkbox" data-none="${k}" ${!L[k] ? "checked" : ""}> هیچ</label>` : ""}</span></label>`;
     const rng = (k, label, min, max, step = 1) => `<label class="dz-f">${label} <small>${num(+(L[k] ?? 0).toFixed?.(2) ?? L[k])}</small><input type="range" data-p="${k}" min="${min}" max="${max}" step="${step}" value="${L[k] ?? 0}"></label>`;
     let f = "";
     if (L.type === "text") {
       f += `<label class="dz-f wide">متن <small>(واژه‌های *ستاره‌دار* رنگ دوم می‌گیرند)</small><textarea data-p="text" rows="3">${esc(L.text)}</textarea></label>`;
       f += rng("size", "اندازه", 14, 220);
-      f += `<label class="dz-f">ضخامت<select data-p="weight">${[[400, "معمولی"], [700, "پررنگ"], [900, "خیلی پررنگ"]].map(([v, l]) => `<option value="${v}" ${+L.weight === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>`;
+      f += `<label class="dz-f">ضخامت<select data-p="weight">${[[400, "معمولی"], [700, "پررنگ"], [800, "پررنگ‌تر"], [900, "خیلی پررنگ"]].map(([v, l]) => `<option value="${v}" ${+L.weight === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>`;
       f += `<div class="dz-f wide"><span>چینش</span><div class="seg">${[["right", "راست"], ["center", "وسط"], ["left", "چپ"], ["justify", "تراز"]].map(([v, l]) => `<button type="button" data-align="${v}" class="${L.align === v ? "active" : ""}">${l}</button>`).join("")}</div></div>`;
       f += col("color", "رنگ متن") + col("hi", "رنگ دوم (*…*)") + rng("lh", "فاصله‌ی سطرها", 0.9, 2.4, 0.05);
       f += col("bg", "کادر پشت متن", true) + rng("pad", "فاصله‌ی داخل کادر", 0, 80) + rng("radius", "گردی گوشه", 0, 120);
@@ -245,6 +249,8 @@ function openDesigner(opts) {
     $$("[data-align]", p).forEach((b) => (b.onclick = () => { snap(); cur().align = b.dataset.align; draw(); panel(); }));
     $$("[data-sel]", p).forEach((el) => (el.onclick = (ev) => { if (ev.target.closest("[data-hide]")) return; sel = el.dataset.sel; draw(); panel(); }));
     $$("[data-hide]", p).forEach((b) => (b.onclick = () => { const L = layers.find((l) => l.id === b.dataset.hide); snap(); L.hidden = !L.hidden; draw(); panel(); }));
+    $$("[data-bgz]", p).forEach((b) => (b.onclick = () => { opts.bg.zoom(Number(b.dataset.bgz), t); draw(); }));
+    if ($("[data-bgr]", p)) $("[data-bgr]", p).onclick = () => { opts.bg.reset(t); draw(); };
     const rep = $("[data-replace]", p);
     if (rep) rep.onchange = async (ev) => { const src = await uploadLayerImage(ev.target.files[0]); if (src) { snap(); cur().src = src; draw(); } };
     $$("[data-c]", p).forEach((b) => (b.onclick = () => {
@@ -311,11 +317,30 @@ function openDesigner(opts) {
       snap();
       drag = { mode: "move", p0: p, o: { ...hit } };
       cv.setPointerCapture(ev.pointerId);
-    } else { sel = null; panel(); }
+    } else {
+      sel = null; panel();
+      if (opts.bg) { drag = { mode: "bg", last: p, pts: new Map([[ev.pointerId, p]]) }; cv.setPointerCapture(ev.pointerId); }
+    }
     draw();
+  });
+  // انگشت دوم روی پس‌زمینه = بزرگ‌نمایی
+  cv.addEventListener("pointerdown", (ev) => {
+    if (drag?.mode === "bg" && !drag.pts.has(ev.pointerId)) { drag.pts.set(ev.pointerId, pt(ev)); drag.dist = 0; cv.setPointerCapture(ev.pointerId); }
   });
   cv.addEventListener("pointermove", (ev) => {
     if (!drag) return;
+    if (drag.mode === "bg") {
+      const p = pt(ev);
+      if (!drag.pts.has(ev.pointerId)) return;
+      drag.pts.set(ev.pointerId, p);
+      if (drag.pts.size > 1) {
+        const [a, b] = [...drag.pts.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (drag.dist) opts.bg.zoom(d / drag.dist, t);
+        drag.dist = d;
+      } else { opts.bg.move((p.x - drag.last.x) / W, (p.y - drag.last.y) / H, t); drag.last = p; }
+      draw();
+      return;
+    }
     const L = cur(), p = pt(ev), dx = p.x - drag.p0.x, dy = p.y - drag.p0.y, o = drag.o;
     guides = [];
     if (drag.mode === "move") {
@@ -336,7 +361,17 @@ function openDesigner(opts) {
     }
     draw();
   });
-  const end = () => { if (drag) { drag = null; guides = []; draw(); panel(); } };
+  const end = (ev) => {
+    if (drag?.mode === "bg") { drag.pts.delete(ev.pointerId); if (drag.pts.size) { drag.last = [...drag.pts.values()][0]; drag.dist = 0; return; } }
+    if (drag) { drag = null; guides = []; draw(); panel(); }
+  };
+  cv.addEventListener("wheel", (ev) => {
+    if (!opts.bg) return;
+    const p = pt(ev);
+    if (layers.some((l) => visible(l) && p.x >= l.x && p.x <= l.x + l.w && p.y >= l.y && p.y <= l.y + l.h)) return;
+    ev.preventDefault();
+    opts.bg.zoom(ev.deltaY < 0 ? 1.06 : 0.94, t); draw();
+  }, { passive: false });
   cv.addEventListener("pointerup", end);
   cv.addEventListener("pointercancel", end);
 

@@ -28,7 +28,7 @@ function teaserDefaults() {
     footerText: "www.kermanravi.ir", logoId: "brand", captionsText: "", autoTime: true, manual: [], captionSize: 1,
     clips: [], musicId: null, musicVolume: 0.35, keepAudio: true, videoVolume: 1,
     intro: false, introText: "", outro: false, outroText: "", fade: true, transition: "fade", story_id: null,
-    layers: [], layersSize: null, capStyle: "box", capY: 0.66,
+    layers: [], layersSize: null, capStyle: "box", capY: 0.66, subhead: "", footerSize: 1,
   };
 }
 
@@ -102,6 +102,14 @@ function wrapText(ctx, text, maxW) {
   return lines;
 }
 
+// شکستن متن با رعایت Enter های کاربر (هر پاراگراف جدا شکسته می‌شود)
+function wrapParas(ctx, text, maxW) {
+  return String(text).split("\n").map((p) => p.trim()).filter(Boolean).flatMap((p) => wrapText(ctx, p, maxW));
+}
+function wrapRichParas(ctx, text, base, hi, maxW) {
+  return String(text).split("\n").map((p) => p.trim()).filter(Boolean).flatMap((p) => wrapRich(ctx, richWords(p, base, hi), maxW));
+}
+
 function rr(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -115,18 +123,23 @@ function rr(ctx, x, y, w, h, r) {
 function setup(ctx) { ctx.direction = "rtl"; ctx.textBaseline = "middle"; }
 
 function drawHeadline(ctx, W, H) {
+  if (TZ.s.freeTpl) return;  // اجزای قالب به لایه‌ی آزاد تبدیل شده‌اند
   if (tpl().style === "kr") return krHeadline(ctx, W, H);
   const s = TZ.s, t = tpl();
-  if (!s.headline.trim() && !s.kicker.trim()) return;
+  const sub = (s.subhead || "").trim();
+  if (!s.headline.trim() && !s.kicker.trim() && !sub) return;
   setup(ctx);
   const base = Math.min(W, H), m = base * 0.055, vertical = H > W;
-  const hs = base * (vertical ? 0.068 : 0.06), ks = base * 0.042;
+  const hs = base * (vertical ? 0.068 : 0.06), ks = base * 0.042, ss = hs * 0.62;
   ctx.font = `900 ${hs}px ${FONT}`;
   const maxW = W - m * 2 - base * 0.06;
-  const lines = s.headline.trim() ? wrapText(ctx, s.headline.replace(/\*/g, "").trim(), maxW).slice(0, 4) : [];
-  const lh = hs * 1.45, padY = base * 0.025, padX = base * 0.03;
+  const lines = s.headline.trim() ? wrapParas(ctx, s.headline.replace(/\*/g, ""), maxW).slice(0, 5) : [];
+  ctx.font = `700 ${ss}px ${FONT}`;
+  const subLines = sub ? wrapParas(ctx, sub.replace(/\*/g, ""), maxW).slice(0, 2) : [];
+  const lh = hs * 1.45, slh = ss * 1.5, padY = base * 0.025, padX = base * 0.03;
   const kickH = s.kicker.trim() ? ks * 1.7 : 0;
-  const blockH = kickH + (lines.length ? lines.length * lh + padY * 2 : 0);
+  const bodyH = lines.length * lh + subLines.length * slh;
+  const blockH = kickH + (bodyH ? bodyH + padY * 2 : 0);
   let y = s.headlinePos === "top" ? H * (vertical ? 0.12 : 0.1) : H * (vertical ? 0.62 : 0.66) - blockH / 2;
   if (s.headlinePos !== "top" && !vertical) y = H * 0.93 - blockH - base * 0.1;
   const right = W - m;
@@ -141,25 +154,33 @@ function drawHeadline(ctx, W, H) {
     ctx.fillText(s.kicker.trim(), right - kw / 2, y + kickH / 2 + ks * 0.05);
     y += kickH;
   }
-  if (!lines.length) return;
+  if (!bodyH) return;
   ctx.font = `900 ${hs}px ${FONT}`;
-  const bw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + padX * 2;
+  let bw = Math.max(0, ...lines.map((l) => ctx.measureText(l).width));
+  ctx.font = `700 ${ss}px ${FONT}`;
+  bw = Math.max(bw, ...subLines.map((l) => ctx.measureText(l).width)) + padX * 2;
   if (t.band) {
     ctx.fillStyle = t.band;
-    rr(ctx, right - bw, y, bw, lines.length * lh + padY * 2, base * 0.014);
+    rr(ctx, right - bw, y, bw, bodyH + padY * 2, base * 0.014);
     ctx.fill();
     ctx.fillStyle = t.accent;
-    ctx.fillRect(right - base * 0.012, y, base * 0.012, lines.length * lh + padY * 2);
+    ctx.fillRect(right - base * 0.012, y, base * 0.012, bodyH + padY * 2);
   } else {
     ctx.shadowColor = "rgba(0,0,0,.85)"; ctx.shadowBlur = base * 0.02;
   }
   ctx.fillStyle = t.head;
   ctx.textAlign = "right";
+  ctx.font = `900 ${hs}px ${FONT}`;
   lines.forEach((l, i) => ctx.fillText(l, right - padX, y + padY + lh * (i + 0.5)));
+  ctx.font = `700 ${ss}px ${FONT}`;
+  ctx.globalAlpha = 0.9;
+  subLines.forEach((l, i) => ctx.fillText(l, right - padX, y + padY + lines.length * lh + slh * (i + 0.5)));
+  ctx.globalAlpha = 1;
   ctx.shadowBlur = 0;
 }
 
 function drawBrand(ctx, W, H, phase = "main") {
+  if (TZ.s.freeTpl) return;
   if (tpl().style === "kr") return krBrand(ctx, W, H, phase);
   const s = TZ.s, t = tpl();
   setup(ctx);
@@ -178,14 +199,14 @@ function drawBrand(ctx, W, H, phase = "main") {
     x += lw + base * 0.03;
   }
   if (t.footer && (s.footerText || "").trim()) {
-    const fh = base * 0.05, fy = H - fh;
+    const fh = base * 0.075 * (Number(s.footerSize) || 1), fy = H - fh;
     ctx.fillStyle = t.accent;
     ctx.fillRect(0, fy, W, fh);
     ctx.fillStyle = "rgba(25,49,83,.95)";
     ctx.fillRect(0, fy - base * 0.006, W, base * 0.006);
     ctx.fillStyle = "#fff";
     ctx.textAlign = "center";
-    ctx.font = `700 ${fh * 0.5}px ${FONT}`;
+    ctx.font = `800 ${fh * 0.56}px ${FONT}`;
     ctx.fillText(s.footerText.trim(), W / 2, fy + fh / 2 + fh * 0.03);
   }
   if (s.brand.trim() && !hasLogo) {
@@ -250,7 +271,7 @@ function drawCard(ctx, W, H, text, isOutro) {
   ctx.font = `900 ${fs}px ${FONT}`;
   ctx.fillStyle = t.cardText;
   ctx.textAlign = "center";
-  const lines = wrapText(ctx, text || (isOutro ? "" : s.headline), W * 0.82).slice(0, 5);
+  const lines = wrapParas(ctx, String(text || (isOutro ? "" : s.headline)).replace(/\*/g, ""), W * 0.82).slice(0, 5);
   const lh = fs * 1.5;
   lines.forEach((l, i) => ctx.fillText(l, W / 2, H / 2 - ((lines.length - 1) * lh) / 2 + i * lh));
   if (s.brand.trim()) {
@@ -362,24 +383,44 @@ function krBrand(ctx, W, H, phase = "main") {
   }
 }
 
-function krHeadline(ctx, W, H) {
+// چیدمان سربرگ تیتر کرمان راوی؛ اگر تیتر بلند بود، نوشته کوچک می‌شود تا کامل جا شود (بریده نمی‌شود)
+function krHeadLayout(ctx, W, H) {
   const s = TZ.s;
-  const text = [s.kicker.trim(), s.headline.trim()].filter(Boolean).join(" ");
-  if (!text) return;
-  setup(ctx);
+  const kick = s.kicker.trim(), head = s.headline.trim(), sub = (s.subhead || "").trim();
+  if (!kick && !head && !sub) return null;
   const base = Math.min(W, H), vertical = H > W;
-  const fs = base * (vertical ? 0.1 : 0.075);
-  ctx.font = `900 ${fs}px ${FONT}`;
-  const words = richWords(s.headline.trim(), KR.red, KR.navy);
-  if (s.kicker.trim()) words.unshift(...richWords(s.kicker.trim(), KR.navy, KR.navy));
-  const lines = wrapRich(ctx, words, W * (vertical ? 0.62 : 0.5)).slice(0, 4);
-  const lh = fs * 1.32, px = fs * 0.35, py = fs * 0.25;
-  const bw = Math.max(...lines.map((l) => l.w)) + px * 2, bhh = lines.length * lh + py * 2;
-  const right = W * (vertical ? 0.87 : 0.9), top = s.headlinePos === "top" ? H * (vertical ? 0.17 : 0.14) : H * (vertical ? 0.5 : 0.45);
+  const maxW = W * (vertical ? 0.66 : 0.5), maxH = H * (vertical ? 0.5 : 0.62);
+  let k = 1, L;
+  for (;;) {
+    const fs = base * (vertical ? 0.1 : 0.075) * k, ks = fs * 0.5, ss = fs * 0.56;
+    const parts = [];
+    if (kick) { ctx.font = `800 ${ks}px ${FONT}`; parts.push({ text: kick, fs: ks, w: 800, lh: 1.5, ls: wrapRichParas(ctx, kick, KR.navy, KR.red, maxW), c: KR.navy, hi: KR.red }); }
+    if (head) { ctx.font = `900 ${fs}px ${FONT}`; parts.push({ text: head, fs, w: 900, lh: 1.32, ls: wrapRichParas(ctx, head, KR.red, KR.navy, maxW), c: KR.red, hi: KR.navy }); }
+    if (sub) { ctx.font = `800 ${ss}px ${FONT}`; parts.push({ text: sub, fs: ss, w: 800, lh: 1.45, ls: wrapRichParas(ctx, sub, KR.navy, KR.red, maxW), c: KR.navy, hi: KR.red }); }
+    const px = fs * 0.35, py = fs * 0.25;
+    const bhh = parts.reduce((a, q) => a + q.ls.length * q.fs * q.lh, 0) + py * 2;
+    L = { parts, fs, px, py, bhh };
+    if (bhh <= maxH || k < 0.5) break;
+    k *= 0.92;
+  }
+  L.bw = Math.max(...L.parts.flatMap((q) => q.ls.map((l) => l.w))) + L.px * 2;
+  L.right = W * (vertical ? 0.87 : 0.9);
+  L.top = s.headlinePos === "top" ? H * (vertical ? 0.17 : 0.14) : H * (vertical ? 0.5 : 0.45);
+  return L;
+}
+
+function krHeadline(ctx, W, H) {
+  setup(ctx);
+  const L = krHeadLayout(ctx, W, H);
+  if (!L) return;
   ctx.fillStyle = "rgba(255,255,255,.9)";
-  rr(ctx, right - bw, top, bw, bhh, fs * 0.28);
+  rr(ctx, L.right - L.bw, L.top, L.bw, L.bhh, L.fs * 0.28);
   ctx.fill();
-  lines.forEach((l, i) => drawRichLine(ctx, l, right - px, top + py + lh * (i + 0.5)));
+  let y = L.top + L.py;
+  for (const q of L.parts) {
+    ctx.font = `${q.w} ${q.fs}px ${FONT}`;
+    for (const l of q.ls) { const lh = q.fs * q.lh; drawRichLine(ctx, l, L.right - L.px, y + lh / 2); y += lh; }
+  }
 }
 
 // زیرنویس با سبک انتخابی: کادر سفید (مثل صفحه)، نوشته‌ی سفید با سایه، کادر تیره، زرد با سایه
@@ -419,9 +460,10 @@ function krCaption(ctx, W, H, text) {
   ctx.shadowColor = "transparent"; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
 }
 
-function drawMedia(ctx, el, W, H, fit, zoom = 1, gray = false) {
+function drawMedia(ctx, el, W, H, fit, zoom = 1, gray = false, fr = null) {
   const sw = el.videoWidth || el.naturalWidth, sh = el.videoHeight || el.naturalHeight;
   if (!sw || !sh) return;
+  const sc = fr ? Number(fr.scale) || 1 : 1, ox = fr ? Number(fr.ox) || 0 : 0, oy = fr ? Number(fr.oy) || 0 : 0;
   ctx.save();
   ctx.translate(W / 2, H / 2);
   ctx.scale(zoom, zoom);
@@ -429,7 +471,10 @@ function drawMedia(ctx, el, W, H, fit, zoom = 1, gray = false) {
   const cover = Math.max(W / sw, H / sh), contain = Math.min(W / sw, H / sh);
   if (gray) ctx.filter = "grayscale(1)";
   if (fit === "crop") {
-    ctx.drawImage(el, (W - sw * cover) / 2, (H - sh * cover) / 2, sw * cover, sh * cover);
+    // مثل سرور: پر کردن قاب، بزرگ‌نمایی (حداقل ۱)، برش از جای دلخواه بدون لبه‌ی خالی
+    const k = cover * Math.max(1, sc), dw = sw * k, dh = sh * k;
+    const x = Math.max(W - dw, Math.min(0, (W - dw) / 2 + ox * W)), y = Math.max(H - dh, Math.min(0, (H - dh) / 2 + oy * H));
+    ctx.drawImage(el, x, y, dw, dh);
   } else {
     if (fit === "blur") {
       ctx.filter = gray ? "blur(18px) brightness(0.8) grayscale(1)" : "blur(18px) brightness(0.8)";
@@ -437,7 +482,8 @@ function drawMedia(ctx, el, W, H, fit, zoom = 1, gray = false) {
       ctx.filter = "none";
     } else { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); }
     if (gray) ctx.filter = "grayscale(1)";
-    ctx.drawImage(el, (W - sw * contain) / 2, (H - sh * contain) / 2, sw * contain, sh * contain);
+    const dw = sw * contain * sc, dh = sh * contain * sc;
+    ctx.drawImage(el, (W - dw) / 2 + ox * W, (H - dh) / 2 + oy * H, dw, dh);
   }
   ctx.filter = "none";
   ctx.restore();
@@ -529,7 +575,7 @@ function drawFrame(ctx, W, H, t) {
       const want = (Number(at.clip.start) || 0) + at.local;
       if (el.readyState >= 1 && Math.abs(el.currentTime - want) > 0.15) el.currentTime = want;
     }
-    if ((el.readyState ?? 4) >= 2 || el.complete) drawMedia(ctx, el, W, H, TZ.s.fit, zoom, !!at.clip.gray);
+    if ((el.readyState ?? 4) >= 2 || el.complete) drawMedia(ctx, el, W, H, TZ.s.fit, zoom, !!at.clip.gray, at.clip);
     if (t >= tl.mainStart && t < tl.mainEnd) {
       const hEnd = headlineEnd(tl);
       drawBrand(ctx, W, H, t < hEnd && TZ.s.headlineMode === "first" ? "intro" : "main");
@@ -548,6 +594,72 @@ function drawFrame(ctx, W, H, t) {
   }
 }
 
+// اجزای قالب (قاب، نوار پایین، لوگو، نام گوینده، روتیتر/تیتر/زیرتیتر، نوار سایت) ← لایه‌های آزاد و قابل‌ویرایش
+function tzTplLayers(W, H) {
+  const s = TZ.s, t = tpl(), out = [], tl = timeline(), hEnd = headlineEnd(tl);
+  const base = Math.min(W, H), vertical = H > W;
+  const id = () => "k" + Math.random().toString(36).slice(2, 8);
+  const brandT = { start: tl.mainStart, end: tl.mainEnd }, headT = { start: tl.mainStart, end: hEnd };
+  const text = (o) => out.push({ id: id(), type: "text", tpl: 1, ...LAYER_DEFAULTS.text, bg: "", pad: 0, shadow: false, ...o });
+  const hasLogo = TZ.logoEl && TZ.logoEl.complete && TZ.logoEl.naturalWidth;
+  const m = document.createElement("canvas").getContext("2d");
+  setup(m);
+  if (t.style === "kr") {
+    const fx = W * (vertical ? 0.07 : 0.05), fy = H * (vertical ? 0.105 : 0.07), fb = H * (vertical ? 0.83 : 0.8);
+    out.push({ id: id(), type: "rect", tpl: 1, ...LAYER_DEFAULTS.rect, x: fx, y: fy, w: W - fx * 2, h: fb - fy, fill: "", stroke: "#9d1819", strokeW: Math.max(2, base * 0.0055), radius: base * 0.035, opacity: 0.9, ...brandT });
+    const bh = H * (vertical ? 0.115 : 0.15), by = H - bh;
+    const bc = document.createElement("canvas");
+    bc.width = W; bc.height = Math.ceil(bh);
+    const b = bc.getContext("2d");
+    const g = b.createLinearGradient(0, 0, 0, bh);
+    g.addColorStop(0, "#eef1f5"); g.addColorStop(1, "#d9dfe7");
+    b.fillStyle = g; b.fillRect(0, 0, W, bh);
+    krPattern(b, 0, 0, W, bh);
+    b.fillStyle = "rgba(25,49,83,.35)"; b.fillRect(0, 0, W, Math.max(1, base * 0.002));
+    out.push({ id: id(), type: "image", tpl: 1, ...LAYER_DEFAULTS.image, src: bc.toDataURL("image/png"), fit: "cover", x: 0, y: by, w: W, h: bh, ...brandT });
+    if (hasLogo) {
+      const r = TZ.logoEl.naturalWidth / TZ.logoEl.naturalHeight, lh = bh * 0.62;
+      out.push({ id: id(), type: "image", tpl: 1, ...LAYER_DEFAULTS.image, src: logoUrl(s.logoId), fit: "contain", x: W * 0.05, y: by + (bh - lh) / 2, w: lh * r, h: lh, ...brandT });
+    }
+    const lower = krLower("main");
+    if (lower) {
+      const [kind, l1, l2] = lower.split("|");
+      const fs1 = bh * 0.26, fs2 = bh * (kind === "cr" ? 0.24 : 0.17);
+      text({ text: l1, size: Math.round(fs1), weight: 900, color: KR.red, hi: KR.navy, align: "right", x: W * 0.94 - W * 0.6, w: W * 0.6, y: by + bh * (l2 ? 0.36 : 0.5) - fs1 * 0.7, h: fs1 * 1.4, ...brandT });
+      if (l2) text({ text: l2, size: Math.round(fs2), weight: kind === "cr" ? 900 : 700, color: KR.navy, hi: KR.red, align: "right", x: W * 0.94 - W * 0.6, w: W * 0.6, y: by + bh * 0.7 - fs2 * 0.7, h: fs2 * 1.4, ...brandT });
+    }
+    // سربرگ تیتر: کادر سفید + سه نوشته‌ی جدا (همان چیدمان خودکار)
+    const L = krHeadLayout(m, W, H);
+    if (L) {
+      out.push({ id: id(), type: "rect", tpl: 1, ...LAYER_DEFAULTS.rect, x: L.right - L.bw, y: L.top, w: L.bw, h: L.bhh, fill: "#ffffff", radius: L.fs * 0.28, opacity: 0.9, ...headT });
+      let y = L.top + L.py;
+      for (const q of L.parts) {
+        const hh = q.ls.length * q.fs * q.lh;
+        text({ text: q.text, size: +q.fs.toFixed(1), weight: q.w, color: q.c, hi: q.hi, align: "right", lh: q.lh, x: L.right - L.bw, w: L.bw - L.px, y, h: hh, ...headT });
+        y += hh;
+      }
+    }
+  } else {
+    const hex = (c) => { const mm = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c || ""); return mm ? "#" + mm.slice(1, 4).map((x) => Number(x).toString(16).padStart(2, "0")).join("") : (c || ""); };
+    if (hasLogo) {
+      const r = TZ.logoEl.naturalWidth / TZ.logoEl.naturalHeight, lw = Math.min(base * 0.1 * r, base * 0.32);
+      out.push({ id: id(), type: "image", tpl: 1, ...LAYER_DEFAULTS.image, src: logoUrl(s.logoId), fit: "contain", x: base * 0.05, y: vertical ? H * 0.04 : H * 0.05, w: lw, h: lw / r, ...brandT });
+    }
+    if (t.footer && (s.footerText || "").trim()) {
+      const fh = base * 0.075 * (Number(s.footerSize) || 1);
+      out.push({ id: id(), type: "rect", tpl: 1, ...LAYER_DEFAULTS.rect, x: 0, y: H - fh, w: W, h: fh, fill: s.accent || t.accent, radius: 0, ...brandT });
+      text({ text: s.footerText.trim(), size: Math.round(fh * 0.56), weight: 800, color: "#ffffff", hi: "#ffffff", align: "center", x: 0, y: H - fh, w: W, h: fh, ...brandT });
+    }
+    const lines = [s.kicker.trim(), s.headline.trim(), (s.subhead || "").trim()].filter(Boolean);
+    if (lines.length) {
+      const hs = base * (vertical ? 0.068 : 0.06);
+      text({ text: lines.join("\n"), size: Math.round(hs), weight: 900, color: t.head, hi: s.accent || t.accent, align: "right", bg: t.band ? hex(t.band) : "", pad: base * 0.03, radius: base * 0.014,
+        shadow: !t.band, x: base * 0.055, w: W - base * 0.11, y: s.headlinePos === "top" ? H * (vertical ? 0.12 : 0.1) : H * 0.55, h: hs * 1.45 * (lines.length + 1), ...headT });
+    }
+  }
+  return out;
+}
+
 function openTeaserDesigner() {
   const s = TZ.s;
   stopPlay();
@@ -560,10 +672,22 @@ function openTeaserDesigner() {
     const sx = W / s.layersSize[0], sy = H / s.layersSize[1], sc = Math.min(sx, sy);
     layers.forEach((l) => { l.x *= sx; l.y *= sy; l.w *= sx; l.h *= sy; if (l.size) l.size = Math.round(l.size * sc); });
   }
+  let convert = false;
+  if (!s.freeTpl && confirm("اجزای خود قالب هم (تیتر، روتیتر، زیرتیتر، نام گوینده، لوگو، قاب قرمز، نوار پایین) به لایه تبدیل شوند تا بتوانید جابه‌جا، بزرگ‌وکوچک، رنگی یا پاکشان کنید؟\n(«انصراف» = قالب همان‌طور خودکار بماند و فقط لایه‌ی تازه اضافه کنید)")) {
+    layers = [...tzTplLayers(W, H), ...layers];
+    convert = true;
+  }
+  const clipNow = (t) => clipAt(Math.min(t || 0, dur - 0.01)).clip;
   openDesigner({
-    w: W, h: H, layers, timed: true, duration: dur, title: "🎨 لایه‌های دلخواه ریلز",
-    background: (ctx, w, h, t) => drawFrame(ctx, w, h, Math.min(t || 0, dur - 0.01)),
-    onSave: (ls) => { s.layers = ls; s.layersSize = [W, H]; saveDraft(); refresh(); },
+    w: W, h: H, layers, timed: true, duration: dur, title: "🎨 لایه‌های ریلز",
+    background: (ctx, w, h, t) => { const f = s.freeTpl; s.freeTpl = f || convert; drawFrame(ctx, w, h, Math.min(t || 0, dur - 0.01)); s.freeTpl = f; },
+    bg: {
+      label: "عکس/ویدیوی همین لحظه",
+      move: (dx, dy, t) => { const c = clipNow(t); if (c) { c.ox = +Math.max(-1, Math.min(1, (c.ox || 0) + dx)).toFixed(4); c.oy = +Math.max(-1, Math.min(1, (c.oy || 0) + dy)).toFixed(4); } },
+      zoom: (f, t) => { const c = clipNow(t); if (c) c.scale = +Math.min(4, Math.max(0.3, (c.scale ?? 1) * f)).toFixed(3); },
+      reset: (t) => { const c = clipNow(t); if (c) Object.assign(c, { scale: 1, ox: 0, oy: 0 }); },
+    },
+    onSave: (ls) => { s.layers = ls; s.layersSize = [W, H]; if (convert) s.freeTpl = true; saveDraft(); refresh(); },
   });
 }
 
@@ -644,7 +768,7 @@ VIEWS.teaser = async (view, params) => {
   TZ.music = media.filter((m) => m.kind === "audio" || (m.kind === "video" && m.has_audio)).concat(music.filter((m) => !media.some((x) => x.id === m.id)));
   if (!TZ.s) {
     try { TZ.s = { ...teaserDefaults(), ...JSON.parse(lsGet("teaserDraft", "null") || "{}") }; } catch { TZ.s = teaserDefaults(); }
-    if (brandPref.value) for (const k of ["brand", "template", "accent", "logoId", "kicker", "fit", "headlinePos", "outroText", "quality", "footerText", "credit", "headlineMode"]) if (brandPref.value[k] !== undefined && (!TZ.s[k] || k === "logoId")) TZ.s[k] = brandPref.value[k];
+    if (brandPref.value) for (const k of ["brand", "template", "accent", "logoId", "kicker", "fit", "headlinePos", "outroText", "quality", "footerText", "footerSize", "credit", "headlineMode"]) if (brandPref.value[k] !== undefined && (!TZ.s[k] || k === "logoId")) TZ.s[k] = brandPref.value[k];
   }
   const storyId = params.get("story");
   if (storyId) {
@@ -689,16 +813,20 @@ VIEWS.teaser = async (view, params) => {
             <label class="btn primary">⬆️ افزودن از گوشی<input type="file" id="tz-up" accept="image/*,video/*" multiple hidden></label>
             <span class="muted small" id="tz-up-st"></span>
           </div>
+          <p class="small muted" style="margin:0 0 6px">👆 جا و اندازه‌ی هر عکس/ویدیو: روی پیش‌نمایش با انگشت بکشید تا جابه‌جا شود، با دو انگشت (یا چرخ موس) بزرگ و کوچک کنید، یا دکمه‌های «اندازه − +» همان تکه را بزنید.</p>
           <details><summary class="small">کتابخانه‌ی فایل‌های قبلی (${num(TZ.media.length)})</summary><div class="media-grid" id="tz-lib" style="margin-top:8px"></div></details>
         </div>
 
         <div class="card step"><h3>تیتر و نام‌ها</h3>
+          ${s.freeTpl ? `<p class="small" style="color:var(--primary)">✏️ تیتر و اجزای قالب الان «لایه‌ی آزاد» هستند؛ از «🎨 لایه‌ها» ویرایششان کنید (تغییر این کادرها روی ویدیو اثر ندارد).</p>` : ""}
           <div class="form-grid">
-            <label class="adv">روتیتر / برچسب<input data-k="kicker" value="${esc(s.kicker)}" placeholder="مثلاً فوری، گزارش، ویدیو"></label>
+            <label class="wide">روتیتر (سطر کوچک بالای تیتر)<input data-k="kicker" value="${esc(s.kicker)}" placeholder="مثلاً: در یکصدوپانزدهمین طرح توسعه‌ی شهری"></label>
             <label class="adv">نام رسانه (کارت‌ها)<input data-k="brand" value="${esc(s.brand)}" placeholder="مثلاً خبرگزاری …"></label>
-            <label class="wide adv">نوشته‌ی نوار پایین (قالب کرمان راوی)<input data-k="footerText" value="${esc(s.footerText || "")}" class="ltr" placeholder="www.kermanravi.ir"></label>
-            <label class="wide">تیتر<textarea data-k="headline" rows="2" placeholder="تیتر اصلی کلیپ">${esc(s.headline)}</textarea>
-              <small>در قالب «کرمان راوی» واژه‌هایی را که بین دو ستاره بنویسید سرمه‌ای می‌شوند، مثلاً: برگزاری *رویداد* سولار</small></label>
+            <label class="wide adv">نوشته‌ی نوار پایین (قالب «کرمان راوی (نوار)»)<input data-k="footerText" value="${esc(s.footerText || "")}" class="ltr" placeholder="www.kermanravi.ir"></label>
+            <label class="adv">اندازه‌ی نوشته‌ی نوار پایین<select data-k="footerSize">${[[0.8, "کوچک"], [1, "معمولی"], [1.25, "بزرگ"], [1.5, "خیلی بزرگ"]].map(([v, l]) => `<option value="${v}" ${Number(s.footerSize || 1) === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+            <label class="wide">تیتر<textarea data-k="headline" rows="3" placeholder="تیتر اصلی کلیپ">${esc(s.headline)}</textarea>
+              <small>هر جا Enter بزنید تیتر در ویدیو هم همان‌جا به سطر بعد می‌رود. واژه‌های بین دو ستاره رنگ دوم می‌گیرند: برگزاری *رویداد* سولار</small></label>
+            <label class="wide">زیرتیتر (سطر کوچک زیر تیتر)<input data-k="subhead" value="${esc(s.subhead || "")}" placeholder="مثلاً: با هدف ارتقای ضریب ایمنی شهر"></label>
             <label>نام گوینده (نوار پایین)<input data-k="speakerName" value="${esc(s.speakerName || "")}" placeholder="مثلاً حمید علیزاده"></label>
             <label>سمت گوینده<input data-k="speakerTitle" value="${esc(s.speakerTitle || "")}" placeholder="مثلاً مدیر دفتر …"></label>
             <label class="wide">تهیه و تدوین<input data-k="credit" value="${esc(s.credit || "")}" placeholder="نام خبرنگار (در ابتدای کلیپ نمایش داده می‌شود)"></label>
@@ -742,11 +870,12 @@ VIEWS.teaser = async (view, params) => {
           <button class="btn sm" id="tz-savebrand" style="margin-top:8px">⭐ ذخیره‌ی نام رسانه، لوگو و قالب برای دفعه‌های بعد</button>
         </div>
 
-        <div class="card step adv"><h3>🎨 لایه‌های دلخواه (مثل کنوا)</h3>
+        <div class="card step"><h3>🎨 ویرایش آزاد و لایه‌ها (مثل کنوا)</h3>
           <p class="small muted">روی ویدیو هر چیزی بگذارید: متن با رنگ و کادر و سایه، شکل، خط، عکس، لوگو. هر لایه را با انگشت جابه‌جا و بزرگ‌وکوچک کنید و تعیین کنید از چه ثانیه‌ای تا چه ثانیه‌ای دیده شود.</p>
           <div class="btn-row">
             <button class="btn primary" id="tz-design">🎨 باز کردن ویرایشگر لایه‌ای</button>
             ${s.layers?.length ? `<span class="small muted">${num(s.layers.length)} لایه</span><button class="btn sm danger" id="tz-clear-layers">🗑 پاک کردن لایه‌ها</button>` : ""}
+            ${s.freeTpl ? `<button class="btn sm" id="tz-auto-tpl">↩️ بازگشت به قالب خودکار</button>` : ""}
           </div>
         </div>
 
@@ -786,7 +915,7 @@ VIEWS.teaser = async (view, params) => {
     const k = el.dataset.k;
     let v = el.type === "checkbox" ? el.checked : el.value;
     if (["musicId", "story_id"].includes(k)) v = v ? Number(v) : null;
-    if (["musicVolume", "videoVolume", "captionSize", "capY"].includes(k)) v = Number(v);
+    if (["musicVolume", "videoVolume", "captionSize", "capY", "footerSize"].includes(k)) v = Number(v);
     s[k] = v;
     saveDraft();
     if (k === "captionsText" || k === "intro" || k === "outro") drawTimes();
@@ -798,9 +927,14 @@ VIEWS.teaser = async (view, params) => {
   $$("[data-tpl]", view).forEach((b) => (b.onclick = () => { s.template = b.dataset.tpl; s.accent = ""; saveDraft(); refresh(); }));
   $("#tz-accent-reset").onclick = () => { s.accent = ""; saveDraft(); refresh(); };
   $("#tz-design").onclick = openTeaserDesigner;
-  if ($("#tz-clear-layers")) $("#tz-clear-layers").onclick = () => { if (!confirm("همه‌ی لایه‌های دلخواه پاک شود؟")) return; s.layers = []; saveDraft(); refresh(); };
+  if ($("#tz-clear-layers")) $("#tz-clear-layers").onclick = () => { if (!confirm("همه‌ی لایه‌های دلخواه پاک شود؟")) return; s.layers = []; s.freeTpl = false; saveDraft(); refresh(); };
+  if ($("#tz-auto-tpl")) $("#tz-auto-tpl").onclick = () => {
+    if (!confirm("تیتر، نام گوینده، لوگو و قاب دوباره خودکار از قالب ساخته شوند؟ (لایه‌هایی که از قالب ساخته شده بودند حذف می‌شوند؛ لایه‌های خودتان می‌مانند)")) return;
+    s.layers = (s.layers || []).filter((l) => !l.tpl); s.freeTpl = false; saveDraft(); refresh();
+  };
   $("#tz-new").onclick = () => { if (!confirm("همه‌ی تنظیمات این تیزر پاک شود؟")) return; const keep = { brand: s.brand, template: s.template, accent: s.accent, logoId: s.logoId, kicker: s.kicker }; TZ.s = { ...teaserDefaults(), ...keep }; saveDraft(); refresh(); };
   $("#tz-play").onclick = togglePlay;
+  bindClipDrag($("#tz-canvas"));
   $("#tz-range").oninput = (ev) => { stopPlay(); TZ.t = Number(ev.target.value); drawPreview(); };
   if ($("#tz-manual")) $("#tz-manual").onclick = (ev) => { ev.preventDefault(); s.autoTime = true; s.manual = []; saveDraft(); refresh(); };
   $("#tz-simple").onclick = () => { TZ.simple = true; lsSet("tzSimple", "1"); refresh(); };
@@ -815,7 +949,7 @@ VIEWS.teaser = async (view, params) => {
     s.captionsText = r.lines.join("\n"); s.autoTime = true; s.manual = []; saveDraft(); refresh();
   };
   $("#tz-savebrand").onclick = async () => {
-    await api("/api/prefs/teaser_brand", { method: "PUT", body: { value: { brand: s.brand, template: s.template, accent: s.accent, logoId: s.logoId, kicker: s.kicker, footerText: s.footerText, credit: s.credit, headlineMode: s.headlineMode, fit: s.fit, headlinePos: s.headlinePos, outroText: s.outroText, quality: s.quality } } });
+    await api("/api/prefs/teaser_brand", { method: "PUT", body: { value: { brand: s.brand, template: s.template, accent: s.accent, logoId: s.logoId, kicker: s.kicker, footerText: s.footerText, footerSize: s.footerSize, credit: s.credit, headlineMode: s.headlineMode, fit: s.fit, headlinePos: s.headlinePos, outroText: s.outroText, quality: s.quality } } });
     toast("ذخیره شد؛ تیزرهای بعدی با همین تنظیمات شروع می‌شوند ⭐");
   };
   $("#tz-up").onchange = (ev) => uploadMedia(ev.target.files, true);
@@ -861,6 +995,8 @@ function drawClips() {
         <small class="muted">(کل ویدیو ${num((c.mediaDuration || 0).toFixed(1))} ث)</small>`}
       <label><input type="checkbox" data-ci="${i}" data-f="gray" ${c.gray ? "checked" : ""}> سیاه‌وسفید</label>
       <button class="btn sm ghost" data-cprev="${i}" title="پیش‌نمایش این تکه">👁</button>
+      <span class="clip-size">اندازه <button class="btn sm ghost" data-csz="${i}:-0.1">−</button><b>${num(Math.round((c.scale ?? 1) * 100))}٪</b><button class="btn sm ghost" data-csz="${i}:0.1">+</button>
+        ${(c.scale ?? 1) !== 1 || c.ox || c.oy ? `<button class="btn sm ghost" data-creset="${i}" title="اندازه و جای اول">↺</button>` : ""}</span>
     </div>
     <div class="ord">
       <button data-up="${i}" title="بالا">▲</button><button data-rm="${i}" title="حذف">✕</button><button data-dn="${i}" title="پایین">▼</button>
@@ -883,12 +1019,18 @@ function drawClips() {
   $$("[data-up]", box).forEach((b) => (b.onclick = () => move(Number(b.dataset.up), -1)));
   $$("[data-dn]", box).forEach((b) => (b.onclick = () => move(Number(b.dataset.dn), 1)));
   $$("[data-rm]", box).forEach((b) => (b.onclick = () => { s.clips.splice(Number(b.dataset.rm), 1); saveDraft(); drawClips(); drawTimes(); summary(); drawPreview(); }));
-  $$("[data-cprev]", box).forEach((b) => (b.onclick = () => {
-    const i = Number(b.dataset.cprev);
+  const showClip = (i) => {
     TZ.t = timeline().mainStart + s.clips.slice(0, i).reduce((a, c) => a + clipDur(c), 0) + 0.1;
     stopPlay(); drawPreview();
-    $("#tz-canvas").scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  $$("[data-cprev]", box).forEach((b) => (b.onclick = () => { showClip(Number(b.dataset.cprev)); $("#tz-canvas").scrollIntoView({ behavior: "smooth", block: "center" }); }));
+  $$("[data-csz]", box).forEach((b) => (b.onclick = () => {
+    const [i, d] = b.dataset.csz.split(":").map(Number);
+    const c = s.clips[i];
+    c.scale = +Math.min(4, Math.max(0.3, (c.scale ?? 1) + d)).toFixed(2);
+    saveDraft(); drawClips(); showClip(i);
   }));
+  $$("[data-creset]", box).forEach((b) => (b.onclick = () => { const i = Number(b.dataset.creset); Object.assign(s.clips[i], { scale: 1, ox: 0, oy: 0 }); saveDraft(); drawClips(); showClip(i); }));
 }
 
 function drawLib() {
@@ -1050,7 +1192,7 @@ async function renderTeaser() {
       overlays.push({ image: png(layerCanvas((c, W, H) => drawBrand(c, W, H, "intro"))), start: tl.mainStart, end: hEnd });
       overlays.push({ image: png(layerCanvas((c, W, H) => drawBrand(c, W, H, "main"))), start: hEnd, end: tl.mainEnd });
     } else if (s.brand.trim() || TZ.logoEl || tpl().style === "kr") overlays.push({ image: png(layerCanvas(drawBrand)), start: tl.mainStart, end: tl.mainEnd });
-    if (s.headline.trim() || s.kicker.trim()) {
+    if (s.headline.trim() || s.kicker.trim() || (s.subhead || "").trim()) {
       overlays.push({ image: png(layerCanvas(drawHeadline)), start: tl.mainStart, end: hEnd });
     }
     const caps = captionTimes();
@@ -1062,7 +1204,8 @@ async function renderTeaser() {
         overlays.push({ image: png(layerCanvas((ctx, W, H) => { ctx.scale(W / lw, H / lh); drawLayers(ctx, o.act); })), start: o.start, end: o.end });
       }
     }
-    const clips = s.clips.map((c) => ({ media_id: c.media_id, duration: clipDur(c), start: c.start || 0, zoom: c.zoom !== false, gray: !!c.gray }));
+    const clips = s.clips.map((c) => ({ media_id: c.media_id, duration: clipDur(c), start: c.start || 0, zoom: c.zoom !== false, gray: !!c.gray,
+      scale: c.scale ?? 1, ox: c.ox ?? 0, oy: c.oy ?? 0 }));
     if (s.intro) clips.unshift({ card: png(layerCanvas((ctx, W, H) => drawCard(ctx, W, H, s.introText || s.headline, false))), duration: INTRO_DUR, zoom: true });
     if (s.outro) clips.push({ card: png(layerCanvas((ctx, W, H) => drawCard(ctx, W, H, s.outroText, true))), duration: OUTRO_DUR, zoom: false });
     btn.textContent = "در حال فرستادن…";
@@ -1127,4 +1270,37 @@ function drawList(list) {
   if (list.some((t) => ["queued", "rendering"].includes(t.status))) {
     TZ.poll = setTimeout(async () => { if (currentPage === "teaser") drawList(await api("/api/teasers").catch(() => list)); }, 3000);
   }
+}
+
+// جابه‌جا کردن عکس/ویدیوی همین لحظه داخل قاب با انگشت؛ بزرگ‌نمایی با دو انگشت یا چرخ موس
+function bindClipDrag(cv) {
+  const pts = new Map();
+  let st = null;
+  const pos = (ev) => { const r = cv.getBoundingClientRect(); return { x: (ev.clientX - r.left) / r.width, y: (ev.clientY - r.top) / r.height }; };
+  const cur = () => clipAt(Math.min(TZ.t, Math.max(0, timeline().total - 0.01))).clip;
+  const begin = () => { const c = cur(); st = c && { c, scale: c.scale ?? 1, ox: c.ox ?? 0, oy: c.oy ?? 0, p: [...pts.values()][0], dist: pts.size > 1 ? dist() : 0 }; };
+  const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  cv.style.touchAction = "none";
+  cv.addEventListener("pointerdown", (ev) => {
+    if (TZ.playing || !cur()) return;
+    cv.setPointerCapture(ev.pointerId);
+    pts.set(ev.pointerId, pos(ev)); begin();
+  });
+  cv.addEventListener("pointermove", (ev) => {
+    if (!pts.has(ev.pointerId) || !st) return;
+    pts.set(ev.pointerId, pos(ev));
+    const c = st.c;
+    if (pts.size > 1) { if (st.dist) c.scale = +Math.min(4, Math.max(0.3, st.scale * dist() / st.dist)).toFixed(3); }
+    else { const p = pos(ev); c.ox = +Math.max(-1, Math.min(1, st.ox + (p.x - st.p.x))).toFixed(4); c.oy = +Math.max(-1, Math.min(1, st.oy + (p.y - st.p.y))).toFixed(4); }
+    drawPreview();
+  });
+  const end = (ev) => { if (!pts.delete(ev.pointerId)) return; if (pts.size) begin(); else if (st) { st = null; saveDraft(); drawClips(); } };
+  cv.addEventListener("pointerup", end);
+  cv.addEventListener("pointercancel", end);
+  cv.addEventListener("wheel", (ev) => {
+    const c = cur(); if (!c) return;
+    ev.preventDefault();
+    c.scale = +Math.min(4, Math.max(0.3, (c.scale ?? 1) * (ev.deltaY < 0 ? 1.06 : 0.94))).toFixed(3);
+    drawPreview(); clearTimeout(cv._wt); cv._wt = setTimeout(() => { saveDraft(); drawClips(); }, 400);
+  }, { passive: false });
 }

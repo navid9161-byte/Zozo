@@ -392,6 +392,17 @@ function openPostDesigner() {
   openDesigner({
     w: POST_W, h: postH(), layers, title: "🎨 ویرایش آزاد پست",
     background: (ctx) => { const f = s.freeTexts; s.freeTexts = f || convert; drawPostBase(ctx); s.freeTexts = f; },
+    bg: PS.img && s.layout !== "text" ? {
+      label: "عکس پست",
+      move: (dx, dy) => {
+        const ph = PS.photo; if (!ph) return;
+        const ox = ph.dw - ph.w, oy = ph.dh - ph.h;
+        if (ox > 1) s.focusX = Math.min(100, Math.max(0, (s.focusX ?? 50) - (dx * POST_W / ox) * 100));
+        if (oy > 1) s.focus = Math.min(100, Math.max(0, s.focus - (dy * postH() / oy) * 100));
+      },
+      zoom: (f) => { s.zoom = Math.round(Math.min(300, Math.max(100, s.zoom * f))); },
+      reset: () => { s.focus = 50; s.focusX = 50; s.zoom = 100; },
+    } : null,
     onSave: (ls) => { s.layers = ls; if (convert) s.freeTexts = true; postSave(); refresh(); },
   });
 }
