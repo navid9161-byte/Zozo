@@ -301,3 +301,24 @@ def test_clip_framing_filter():
     assert plain != framed and "(0.2000)*W" in framed and "1.5000" in framed
     crop = teaser._place_filter("crop", 720, 1280, "#000000", 0.5, 0, 0)  # برش هیچ‌وقت کوچک‌تر از قاب نمی‌شود
     assert "1.0000" in crop
+
+
+def test_reminder_every_n_days():
+    from zozo import services
+
+    assert services.next_occurrence("1405/07/01", "every2") == "1405/07/03"
+    assert services.next_occurrence("1405/07/01", "every_n", 5) == "1405/07/06"
+    occ = services._occurrences("1405/07/01", "every3", "1405/07/10", "1405/07/20")
+    assert occ == ["1405/07/10", "1405/07/13", "1405/07/16", "1405/07/19"]
+
+
+def test_invoice_search_customers_export():
+    from zozo import invoices
+
+    a = invoices.create({"customer": "شرکت انار", "customer_phone": "0912", "items": [{"title": "آگهی مزایده", "qty": 2, "unit_price": 1000}]})
+    invoices.update(a["id"], {"status": "issued"})
+    invoices.create({"customer": "شرکت انار", "items": [{"title": "آگهی دوم", "qty": 1, "unit_price": 500}]})
+    assert len(invoices.list_all("انار")) >= 2 and invoices.list_all("مزایده")[0]["id"] == a["id"]
+    c = next(x for x in invoices.customers() if x["name"] == "شرکت انار")
+    assert c["count"] >= 2 and c["phone"] == "0912" and c["billed"] >= 2000
+    assert "شرکت انار" in invoices.export_csv(invoices.list_all("انار")) and "انار" in invoices.customers_csv()

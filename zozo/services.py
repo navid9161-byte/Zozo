@@ -289,9 +289,9 @@ def calendar(conn: sqlite3.Connection, month: str) -> dict[str, Any]:
         events.append({"date": f"{month}/{d:02d}", "kind": "salary", "entity": "outlets", "id": r["id"],
                        "title": f"واریز حقوق {r['name']}"})
     # تکرار یادآوری‌های دوره‌ای در این ماه
-    for r in conn.execute("SELECT id, title, remind_at, repeat FROM reminders WHERE status='active' AND repeat != 'none' "
+    for r in conn.execute("SELECT id, title, remind_at, repeat, repeat_days FROM reminders WHERE status='active' AND repeat != 'none' "
                           "AND substr(remind_at,1,10) < ?", (a,)):
-        for date in _occurrences(r["remind_at"][:10], r["repeat"], a, b):
+        for date in _occurrences(r["remind_at"][:10], r["repeat"], a, b, r["repeat_days"]):
             events.append({"date": date, "time": r["remind_at"][11:], "kind": "reminder", "entity": "reminders",
                            "id": r["id"], "title": r["title"], "repeat": True})
     events.sort(key=lambda e: (e["date"], e.get("time") or ""))
@@ -302,9 +302,13 @@ def calendar(conn: sqlite3.Connection, month: str) -> dict[str, Any]:
             "prev": jalali.prev_months(month, 2)[0], "next": jalali.month_key(jalali.add_months(a, 1))}
 
 
-def next_occurrence(date: str, repeat: str) -> str:
+def next_occurrence(date: str, repeat: str, days: int | None = None) -> str:
     if repeat == "daily":
         return jalali.add_days(date, 1)
+    if repeat in ("every2", "every3", "every4"):
+        return jalali.add_days(date, int(repeat[-1]))
+    if repeat == "every_n":
+        return jalali.add_days(date, max(1, int(days or 1)))
     if repeat == "weekly":
         return jalali.add_days(date, 7)
     if repeat == "monthly":
@@ -314,15 +318,17 @@ def next_occurrence(date: str, repeat: str) -> str:
     raise ValueError(repeat)
 
 
-def _occurrences(start: str, repeat: str, a: str, b: str) -> list[str]:
+def _occurrences(start: str, repeat: str, a: str, b: str, days: int | None = None) -> list[str]:
     out, d, guard = [], start, 0
-    if repeat == "daily" and jalali.days_between(start, a) > 1:
-        d = jalali.add_days(a, -1)  # میان‌بُر برای یادآوری روزانه‌ی قدیمی
+    step = {"daily": 1, "every2": 2, "every3": 3, "every4": 4}.get(repeat) or (max(1, int(days or 1)) if repeat == "every_n" else 0)
+    if step and jalali.days_between(start, a) > step:
+        # میان‌بُر برای یادآوری‌های چندروزه‌ی قدیمی: پرش به نزدیک‌ترین تکرار پیش از بازه
+        d = jalali.add_days(start, (jalali.days_between(start, a) // step) * step)
     while d <= b and guard < 800:
         guard += 1
         if d >= a:
             out.append(d)
-        d = next_occurrence(d, repeat)
+        d = next_occurrence(d, repeat, days)
     return out
 
 
@@ -373,6 +379,13 @@ def global_search(conn: sqlite3.Connection, q: str) -> dict[str, Any]:
             ent = db.ENTITIES[name]
             groups.append({"entity": name, "label": ent.label_plural, "icon": ent.icon, "items": [
                 {"id": r["id"], "title": r[ent.title_field], "sub": _sub(name, r)} for r in rows]})
+    from . import invoices
+
+    invs = invoices.list_all(q)[:8]
+    if invs:
+        groups.append({"entity": "invoices", "label": "صورتحساب‌ها (فاکتورها)", "icon": "🧾", "items": [
+            {"id": r["id"], "title": f"{r.get('customer') or 'بی‌نام'} — {r['number']}",
+             "sub": f"{r.get('date') or ''} · {r['payable']:,} {r['profile'].get('unit') or ''} · {r['status_label']}"} for r in invs]})
     docs = documents.search(q, limit=6)
     if docs["results"]:
         groups.append({"entity": "documents", "label": "بایگانی اسناد", "icon": "🗄️", "items": [

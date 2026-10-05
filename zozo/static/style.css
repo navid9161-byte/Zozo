@@ -590,3 +590,13 @@ dialog.designer:not([open]) { display: none; }
 .btn.big { font-size: 18px; padding: 12px 22px; }
 .ps-slides { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .dz-bg { display: flex; flex-direction: column; gap: 6px; padding: 8px; margin-bottom: 10px; border-radius: 10px; background: var(--bg); }
+.inv-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.inv-table th, .inv-table td { padding: 8px; border-bottom: 1px solid var(--line); text-align: start; white-space: nowrap; }
+.inv-table tbody tr { cursor: pointer; }
+.inv-table tbody tr:hover { background: var(--bg); }
+.inv-table td.neg { color: var(--warn); font-weight: 700; }
+.inv-rowsum { grid-column: 1 / -1; }
+.dz-rtb { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.dz-rtb input[type=color] { width: 26px; height: 22px; padding: 0; border: 0; vertical-align: middle; margin-inline-start: 4px; }
+.dz-rich { min-height: 70px; max-height: 200px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: #fff; font-size: 16px; line-height: 1.8; outline: none; white-space: pre-wrap; font-family: Vazirmatn, Tahoma, sans-serif; }
+.dz-rich:focus { border-color: var(--primary); }

@@ -35,7 +35,7 @@ def check_reminders(conn: sqlite3.Connection, now: str) -> int:
         if r["repeat"] and r["repeat"] != "none":
             nxt = r["remind_at"]
             while nxt <= now:  # اگر سرور مدتی خاموش بوده، به اولین زمان آینده برود
-                date = services.next_occurrence(nxt[:10], r["repeat"])
+                date = services.next_occurrence(nxt[:10], r["repeat"], r["repeat_days"])
                 nxt = f"{date} {r['remind_at'][11:]}"
             conn.execute("UPDATE reminders SET remind_at=?, last_sent=? WHERE id=?", (nxt, now, r["id"]))
         else:

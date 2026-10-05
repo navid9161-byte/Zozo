@@ -180,10 +180,17 @@ ENTITIES: dict[str, Entity] = {
             fields=(
                 Field("title", "چه چیزی یادم بیاید؟", required=True),
                 Field("remind_at", "زمان", "datetime", required=True, help="مثلاً 1405/07/12 09:30"),
-                Field("repeat", "تکرار", "choice", default="none", choices={
-                    "none": "یک بار", "daily": "هر روز", "weekly": "هر هفته", "monthly": "هر ماه", "yearly": "هر سال",
+                Field("category", "نوع یادآوری", "choice", default="other", choices={
+                    "finance": "💰 پیگیری مالی", "invoice": "🧾 صدور فاکتور", "meeting": "🤝 جلسه و قرار",
+                    "publish": "📤 بارگذاری خبر", "call": "📞 تماس", "other": "📌 سایر",
                 }),
-                Field("story_id", "مربوط به سوژه", "ref", ref="stories"),
+                Field("repeat", "تکرار", "choice", default="none", choices={
+                    "none": "یک بار", "daily": "هر روز", "every2": "یک روز در میان", "every3": "دو روز در میان",
+                    "every4": "سه روز در میان", "every_n": "هر چند روز یک بار (دلخواه)", "weekly": "هر هفته",
+                    "monthly": "هر ماه", "yearly": "هر سال",
+                }),
+                Field("repeat_days", "هر چند روز؟", "int", help="فقط برای «هر چند روز یک بار»؛ مثلاً ۵"),
+                Field("story_id", "مربوط به سوژه", "ref", ref="stories", list_hidden=True),
                 Field("status", "وضعیت", "choice", default="active", choices={
                     "active": "فعال", "sent": "یادآوری شد", "done": "انجام شد",
                 }),

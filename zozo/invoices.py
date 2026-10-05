@@ -35,7 +35,9 @@ DEFAULT_PROFILE: dict[str, Any] = {
     "contact": "",
     "color": "#4a72a8",
     "logo_media_id": None,
-    "show_date": "",
+    "show_date": "",   # «» یا «yes» = تاریخ زیر شماره بیاید؛ «no» = نیاید
+    "unit_price": 0,   # قیمت پیش‌فرض هر کادر در این روزنامه
+    "qty_type": "",    # نوع کادر پیش‌فرض، مثلاً «داخلی»
 }
 
 STATUS = {"draft": "پیش‌نویس", "issued": "صادرشده", "partial": "پرداخت ناقص", "paid": "پرداخت‌شده",
@@ -59,6 +61,16 @@ def _templates(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         items = [{"id": 1, "name": prof.get("media_name") or "قالب اصلی", "outlet_id": None, **prof}]
         db.kv_set(conn, "invoice_templates", json.dumps(items, ensure_ascii=False))
         db.kv_set(conn, "invoice_default_template", "1")
+    # هر قالب به یک «رسانه» در بخش مالی وصل است (اگر نبود خودکار ساخته می‌شود)
+    changed = False
+    for t in items:
+        name = str(t.get("name") or t.get("media_name") or "").strip()
+        if name and not t.get("outlet_id"):
+            row = conn.execute("SELECT id FROM outlets WHERE name=?", (name,)).fetchone()
+            t["outlet_id"] = row["id"] if row else db.create(conn, "outlets", {"name": name})["id"]
+            changed = True
+    if changed:
+        db.kv_set(conn, "invoice_templates", json.dumps(items, ensure_ascii=False))
     return [{**DEFAULT_PROFILE, **t} for t in items]
 
 
@@ -95,6 +107,9 @@ def save_template(data: dict[str, Any], tid: int | None = None) -> dict[str, Any
     with db.connect() as conn:
         items = _templates(conn)
         clean = {k: data[k] for k in (*DEFAULT_PROFILE, *TEMPLATE_KEYS) if k in data}
+        if "unit_price" in clean:
+            raw = str(clean["unit_price"] or "").strip()
+            clean["unit_price"] = db.to_int(raw, "قیمت هر کادر") if raw else 0
         if "outlet_id" in clean:
             clean["outlet_id"] = int(clean["outlet_id"]) if str(clean["outlet_id"] or "").strip() else None
         if tid is None:
@@ -110,6 +125,12 @@ def save_template(data: dict[str, Any], tid: int | None = None) -> dict[str, Any
             t.update(clean)
             if not str(t.get("name") or "").strip():
                 t["name"] = t.get("media_name") or "قالب"
+        # هر روزنامه در بخش مالی یک «رسانه» است تا درآمدش جدا دیده شود (خودکار ساخته می‌شود)
+        t = next(t for t in items if t["id"] == tid)
+        name = str(t.get("name") or t.get("media_name") or "").strip()
+        if name and not t.get("outlet_id"):
+            row = conn.execute("SELECT id FROM outlets WHERE name=?", (name,)).fetchone()
+            t["outlet_id"] = row["id"] if row else db.create(conn, "outlets", {"name": name})["id"]
         _save_templates(conn, items)
         return next(t for t in _templates(conn) if t["id"] == tid)
 
@@ -162,6 +183,7 @@ def _items(raw: Any) -> list[dict[str, Any]]:
             except ValueError as e:
                 raise db.ValidationError(str(e)) from None
         out.append({"title": title, "date": date, "qty": qty, "qty_label": str(it.get("qty_label") or "").strip(),
+                    "qty_type": str(it.get("qty_type") or "").strip()[:40],
                     "unit_price": unit})
     return out
 
@@ -196,9 +218,87 @@ def next_number(conn: sqlite3.Connection, tid: int | None = None) -> str:
     return f"{year}-{seq:04d}"
 
 
-def list_all() -> list[dict[str, Any]]:
+def _norm(t: Any) -> str:
+    from . import textnorm
+
+    return textnorm.normalize(str(t or "")).replace("\u200c", " ")
+
+
+def _matches(inv: dict[str, Any], q: str) -> bool:
+    hay = " ".join([inv.get("number") or "", inv.get("customer") or "", inv.get("customer_code") or "",
+                    inv.get("customer_phone") or "", inv.get("notes") or "", inv["profile"].get("media_name") or "",
+                    *[it.get("title") or "" for it in inv["items"]], *[p.get("ref_no") or "" for p in inv["payments"]]])
+    hay = _norm(hay)
+    return all(w in hay for w in _norm(q).split())
+
+
+def list_all(q: str = "", template_id: int | None = None, customer: str = "") -> list[dict[str, Any]]:
     with db.connect() as conn:
-        return [_row(r) for r in conn.execute("SELECT * FROM invoices ORDER BY id DESC LIMIT 500")]
+        default = _default_tid(conn)
+        rows = [_row(r) for r in conn.execute("SELECT * FROM invoices ORDER BY id DESC LIMIT 2000")]
+    if template_id:
+        rows = [r for r in rows if (r.get("template_id") or default) == template_id]
+    if customer:
+        rows = [r for r in rows if _norm(r.get("customer")).strip() == _norm(customer).strip()]
+    if q.strip():
+        rows = [r for r in rows if _matches(r, q)]
+    return rows
+
+
+# ───── مشتری‌ها: هر نامی که در فاکتور ثبت شود با اطلاعاتش ذخیره می‌شود و دفعه‌ی بعد خودکار پر می‌شود ─────
+def customers() -> list[dict[str, Any]]:
+    """فهرست مشتری‌ها از روی فاکتورها (آخرین اطلاعات ثبت‌شده‌ی هر کدام) + جمع مبالغ."""
+    out: dict[str, dict[str, Any]] = {}
+    for inv in reversed(list_all()):
+        name = (inv.get("customer") or "").strip()
+        if not name:
+            continue
+        key = _norm(name).strip()
+        c = out.setdefault(key, {"name": name, "count": 0, "billed": 0, "paid": 0, "remaining": 0, "last_date": ""})
+        for k in ("customer_phone", "customer_address", "customer_code"):
+            if inv.get(k):
+                c[k[9:]] = inv[k]
+        c["name"] = name
+        live = inv["status"] not in ("draft", "cancelled")
+        c["count"] += 1
+        if live:
+            c["billed"] += inv["payable"]
+            c["paid"] += inv["paid_total"]
+            c["remaining"] += inv["remaining"]
+        c["last_date"] = max(c["last_date"], inv.get("date") or "")
+    return sorted(out.values(), key=lambda c: (-c["remaining"], c["name"]))
+
+
+def export_csv(rows: list[dict[str, Any]]) -> str:
+    import csv
+    import io
+
+    with db.connect() as conn:
+        names = {t["id"]: t["name"] for t in _templates(conn)}
+        default = _default_tid(conn)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["شماره", "تاریخ", "روزنامه", "مشتری", "شرح ردیف‌ها", "تعداد کادر", "جمع", "تخفیف", "قابل پرداخت",
+                "پرداخت‌شده", "مانده", "وضعیت", "تاریخ پرداخت", "شماره رسید"])
+    for r in rows:
+        w.writerow([r["number"], r.get("date") or "", names.get(r.get("template_id") or default, ""), r.get("customer") or "",
+                    " | ".join(it["title"] for it in r["items"]), sum(it["qty"] or 0 for it in r["items"]),
+                    r["subtotal"], r["discount"], r["payable"], r["paid_total"], r["remaining"], r["status_label"],
+                    r.get("paid_date") or "", " ، ".join(p.get("ref_no") or "" for p in r["payments"] if p.get("ref_no"))])
+    return "\ufeff" + buf.getvalue()
+
+
+def customers_csv() -> str:
+    import csv
+    import io
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["مشتری", "تلفن", "شناسه", "نشانی", "تعداد فاکتور", "جمع صادرشده", "پرداخت‌شده", "مانده", "آخرین فاکتور"])
+    for c in customers():
+        w.writerow([c["name"], c.get("phone", ""), c.get("code", ""), c.get("address", ""), c["count"], c["billed"],
+                    c["paid"], c["remaining"], c["last_date"]])
+    return "\ufeff" + buf.getvalue()
 
 
 def _get(conn: sqlite3.Connection, inv_id: int) -> dict[str, Any]:

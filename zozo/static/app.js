@@ -196,8 +196,9 @@ function itemHTML(e, r) {
     case "reminders":
       cls = r.status !== "active" ? "done" : "";
       pre = `<input type="checkbox" data-rdone="${r.id}" ${r.status === "done" ? "checked" : ""} title="انجام شد">`;
+      if (r.category && r.category !== "other") m.push(`<span class="badge">${esc(choiceLabel(e, "category", r.category))}</span>`);
       m.push(`⏰ ${relTime(r.remind_at)}`);
-      if (r.repeat !== "none") m.push(`<span class="badge">🔁 ${esc(choiceLabel(e, "repeat", r.repeat))}</span>`);
+      if (r.repeat !== "none") m.push(`<span class="badge">🔁 ${esc(r.repeat === "every_n" ? `هر ${num(r.repeat_days || 1)} روز` : choiceLabel(e, "repeat", r.repeat))}</span>`);
       if (r.status === "sent") m.push(`<span class="badge gray">یادآوری شد</span>`);
       if (r.story_name) m.push(`📝 ${esc(r.story_name)}`);
       snippet = r.notes;
@@ -313,7 +314,7 @@ document.addEventListener("click", async (ev) => {
 const ENTITY_FILTERS = {
   legal_docs: ["status", "doc_type"],
   stories: ["status", "outlet_id", "kind"],
-  reminders: ["status"],
+  reminders: ["status", "category"],
   notes: ["kind"],
   contacts: ["reliability"],
   contracts: ["status", "outlet_id"],
@@ -545,6 +546,13 @@ async function openForm(e, rec, preset = {}) {
       inp.value = box.dataset.time ? `${date} ${b.dataset.t || "09:00"}` : date;
     }
   }));
+  // «هر چند روز؟» فقط وقتی تکرارِ دلخواه انتخاب شده
+  if (e === "reminders" && form.elements.repeat_days) {
+    const box = form.elements.repeat_days.closest("label") || form.elements.repeat_days.parentElement;
+    const sync = () => { box.hidden = form.elements.repeat.value !== "every_n"; };
+    form.elements.repeat.addEventListener("change", sync);
+    sync();
+  }
   // پیش‌فرض دستمزد از رسانه
   if (e === "stories" && form.elements.outlet_id) {
     form.elements.outlet_id.addEventListener("change", () => {

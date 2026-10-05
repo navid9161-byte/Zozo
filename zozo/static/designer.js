@@ -55,52 +55,97 @@ function drawLayer(ctx, L) {
       if (L.stroke && L.strokeW) { ctx.strokeStyle = L.stroke; ctx.lineWidth = L.strokeW; ctx.stroke(); }
     } else { ctx.fillStyle = "rgba(128,128,128,.35)"; ctx.fill(); }
   } else if (L.type === "text") {
-    const pad = L.bg ? (L.pad ?? 16) : 0;
-    ctx.font = `${L.weight || 700} ${L.size}px ${FONT}`;
-    const words = richWords(L.text || "", L.color, L.hi || L.color);
-    // پاراگراف‌ها: سطر جدید در متن رعایت می‌شود
-    const lines = [];
-    String(L.text || "").split("\n").forEach((para) => {
-      const ws = richWords(para, L.color, L.hi || L.color);
-      if (!ws.length) { lines.push({ words: [], w: 0, last: true }); return; }
-      const wrapped = wrapRich(ctx, ws, Math.max(20, L.w - pad * 2));
-      wrapped.forEach((l, i) => lines.push({ ...l, last: i === wrapped.length - 1 }));
-    });
-    void words;
-    const lh = L.size * (L.lh || 1.35);
-    const textH = lines.length * lh;
-    if (L.bg) {
-      ctx.fillStyle = L.bg;
-      rr(ctx, L.x, L.y, L.w, Math.max(L.h, textH + pad * 2), Math.min(L.radius || 0, L.w / 2));
-      ctx.fill();
-    }
-    if (L.shadow) { ctx.shadowColor = "rgba(0,0,0,.65)"; ctx.shadowBlur = L.size * 0.25; ctx.shadowOffsetY = L.size * 0.05; }
-    let y = L.y + pad + lh / 2 + (Math.max(L.h, textH + pad * 2) - textH - pad * 2) / 2;
-    const left = L.x + pad, right = L.x + L.w - pad, inner = right - left;
-    const sp = ctx.measureText(" ").width;
-    for (const line of lines) {
-      if (line.words.length) {
-        let startRight;
-        let gap = sp;
-        if (L.align === "justify" && !line.last && line.words.length > 1) {
-          gap = (inner - line.words.reduce((a, t) => a + t.tw, 0)) / (line.words.length - 1);
-          startRight = right;
-        } else if (L.align === "center") startRight = (left + right) / 2 + line.w / 2;
-        else if (L.align === "left") startRight = left + line.w;
-        else startRight = right;
-        let x = startRight;
-        ctx.textAlign = "right";
-        for (const t of line.words) {
-          if (L.stroke && L.strokeW) { ctx.strokeStyle = L.stroke; ctx.lineWidth = L.strokeW; ctx.lineJoin = "round"; ctx.strokeText(t.w, x, y); }
-          ctx.fillStyle = t.c;
-          ctx.fillText(t.w, x, y);
-          x -= t.tw + gap;
-        }
-      }
-      y += lh;
-    }
+    drawTextLayer(ctx, L);
   }
   ctx.restore();
+}
+
+// ───── متن لایه: هر واژه می‌تواند رنگ، اندازه و ضخامت خودش را داشته باشد (مثل ورد) ─────
+// L.runs = [{ t: "متن", c: "#رنگ"?, s: نسبت اندازه?, w: ضخامت? }] ؛ اگر نبود، از L.text و *ستاره* استفاده می‌شود
+function layerRuns(L) {
+  if (L.runs?.length) return L.runs;
+  const out = [];
+  String(L.text || "").split("*").forEach((part, i) => { if (part) out.push(i % 2 ? { t: part, c: L.hi || L.color } : { t: part }); });
+  return out;
+}
+
+// پاراگراف‌ها ← واژه‌ها؛ هر واژه از یک یا چند تکه (اگر وسط واژه رنگ عوض شده باشد)
+function layerParas(L) {
+  const paras = [[]];
+  let word = null;
+  for (const r of layerRuns(L)) {
+    const st = { c: r.c || L.color, s: r.s || 1, w: r.w || L.weight || 700 };
+    for (const ch of String(r.t).split(/(\n|\s+)/)) {
+      if (!ch) continue;
+      if (ch === "\n") { word = null; paras.push([]); continue; }
+      if (/^\s+$/.test(ch)) { word = null; continue; }
+      if (!word) { word = { pieces: [] }; paras[paras.length - 1].push(word); }
+      word.pieces.push({ t: ch, ...st });
+    }
+  }
+  // اگر وسط یک واژه رنگ/اندازه عوض شده، حروف باز هم به هم بچسبند (اتصال‌دهنده‌ی نامرئی)
+  for (const para of paras) for (const wd of para) {
+    if (wd.pieces.length < 2) continue;
+    wd.pieces.forEach((p, i) => { p.t = (i ? "\u200d" : "") + p.t + (i < wd.pieces.length - 1 ? "\u200d" : ""); });
+  }
+  return paras;
+}
+
+function drawTextLayer(ctx, L) {
+  const pad = L.bg ? (L.pad ?? 16) : 0;
+  const font = (p) => `${p.w} ${L.size * p.s}px ${FONT}`;
+  const inner = Math.max(20, L.w - pad * 2);
+  ctx.font = font({ w: L.weight || 700, s: 1 });
+  const sp = ctx.measureText(" ").width;
+  const lines = [];
+  for (const para of layerParas(L)) {
+    let cur = { words: [], w: 0, s: 1 };
+    for (const wd of para) {
+      wd.tw = 0;
+      for (const p of wd.pieces) { ctx.font = font(p); p.tw = ctx.measureText(p.t).width; wd.tw += p.tw; }
+      wd.s = Math.max(...wd.pieces.map((p) => p.s));
+      if (cur.words.length && cur.w + sp + wd.tw > inner) { lines.push(cur); cur = { words: [], w: 0, s: 1 }; }
+      cur.w += (cur.words.length ? sp : 0) + wd.tw;
+      cur.s = Math.max(cur.s, wd.s);
+      cur.words.push(wd);
+    }
+    cur.last = true;
+    lines.push(cur);
+  }
+  const lhOf = (l) => L.size * l.s * (L.lh || 1.35);
+  const textH = lines.reduce((a, l) => a + lhOf(l), 0);
+  const boxH = Math.max(L.h, textH + pad * 2);
+  if (L.bg) {
+    ctx.fillStyle = L.bg;
+    rr(ctx, L.x, L.y, L.w, boxH, Math.min(L.radius || 0, L.w / 2));
+    ctx.fill();
+  }
+  if (L.shadow) { ctx.shadowColor = "rgba(0,0,0,.65)"; ctx.shadowBlur = L.size * 0.25; ctx.shadowOffsetY = L.size * 0.05; }
+  let y = L.y + pad + (boxH - textH - pad * 2) / 2;
+  const left = L.x + pad, right = L.x + L.w - pad;
+  ctx.textAlign = "right";
+  for (const line of lines) {
+    const lh = lhOf(line);
+    y += lh / 2;
+    if (line.words.length) {
+      let gap = sp, x;
+      if (L.align === "justify" && !line.last && line.words.length > 1) { gap = (inner - line.words.reduce((a, t) => a + t.tw, 0)) / (line.words.length - 1); x = right; }
+      else if (L.align === "center") x = (left + right) / 2 + line.w / 2;
+      else if (L.align === "left") x = left + line.w;
+      else x = right;
+      for (const wd of line.words) {
+        for (const p of wd.pieces) {
+          ctx.font = font(p);
+          if (L.stroke && L.strokeW) { ctx.strokeStyle = L.stroke; ctx.lineWidth = L.strokeW; ctx.lineJoin = "round"; ctx.strokeText(p.t, x, y); }
+          ctx.fillStyle = p.c;
+          ctx.fillText(p.t, x, y);
+          x -= p.tw;
+        }
+        x -= gap;
+      }
+    }
+    y += lh / 2;
+  }
 }
 
 function drawLayers(ctx, layers, t = null, scale = 1) {
@@ -200,7 +245,11 @@ function openDesigner(opts) {
     const rng = (k, label, min, max, step = 1) => `<label class="dz-f">${label} <small>${num(+(L[k] ?? 0).toFixed?.(2) ?? L[k])}</small><input type="range" data-p="${k}" min="${min}" max="${max}" step="${step}" value="${L[k] ?? 0}"></label>`;
     let f = "";
     if (L.type === "text") {
-      f += `<label class="dz-f wide">متن <small>(واژه‌های *ستاره‌دار* رنگ دوم می‌گیرند)</small><textarea data-p="text" rows="3">${esc(L.text)}</textarea></label>`;
+      f += `<div class="dz-f wide"><span>متن <small>— واژه یا بخشی از متن را انتخاب کنید و فقط رنگ، اندازه یا ضخامت همان را عوض کنید</small></span>
+        <div class="dz-rtb"><label class="btn sm" title="رنگ بخش انتخاب‌شده">🎨 رنگ<input type="color" data-rc value="#9d1819"></label>
+          <button type="button" class="btn sm" data-rs="1.15" title="بزرگ‌تر">A+</button><button type="button" class="btn sm" data-rs="0.87" title="کوچک‌تر">A−</button>
+          <button type="button" class="btn sm" data-rb title="پررنگ / معمولی"><b>B</b></button><button type="button" class="btn sm ghost" data-rclear title="برگرداندن بخش انتخاب‌شده به حالت عادی">✕ قالب‌بندی</button></div>
+        <div class="dz-rich" contenteditable="true" dir="rtl" style="color:${esc(L.color)};font-weight:${L.weight || 700}">${runsToHTML(L)}</div></div>`;
       f += rng("size", "اندازه", 14, 220);
       f += `<label class="dz-f">ضخامت<select data-p="weight">${[[400, "معمولی"], [700, "پررنگ"], [800, "پررنگ‌تر"], [900, "خیلی پررنگ"]].map(([v, l]) => `<option value="${v}" ${+L.weight === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>`;
       f += `<div class="dz-f wide"><span>چینش</span><div class="seg">${[["right", "راست"], ["center", "وسط"], ["left", "چپ"], ["justify", "تراز"]].map(([v, l]) => `<button type="button" data-align="${v}" class="${L.align === v ? "active" : ""}">${l}</button>`).join("")}</div></div>`;
@@ -228,6 +277,67 @@ function openDesigner(opts) {
     bindPanel();
   };
 
+  // ویرایشگر متن غنی: انتخاب بخشی از متن ← رنگ/اندازه/ضخامت فقط برای همان بخش
+  const bindRich = (p) => {
+    const ed = $(".dz-rich", p);
+    if (!ed) return;
+    let typing = null;
+    const sync = () => {
+      const L = cur();
+      if (!L) return;
+      if (!typing) snap();
+      clearTimeout(typing); typing = setTimeout(() => (typing = null), 700);
+      L.runs = htmlToRuns(ed, L);
+      L.text = L.runs.map((r) => r.t).join("");
+      draw();
+    };
+    ed.addEventListener("input", sync);
+    const selRange = () => {
+      const sel = window.getSelection();
+      if (!sel.rangeCount || !ed.contains(sel.anchorNode)) return null;
+      const r = sel.getRangeAt(0);
+      if (r.collapsed) { toast("اول واژه یا بخشی از متن را انتخاب کنید (با کشیدن انگشت یا دوبار زدن روی واژه)"); return null; }
+      return r;
+    };
+    let saved = null;
+    ed.addEventListener("keyup", () => { const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode)) saved = s0.getRangeAt(0).cloneRange(); });
+    ed.addEventListener("mouseup", () => { const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode)) saved = s0.getRangeAt(0).cloneRange(); });
+    if (DZ.selHandler) document.removeEventListener("selectionchange", DZ.selHandler);
+    DZ.selHandler = () => { const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode) && !s0.isCollapsed) saved = s0.getRangeAt(0).cloneRange(); };
+    document.addEventListener("selectionchange", DZ.selHandler);
+    const apply = (fn) => {
+      let r = selRange();
+      if (!r && saved && !saved.collapsed) { r = saved; const s0 = window.getSelection(); s0.removeAllRanges(); s0.addRange(r); }
+      if (!r) return;
+      const host = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentElement;
+      const cs = getComputedStyle(host);
+      const anc = r.commonAncestorContainer.nodeType === 1 ? r.commonAncestorContainer : r.commonAncestorContainer.parentElement;
+      const parentPx = parseFloat(getComputedStyle(anc).fontSize);
+      const span = document.createElement("span");
+      const frag = r.extractContents();
+      fn(span, frag, cs, parentPx);
+      span.appendChild(frag);
+      r.insertNode(span);
+      const s0 = window.getSelection(); s0.removeAllRanges();
+      const nr = document.createRange(); nr.selectNodeContents(span); s0.addRange(nr); saved = nr.cloneRange();
+      sync();
+    };
+    const strip = (frag, prop) => frag.querySelectorAll?.("*").forEach((el) => { el.style[prop] = ""; if (prop === "color") el.removeAttribute("color"); });
+    $("[data-rc]", p).addEventListener("input", (ev) => apply((span, frag) => { strip(frag, "color"); span.style.color = ev.target.value; }));
+    $("[data-rc]", p).addEventListener("pointerdown", () => { const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode) && !s0.isCollapsed) saved = s0.getRangeAt(0).cloneRange(); });
+    $$("[data-rs]", p).forEach((b) => b.addEventListener("pointerdown", (ev) => ev.preventDefault()));
+    $$("[data-rs]", p).forEach((b) => (b.onclick = () => apply((span, frag, cs, parentPx) => {
+      strip(frag, "fontSize");
+      // اندازه‌ی تازه = اندازه‌ی فعلی × ضریب (نسبت به والد حساب می‌شود تا تودرتو دو برابر نشود)
+      const want = parseFloat(cs.fontSize) * Number(b.dataset.rs), basePx = parseFloat(getComputedStyle(ed).fontSize);
+      span.style.fontSize = `${(Math.min(4 * basePx, Math.max(0.3 * basePx, want)) / parentPx).toFixed(3)}em`;
+    })));
+    $("[data-rb]", p).addEventListener("pointerdown", (ev) => ev.preventDefault());
+    $("[data-rb]", p).onclick = () => apply((span, frag, cs) => { strip(frag, "fontWeight"); span.style.fontWeight = Number(cs.fontWeight) >= 800 ? "400" : "900"; });
+    $("[data-rclear]", p).addEventListener("pointerdown", (ev) => ev.preventDefault());
+    $("[data-rclear]", p).onclick = () => apply((span, frag) => { ["color", "fontSize", "fontWeight"].forEach((k) => strip(frag, k)); });
+  };
+
   const bindPanel = () => {
     const p = $(".dz-panel", wrap);
     let typing = null;
@@ -251,6 +361,7 @@ function openDesigner(opts) {
     $$("[data-hide]", p).forEach((b) => (b.onclick = () => { const L = layers.find((l) => l.id === b.dataset.hide); snap(); L.hidden = !L.hidden; draw(); panel(); }));
     $$("[data-bgz]", p).forEach((b) => (b.onclick = () => { opts.bg.zoom(Number(b.dataset.bgz), t); draw(); }));
     if ($("[data-bgr]", p)) $("[data-bgr]", p).onclick = () => { opts.bg.reset(t); draw(); };
+    bindRich(p);
     const rep = $("[data-replace]", p);
     if (rep) rep.onchange = async (ev) => { const src = await uploadLayerImage(ev.target.files[0]); if (src) { snap(); cur().src = src; draw(); } };
     $$("[data-c]", p).forEach((b) => (b.onclick = () => {
@@ -390,7 +501,7 @@ function openDesigner(opts) {
   const doUndo = () => { if (!undo.length) return; redo.push(JSON.stringify(layers)); layers = JSON.parse(undo.pop()); if (!cur()) sel = null; draw(); panel(); };
   const doRedo = () => { if (!redo.length) return; undo.push(JSON.stringify(layers)); layers = JSON.parse(redo.pop()); draw(); panel(); };
 
-  const close = () => { document.removeEventListener("keydown", onKey); DZ.onImg = null; wrap.close(); wrap.remove(); };
+  const close = () => { document.removeEventListener("keydown", onKey); if (DZ.selHandler) document.removeEventListener("selectionchange", DZ.selHandler); DZ.onImg = null; wrap.close(); wrap.remove(); };
   $(".dz-top", wrap).addEventListener("click", (ev) => {
     const a = ev.target.closest("[data-a]")?.dataset.a;
     if (a === "undo") doUndo();
@@ -403,6 +514,50 @@ function openDesigner(opts) {
   wrap.showModal();
   if (document.fonts) document.fonts.load(`900 40px Vazirmatn`).then(draw).catch(draw);
   draw(); panel();
+}
+
+// ───── تبدیل متن غنی ↔ تکه‌ها ─────
+function runsToHTML(L) {
+  return layerRuns(L).map((r) => {
+    const txt = esc(r.t).replace(/\n/g, "<br>");
+    const st = [r.c && `color:${r.c}`, r.s && r.s !== 1 && `font-size:${r.s}em`, r.w && `font-weight:${r.w}`].filter(Boolean).join(";");
+    return st ? `<span style="${st}">${txt}</span>` : txt;
+  }).join("");
+}
+
+function cssHex(c) {
+  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c || "");
+  return m ? "#" + m.slice(1, 4).map((x) => Number(x).toString(16).padStart(2, "0")).join("") : (c || "").toLowerCase();
+}
+
+function htmlToRuns(ed, L) {
+  const base = parseFloat(getComputedStyle(ed).fontSize) || 16;
+  const baseColor = cssHex(getComputedStyle(ed).color), baseW = Number(L.weight || 700);
+  const out = [];
+  const push = (t, el) => {
+    const cs = getComputedStyle(el);
+    const c = cssHex(cs.color), s = +(parseFloat(cs.fontSize) / base).toFixed(3), w = Number(cs.fontWeight);
+    const r = { t };
+    if (c && c !== baseColor) r.c = c;
+    if (Math.abs(s - 1) > 0.01) r.s = s;
+    if (w && w !== baseW) r.w = w;
+    const last = out[out.length - 1];
+    if (last && last.c === r.c && last.s === r.s && last.w === r.w) last.t += t; else out.push(r);
+  };
+  const walk = (node, parentEl) => {
+    for (const n of node.childNodes) {
+      if (n.nodeType === 3) { if (n.nodeValue) push(n.nodeValue.replace(/\u00a0/g, " "), parentEl); continue; }
+      if (n.nodeType !== 1) continue;
+      if (n.tagName === "BR") { push("\n", parentEl); continue; }
+      const block = /^(DIV|P)$/.test(n.tagName);
+      if (block && out.length && !out[out.length - 1].t.endsWith("\n")) push("\n", parentEl);
+      walk(n, n);
+    }
+  };
+  walk(ed, ed);
+  // سطر خالیِ آخر که مرورگر می‌گذارد
+  if (out.length && out[out.length - 1].t === "\n") out.pop();
+  return out;
 }
 
 async function uploadLayerImage(file) {

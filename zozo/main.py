@@ -578,9 +578,27 @@ def enum_digits(s: str) -> str:
 
 
 @app.get("/api/invoices")
-def invoices_list():
-    return {"items": invoices.list_all(), "profile": invoices.get_profile(), "status": invoices.STATUS,
+def invoices_list(q: str = "", t: int | None = None, customer: str = ""):
+    return {"items": invoices.list_all(q, t, customer), "profile": invoices.get_profile(), "status": invoices.STATUS,
             "methods": invoices.METHODS, "templates": invoices.list_templates()}
+
+
+@app.get("/api/invoices/export.csv")
+def invoices_export(q: str = "", t: int | None = None, customer: str = ""):
+    data = invoices.export_csv(invoices.list_all(q, t, customer))
+    return Response(data.encode("utf-8"), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="invoices.csv"'})
+
+
+@app.get("/api/invoice-customers")
+def invoice_customers():
+    return {"items": invoices.customers()}
+
+
+@app.get("/api/invoice-customers/export.csv")
+def invoice_customers_export():
+    return Response(invoices.customers_csv().encode("utf-8"), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="invoice-customers.csv"'})
 
 
 @app.get("/api/invoice-templates")

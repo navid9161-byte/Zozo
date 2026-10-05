@@ -4,13 +4,27 @@
 
 const INV = { W: 1754, H: 1240, logo: null, saveT: null };
 
+// متن ستون تعداد: «۲ کادر داخلی» (از تعداد و نوع کادر) یا نوشته‌ی دستی قدیمی
+function invQtyText(it, p) {
+  if (it.qty_label && !it.qty_type) return it.qty_label;
+  if (!it.qty) return "";
+  return `${it.qty} کادر ${it.qty_type || ""}`.trim();
+}
+
+// رنگ‌های فاکتور همه از «رنگ اصلی» قالب ساخته می‌شوند (روشن‌تر/تیره‌تر)، تا با تغییر رنگ، همه‌ی آبی‌ها عوض شوند
+function invMix(hex, to, t) {
+  const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const a = p(/^#[0-9a-f]{6}$/i.test(hex) ? hex : "#4a72a8"), b = p(to);
+  return "#" + a.map((v, i) => Math.round(v + (b[i] - v) * t).toString(16).padStart(2, "0")).join("");
+}
 const invNum = (v) => fa(Math.round(Number(v) || 0).toLocaleString("en-US").replace(/,/g, "/"));
 
 function drawInvoice(ctx, inv) {
   const { W, H } = INV;
   const p = inv.profile || {};
-  const C = p.color || "#4a72a8";
-  const dark = "#2c4f80", ink = "#1b1b1b", blue = "#2f6db5";
+  const C = /^#[0-9a-f]{6}$/i.test(p.color || "") ? p.color : "#4a72a8";
+  const dark = invMix(C, "#000000", 0.4), ink = "#1b1b1b", blue = invMix(C, "#000000", 0.12);
+  const deep = invMix(C, "#000000", 0.55), muted = invMix(C, "#5a5a5a", 0.5);
   const m = 64;
   setup(ctx);
   ctx.fillStyle = "#fff";
@@ -19,7 +33,7 @@ function drawInvoice(ctx, inv) {
   // ── سربرگ (مطابق نمونه‌ی چاپی): بلوک روشن کج سمت راست با نام رسانه، نوار آبی پهن با عنوان سند
   //    (نوشته‌ی سفید با دور تیره)، نوار روشن کج پایین چپ با شماره‌ی فاکتور، باریکه‌ی آبی زیر بلوک راست
   const L0 = 52, R0 = W - 52;
-  const pale = "#d5e1ef", pale2 = "#e6edf6";
+  const pale = invMix(C, "#ffffff", 0.76), pale2 = invMix(C, "#ffffff", 0.87);
   const poly = (pts, fill) => { ctx.beginPath(); pts.forEach(([x, yy], k) => (k ? ctx.lineTo(x, yy) : ctx.moveTo(x, yy))); ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); };
   // نوار آبی اصلی + باریکه‌ی پایینش
   let g = ctx.createLinearGradient(L0, 0, R0, 0);
@@ -37,7 +51,7 @@ function drawInvoice(ctx, inv) {
   ctx.font = `900 64px ${FONT}`;
   ctx.textAlign = "center";
   ctx.lineJoin = "round";
-  ctx.strokeStyle = "#1f3a63"; ctx.lineWidth = 7;
+  ctx.strokeStyle = deep; ctx.lineWidth = 7;
   const tcx = 800, tcy = 128;
   ctx.strokeText(p.doc_title || "", tcx, tcy);
   ctx.fillStyle = "#fff";
@@ -49,19 +63,19 @@ function drawInvoice(ctx, inv) {
     const lh = 112, lw = Math.min(460, lh * INV.logo.naturalWidth / INV.logo.naturalHeight);
     ctx.drawImage(INV.logo, nameRight - lw, 52, lw, lw * INV.logo.naturalHeight / INV.logo.naturalWidth);
   } else {
-    ctx.textAlign = "right"; ctx.fillStyle = "#2b4f86";
+    ctx.textAlign = "right"; ctx.fillStyle = dark;
     ctx.font = `900 100px ${FONT}`;
     ctx.fillText(p.media_name || "", nameRight, 116);
     if (p.media_tagline) {
       const nw = ctx.measureText(p.media_name || "").width;
-      ctx.font = `700 23px ${FONT}`; ctx.fillStyle = "#2b4f86"; ctx.textAlign = "center";
+      ctx.font = `700 23px ${FONT}`; ctx.fillStyle = dark; ctx.textAlign = "center";
       ctx.fillText(p.media_tagline, nameRight - nw * 0.42, 54);
     }
   }
   // شماره (و در صورت انتخاب، تاریخ) در نوار روشن چپ
-  ctx.direction = "rtl"; ctx.textAlign = "right"; ctx.fillStyle = "#4f6584"; ctx.font = `400 31px ${FONT}`;
-  ctx.fillText(`شماره فاکتور :  ${fa(inv.number || "")}`, 500, p.show_date === "yes" && inv.date ? 194 : 208);
-  if (p.show_date === "yes" && inv.date) { ctx.font = `400 25px ${FONT}`; ctx.fillText(`تاریخ :  ${fa(inv.date)}`, 500, 230); }
+  ctx.direction = "rtl"; ctx.textAlign = "right"; ctx.fillStyle = muted; ctx.font = `400 31px ${FONT}`;
+  ctx.fillText(`شماره فاکتور :  ${fa(inv.number || "")}`, 500, p.show_date !== "no" && inv.date ? 194 : 208);
+  if (p.show_date !== "no" && inv.date) { ctx.font = `400 25px ${FONT}`; ctx.fillText(`تاریخ :  ${fa(inv.date)}`, 500, 230); }
 
   // ── نام مشتری
   ctx.textAlign = "right"; ctx.fillStyle = ink; ctx.font = `900 48px ${FONT}`;
@@ -123,7 +137,7 @@ function drawInvoice(ctx, inv) {
     if (title !== it.title) title += "…";
     cellText(title, 1, y, rh, { align: "right", font: `400 ${fs}px ${FONT}` });
     cellText(fa(it.date || ""), 2, y, rh);
-    cellText(fa(it.qty_label || (it.qty ? String(it.qty) : "")), 3, y, rh);
+    cellText(fa(invQtyText(it, p)), 3, y, rh);
     cellText(invNum(it.unit_price), 4, y, rh);
     cellText(invNum(total), 5, y, rh);
     y += rh;
@@ -203,13 +217,13 @@ function drawInvoice(ctx, inv) {
   // آیکون مکان
   const ix = 1318, iy = fB - 4;
   ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(ix, iy, 34, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = "#2c3e55"; ctx.lineWidth = 3;
+  ctx.strokeStyle = deep; ctx.lineWidth = 3;
   ctx.beginPath(); ctx.arc(ix, iy, 34, 0, Math.PI * 2); ctx.stroke();
-  ctx.fillStyle = "#2c3e55";
+  ctx.fillStyle = deep;
   ctx.beginPath(); ctx.arc(ix, iy - 6, 12, Math.PI, 0); ctx.lineTo(ix, iy + 15); ctx.closePath(); ctx.fill();
   ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(ix, iy - 6, 4.5, 0, Math.PI * 2); ctx.fill();
   if (p.address) {
-    ctx.fillStyle = "#5b6f88"; ctx.font = `500 31px ${FONT}`; ctx.textAlign = "right";
+    ctx.fillStyle = muted; ctx.font = `500 31px ${FONT}`; ctx.textAlign = "right";
     let fs = 31;
     while (ctx.measureText(fa(p.address)).width > 1230 - L0 - 30 && fs > 20) { fs -= 1; ctx.font = `500 ${fs}px ${FONT}`; }
     ctx.fillText(fa(p.address), 1250, (fT + fB) / 2 + 2);
@@ -279,25 +293,39 @@ function loadInvLogo(p) {
 }
 
 const PROFILE_FIELDS = [
-  ["media_name", "نام رسانه (بالای فاکتور)"], ["media_tagline", "زیرنویس کوچک نام رسانه"], ["doc_title", "عنوان سند"],
-  ["table_title", "عنوان جدول"], ["col_title", "ستون عنوان"], ["col_date", "ستون تاریخ"], ["col_qty", "ستون تعداد"],
-  ["col_unit", "ستون قیمت واحد"], ["col_total", "ستون جمع"], ["unit", "واحد پول"], ["payee", "واریز به نام"],
-  ["sheba", "شماره شبا"], ["card", "شماره کارت"], ["bank", "نام بانک"], ["address", "نشانی (پانویس)"],
-  ["contact", "تماس (نوار پایین)"], ["tax_note", "یادداشت مالیاتی (آبی)", "longtext"], ["color", "رنگ اصلی", "color"],
+  ["unit_price", "💰 قیمت هر کادر (پیش‌فرض)", "money"], ["qty_type", "نوع کادر پیش‌فرض (مثلاً داخلی)"],
+  ["media_name", "نام روزنامه (بالای فاکتور)"], ["media_tagline", "زیرنویس کوچک نام روزنامه"], ["color", "رنگ اصلی فاکتور (همه‌ی رنگ‌ها از این ساخته می‌شوند)", "color"],
+  ["payee", "واریز به نام"], ["sheba", "شماره شبا"], ["card", "شماره کارت"], ["bank", "نام بانک"],
+  ["address", "نشانی (پانویس)"], ["contact", "تماس (نوار پایین)"], ["unit", "واحد پول"],
   ["show_date", "تاریخ فاکتور زیر شماره بیاید؟", "yesno"],
+  ["doc_title", "عنوان سند", "adv"], ["table_title", "عنوان جدول", "adv"], ["col_title", "ستون عنوان", "adv"], ["col_date", "ستون تاریخ", "adv"],
+  ["col_qty", "ستون تعداد", "adv"], ["col_unit", "ستون قیمت واحد", "adv"], ["col_total", "ستون جمع", "adv"],
+  ["tax_note", "یادداشت مالیاتی (آبی)", "longtext"],
 ];
 
 VIEWS.invoices = async (view, params) => {
   if (params.get("id")) return renderInvoiceEditor(view, Number(params.get("id")));
-  const d = await api("/api/invoices");
+  if (params.get("view") === "customers") return renderInvCustomers(view);
+  const tf = params.get("t") || "", q = params.get("q") || "", cust = params.get("customer") || "";
+  const qs = new URLSearchParams();
+  if (tf) qs.set("t", tf);
+  if (q) qs.set("q", q);
+  if (cust) qs.set("customer", cust);
+  const d = await api(`/api/invoices?${qs}`);
   const tpls = d.templates.items;
-  const tf = params.get("t") || "";
   const tName = (id) => tpls.find((t) => t.id === id)?.name || "";
-  const items = tf ? d.items.filter((v) => String(v.template_id || d.templates.default) === tf) : d.items;
+  const items = d.items;
+  const link = (o) => { const x = new URLSearchParams(qs); for (const [k, v] of Object.entries(o)) v ? x.set(k, v) : x.delete(k); return `#invoices?${x}`; };
   view.innerHTML = `
-    <div class="page-title"><h2>🧾 صورتحساب‌ها</h2><div class="btn-row">
-      <button class="btn primary" id="inv-new">+ صورتحساب جدید</button><button class="btn" id="inv-tpls">🗂 قالب روزنامه‌ها (${num(tpls.length)})</button></div></div>
-    ${tpls.length > 1 ? `<div class="chips"><a class="chip ${!tf ? "active" : ""}" href="#invoices">همه</a>${tpls.map((t) => `<a class="chip ${tf === String(t.id) ? "active" : ""}" href="#invoices?t=${t.id}">${esc(t.name)}</a>`).join("")}</div>` : ""}
+    <div class="page-title"><h2>🧾 فاکتورها (صورتحساب)</h2><div class="btn-row">
+      <button class="btn primary" id="inv-new">🧾 ثبت فاکتور جدید</button><button class="btn" id="inv-tpls">🗂 قالب روزنامه‌ها (${num(tpls.length)})</button></div></div>
+    <div class="toolbar">
+      <form id="inv-sf" style="display:contents"><input type="search" name="q" value="${esc(q)}" placeholder="جستجو: نام مشتری، شماره، عنوان آگهی، شماره رسید…"></form>
+      <a class="btn sm" href="#invoices?view=customers">👥 مشتری‌ها</a>
+      <a class="btn sm" href="/api/invoices/export.csv?${qs}">⬇️ خروجی اکسل ${q || tf || cust ? "(همین فهرست)" : "همه‌ی فاکتورها"}</a>
+    </div>
+    ${cust ? `<div class="chips"><span class="chip active">👤 ${esc(cust)}</span><a class="chip" href="${link({ customer: "" })}">✕ همه‌ی مشتری‌ها</a></div>` : ""}
+    ${tpls.length > 1 ? `<div class="chips"><a class="chip ${!tf ? "active" : ""}" href="${link({ t: "" })}">همه‌ی روزنامه‌ها</a>${tpls.map((t) => `<a class="chip ${tf === String(t.id) ? "active" : ""}" href="${link({ t: String(t.id) })}">${esc(t.name)}</a>`).join("")}</div>` : ""}
     ${invSummaryHTML(items, d.profile.unit)}
     ${!d.profile.payee && !d.profile.sheba ? `<div class="warn-bar">اول از «🗂 قالب روزنامه‌ها» برای هر روزنامه سربرگ، شبا و نشانی را ثبت کنید تا در فاکتورهایش بیاید.</div>` : ""}
     <div class="list">${items.map((v) => `<div class="item" data-inv="${v.id}"><span class="doc-icon">🧾</span><div class="body">
@@ -308,7 +336,8 @@ VIEWS.invoices = async (view, params) => {
         ${v.status === "partial" ? `<span class="small">مانده: <b>${invNum(v.remaining)}</b></span>` : ""}
         ${v.status === "paid" && v.paid_date ? `<span class="small muted">پرداخت ${fa(v.paid_date)}${v.payments.at(-1)?.ref_no ? ` · رسید ${fa(v.payments.at(-1).ref_no)}` : ""}</span>` : ""}</div></div></div>`).join("") || `<div class="card empty center">هنوز صورتحسابی صادر نشده.</div>`}</div>`;
   const createWith = async (tid) => {
-    const v = await api("/api/invoices", { method: "POST", body: { template_id: tid, items: [{ title: "", qty: 1, unit_price: "" }] } });
+    const t = tpls.find((x) => x.id === tid) || {};
+    const v = await api("/api/invoices", { method: "POST", body: { template_id: tid, items: [{ title: "", qty: 1, qty_type: t.qty_type || "", unit_price: t.unit_price || "" }] } });
     location.hash = `#invoices?id=${v.id}`;
   };
   $("#inv-new").onclick = () => {
@@ -323,6 +352,8 @@ VIEWS.invoices = async (view, params) => {
     $("#dlg").showModal();
   };
   $("#inv-tpls").onclick = () => invTemplatesDialog();
+  $("#inv-sf").onsubmit = (ev) => { ev.preventDefault(); location.hash = link({ q: ev.target.q.value.trim() }); };
+  $("[name=q]", view).addEventListener("search", (ev) => { if (!ev.target.value) location.hash = link({ q: "" }); });
   $$("[data-inv]", view).forEach((el) => (el.onclick = () => (location.hash = `#invoices?id=${el.dataset.inv}`)));
 };
 
@@ -370,12 +401,40 @@ function invPaymentDialog(inv, onDone) {
 }
 
 function profileFormHTML(p, prefix) {
-  return PROFILE_FIELDS.map(([k, l, t]) => `<label class="${t === "longtext" || k === "address" || k === "contact" ? "wide" : ""}">${l}
-    ${t === "longtext" ? `<textarea data-${prefix}="${k}" rows="2">${esc(p[k] || "")}</textarea>` : t === "color" ? `<input type="color" data-${prefix}="${k}" value="${esc(p[k] || "#4a72a8")}">`
-    : t === "yesno" ? `<select data-${prefix}="${k}"><option value="">خیر (مثل نمونه)</option><option value="yes" ${p[k] === "yes" ? "selected" : ""}>بله</option></select>`
-    : `<input data-${prefix}="${k}" value="${esc(p[k] || "")}" ${["sheba", "card"].includes(k) ? 'class="ltr"' : ""}>`}</label>`).join("")
-    + `<label class="wide">لوگوی رسانه (اختیاری؛ به‌جای نام)<span class="btn-row"><label class="btn sm">🖼 انتخاب لوگو<input type="file" data-${prefix}-logo accept="image/*" hidden></label>
-      ${p.logo_media_id ? `<button type="button" class="btn sm" data-${prefix}-nologo>حذف لوگو</button>` : ""}</span></label>`;
+  const one = ([k, l, t]) => `<label class="${t === "longtext" || k === "address" || k === "contact" ? "wide" : ""}">${l}
+    ${t === "longtext" ? `<textarea data-${prefix}="${k}" rows="2">${esc(p[k] || "")}</textarea>`
+    : t === "color" ? `<input type="color" data-${prefix}="${k}" value="${esc(p[k] || "#4a72a8")}">`
+    : t === "yesno" ? `<select data-${prefix}="${k}"><option value="">بله</option><option value="no" ${p[k] === "no" ? "selected" : ""}>خیر</option></select>`
+    : t === "money" ? `<input data-${prefix}="${k}" inputmode="numeric" data-money value="${p[k] ? Number(p[k]).toLocaleString("en-US") : ""}" placeholder="مثلاً 15,000,000">`
+    : `<input data-${prefix}="${k}" value="${esc(p[k] || "")}" ${["sheba", "card"].includes(k) ? 'class="ltr"' : ""}>`}</label>`;
+  return PROFILE_FIELDS.filter((f) => f[2] !== "adv").map(one).join("")
+    + `<label class="wide">لوگوی روزنامه (اختیاری؛ به‌جای نام)<span class="btn-row"><label class="btn sm">🖼 انتخاب لوگو<input type="file" data-${prefix}-logo accept="image/*" hidden></label>
+      ${p.logo_media_id ? `<button type="button" class="btn sm" data-${prefix}-nologo>حذف لوگو</button>` : ""}</span></label>`
+    + `<details class="wide"><summary class="small">عنوان‌های سند و ستون‌های جدول (معمولاً لازم نیست تغییر کند)</summary><div class="form-grid" style="margin-top:8px">${PROFILE_FIELDS.filter((f) => f[2] === "adv").map(one).join("")}</div></details>`;
+}
+// قیمت‌ها با جداکننده نمایش داده و بدون آن ذخیره می‌شوند
+function bindMoneyInputs(root) {
+  $$("[data-money]", root).forEach((el) => el.addEventListener("input", () => { const v = enDigits(el.value).replace(/[^\d]/g, ""); el.value = v ? Number(v).toLocaleString("en-US") : ""; }));
+}
+const moneyVal = (el) => (el.dataset.money !== undefined ? enDigits(el.value).replace(/[^\d]/g, "") : el.value);
+
+// ───── گزارش به تفکیک مشتری ─────
+async function renderInvCustomers(view) {
+  const { items } = await api("/api/invoice-customers");
+  const tot = items.reduce((a, c) => ({ billed: a.billed + c.billed, paid: a.paid + c.paid, rem: a.rem + c.remaining }), { billed: 0, paid: 0, rem: 0 });
+  view.innerHTML = `
+    <div class="page-title"><h2>👥 فاکتورها به تفکیک مشتری</h2><div class="btn-row"><a class="btn sm" href="/api/invoice-customers/export.csv">⬇️ خروجی اکسل</a><a class="btn sm" href="#invoices">→ همه‌ی فاکتورها</a></div></div>
+    <div class="stats">
+      <div class="stat"><div class="v">${moneyWords(tot.billed)}</div><div class="l">جمع صادرشده (${num(items.length)} مشتری)</div></div>
+      <div class="stat good"><div class="v">${moneyWords(tot.paid)}</div><div class="l">پرداخت‌شده</div></div>
+      <div class="stat warn"><div class="v">${moneyWords(tot.rem)}</div><div class="l">مانده</div></div>
+    </div>
+    <div class="card"><div class="table-wrap"><table class="inv-table">
+      <thead><tr><th>مشتری</th><th>تعداد فاکتور</th><th>صادرشده</th><th>پرداخت‌شده</th><th>مانده</th><th>آخرین فاکتور</th></tr></thead>
+      <tbody>${items.map((c) => `<tr data-go="#invoices?customer=${encodeURIComponent(c.name)}"><td><b>${esc(c.name)}</b>${c.phone ? `<br><small class="muted">${fa(c.phone)}</small>` : ""}</td>
+        <td>${num(c.count)}</td><td>${moneyWords(c.billed)}</td><td>${moneyWords(c.paid)}</td><td class="${c.remaining ? "neg" : ""}">${moneyWords(c.remaining)}</td><td>${fa(c.last_date || "")}</td></tr>`).join("")
+        || `<tr><td colspan="6" class="empty">هنوز مشتری‌ای نیست.</td></tr>`}</tbody>
+    </table></div><p class="small muted">روی هر مشتری بزنید تا فاکتورهایش را ببینید.</p></div>`;
 }
 
 // ───── مدیریت قالب‌ها (هر روزنامه یک قالب جدا) ─────
@@ -404,11 +463,11 @@ async function editInvTemplate(t) {
   $("#dlg-body").innerHTML = `<h3>✏️ قالب «${esc(t.name)}»</h3>
     <div class="form-grid">
       <label>نام قالب (برای انتخاب)<input data-tp="name" value="${esc(t.name || "")}" placeholder="مثلاً عصر رسانه"></label>
-      <label>رسانه / کارفرما در بخش مالی<select data-tp="outlet_id"><option value=""></option>${REFS.outlets.map((o) => `<option value="${o.id}" ${o.id === t.outlet_id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label>
       ${profileFormHTML(t, "tp")}
     </div>
     <div class="modal-actions"><button class="btn primary" id="tp-save">ذخیره</button><button class="btn" id="tp-back">← قالب‌ها</button></div>`;
-  const collect = () => Object.fromEntries($$("[data-tp]").map((el) => [el.dataset.tp, el.value]));
+  const collect = () => Object.fromEntries($$("[data-tp]").map((el) => [el.dataset.tp, moneyVal(el)]));
+  bindMoneyInputs($("#dlg-body"));
   const put = (extra = {}) => api(`/api/invoice-templates/${t.id}`, { method: "PUT", body: { ...collect(), ...extra } });
   $("[data-tp-logo]").onchange = async (ev) => {
     const r = await uploadOne("/api/media", ev.target.files[0], {}, () => {});
@@ -421,7 +480,8 @@ async function editInvTemplate(t) {
 }
 
 async function renderInvoiceEditor(view, id) {
-  const [inv, tpls] = await Promise.all([api(`/api/invoices/${id}`), api("/api/invoice-templates"), loadRefs()]);
+  const [inv, tpls, custR] = await Promise.all([api(`/api/invoices/${id}`), api("/api/invoice-templates"), api("/api/invoice-customers"), loadRefs()]);
+  const custs = custR.items;
   INV.tpls = tpls;
   await loadInvLogo(inv.profile);
   const st = inv;
@@ -430,14 +490,15 @@ async function renderInvoiceEditor(view, id) {
     <div class="teaser-layout">
       <div>
         <div class="card"><h3>مشتری</h3><div class="form-grid">
-          <label class="wide">نام مشتری / سازمان<input data-f="customer" value="${esc(inv.customer || "")}" placeholder="مثلاً دهیاری علی‌آباد انقلاب"></label>
+          <label class="wide">نام مشتری / سازمان<input data-f="customer" list="inv-custs" autocomplete="off" value="${esc(inv.customer || "")}" placeholder="مثلاً دهیاری علی‌آباد انقلاب">
+            <small>مشتری‌های قبلی با نوشتن چند حرف پیشنهاد می‌شوند و تلفن و نشانی‌شان خودکار پر می‌شود.</small></label>
+          <datalist id="inv-custs">${custs.map((c) => `<option value="${esc(c.name)}">`).join("")}</datalist>
           <label>شماره فاکتور<input data-f="number" value="${esc(inv.number || "")}" class="ltr"></label>
           <label>تاریخ<input data-f="date" value="${esc(inv.date || "")}"></label>
           <label>تلفن<input data-f="customer_phone" value="${esc(inv.customer_phone || "")}" class="ltr"></label>
           <label>شناسه / کد ملی / اقتصادی<input data-f="customer_code" value="${esc(inv.customer_code || "")}"></label>
           <label class="wide">نشانی<input data-f="customer_address" value="${esc(inv.customer_address || "")}"></label>
           <label>قالب (روزنامه)<select id="inv-tpl">${INV.tpls.items.map((t) => `<option value="${t.id}" ${t.id === (inv.template_id || INV.tpls.default) ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label>
-          <label>رسانه / کارفرما (برای گزارش مالی)<select data-f="outlet_id"><option value=""></option>${REFS.outlets.map((o) => `<option value="${o.id}" ${o.id === inv.outlet_id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label>
           <label>وضعیت<select id="inv-status">${Object.entries({ draft: "پیش‌نویس", issued: "صادرشده", partial: "پرداخت ناقص", paid: "پرداخت‌شده", cancelled: "باطل‌شده" }).map(([k, l]) => `<option value="${k}" ${k === inv.status ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         </div></div>
         <div class="card"><h3>ردیف‌ها</h3>
@@ -479,8 +540,10 @@ async function renderInvoiceEditor(view, id) {
       </div>
     </div>`;
 
-  const items = inv.items.length ? inv.items.map((x) => ({ ...x })) : [{ title: "", date: "", qty: 1, qty_label: "", unit_price: 0 }];
   const profile = { ...inv.profile };
+  const items = inv.items.length ? inv.items.map((x) => ({ ...x })) : [{ title: "", date: "", qty: 1, qty_type: profile.qty_type || "", qty_label: "", unit_price: Number(profile.unit_price) || 0 }];
+  // ردیف خالیِ تازه: قیمت پیش‌فرض روزنامه
+  items.forEach((it) => { if (!it.title && !it.unit_price && profile.unit_price) it.unit_price = Number(profile.unit_price); });
   const state = () => ({ ...st, items: items.map((it) => ({ ...it, unit_price: Number(it.unit_price) || 0, qty: Number(it.qty) || 0 })), profile });
   const calc = () => {
     const s = state();
@@ -504,19 +567,26 @@ async function renderInvoiceEditor(view, id) {
         await api(`/api/invoices/${id}`, { method: "PATCH", body: {
           number: st.number, date: enDigits(st.date || ""), customer: st.customer, customer_phone: st.customer_phone,
           customer_code: st.customer_code, customer_address: st.customer_address, notes: st.notes,
-          outlet_id: st.outlet_id || null, discount: s.discount, items: s.items, profile } });
+          discount: s.discount, items: s.items, profile } });
         $("#inv-saved").textContent = "✔ ذخیره شد";
       } catch (err) { $("#inv-saved").textContent = ""; toast(err.message); }
     }, 900);
   };
+  // جمع هر ردیف (تعداد × قیمت هر کادر) زیر همان ردیف
+  const rowSums = () => items.forEach((it, i) => {
+    const el = $(`[data-sum="${i}"]`);
+    if (el) el.textContent = it.unit_price ? `${fa(invQtyText({ ...it, qty_type: it.qty_type ?? "" }, profile) || "۱")} × ${invNum(it.unit_price)} = ${invNum((Number(it.qty) || 1) * it.unit_price)} ${profile.unit || ""}` : "";
+  });
+  const newRow = () => ({ title: "", date: "", qty: 1, qty_type: profile.qty_type || "", qty_label: "", unit_price: Number(profile.unit_price) || 0 });
   const drawItems = () => {
     $("#inv-items").innerHTML = items.map((it, i) => `<div class="card" style="padding:10px;margin-bottom:8px;background:var(--bg)">
       <div class="form-grid">
         <label class="wide">عنوان ردیف ${num(i + 1)}<input data-i="${i}" data-k="title" value="${esc(it.title || "")}" placeholder="مثلاً آگهی مناقصه (نوبت اول)"></label>
         <label>تاریخ چاپ<input data-i="${i}" data-k="date" value="${esc(it.date || "")}" placeholder="${fa(META.today)}"></label>
-        <label>تعداد<input data-i="${i}" data-k="qty" inputmode="numeric" value="${esc(it.qty || "")}"></label>
-        <label>نوشته‌ی ستون تعداد (اختیاری)<input data-i="${i}" data-k="qty_label" value="${esc(it.qty_label || "")}" placeholder="مثلاً ۲ کادر داخلی"></label>
-        <label>قیمت واحد<input data-i="${i}" data-k="unit_price" inputmode="numeric" value="${it.unit_price ? Number(it.unit_price).toLocaleString("en-US") : ""}"></label>
+        <label>چند کادر؟<input data-i="${i}" data-k="qty" inputmode="numeric" value="${esc(it.qty || "")}"></label>
+        <label>نوع کادر (اختیاری)<input data-i="${i}" data-k="qty_type" value="${esc(it.qty_type ?? (it.qty_label ? "" : profile.qty_type || ""))}" placeholder="مثلاً داخلی"></label>
+        <label>قیمت هر کادر<input data-i="${i}" data-k="unit_price" inputmode="numeric" value="${it.unit_price ? Number(it.unit_price).toLocaleString("en-US") : ""}"></label>
+        <div class="small muted inv-rowsum" data-sum="${i}"></div>
       </div><button class="btn sm danger" data-rm="${i}" style="margin-top:6px">حذف ردیف</button></div>`).join("");
     $$("#inv-items [data-k]").forEach((el) => el.addEventListener("input", () => {
       const it = items[Number(el.dataset.i)];
@@ -527,18 +597,31 @@ async function renderInvoiceEditor(view, id) {
         v = Number(v) || 0;
       }
       it[el.dataset.k] = v;
-      draw(); save();
+      if (el.dataset.k === "qty_type") it.qty_label = "";
+      rowSums(); draw(); save();
     }));
+    rowSums();
     $$("#inv-items [data-rm]").forEach((b) => (b.onclick = () => { items.splice(Number(b.dataset.rm), 1); drawItems(); draw(); save(); }));
   };
   drawItems();
+  // مشتری قبلی انتخاب شد ← تلفن، شناسه و نشانی خودکار
+  $("[data-f=customer]", view).addEventListener("change", (ev) => {
+    const c = custs.find((x) => x.name.trim() === ev.target.value.trim());
+    if (!c) return;
+    for (const [k, f] of [["phone", "customer_phone"], ["code", "customer_code"], ["address", "customer_address"]]) {
+      const el = $(`[data-f=${f}]`, view);
+      if (c[k] && el && !el.value.trim()) { el.value = c[k]; st[f] = c[k]; }
+    }
+    draw(); save();
+  });
   $$("[data-f]", view).forEach((el) => el.addEventListener(el.tagName === "SELECT" ? "change" : "input", () => {
     let v = el.value;
     if (el.dataset.f === "discount") { v = enDigits(v).replace(/[^\d]/g, ""); el.value = v ? Number(v).toLocaleString("en-US") : ""; }
     st[el.dataset.f] = v;
     draw(); save();
   }));
-  $$("[data-pr]", view).forEach((el) => el.addEventListener("input", () => { profile[el.dataset.pr] = el.value; draw(); save(); }));
+  bindMoneyInputs(view);
+  $$("[data-pr]", view).forEach((el) => el.addEventListener("input", () => { profile[el.dataset.pr] = moneyVal(el); draw(); save(); }));
   $("[data-pr-logo]").onchange = async (ev) => {
     const r = await uploadOne("/api/media", ev.target.files[0], {}, () => {});
     if (r.ok) { profile.logo_media_id = r.data.added[0].id; await loadInvLogo(profile); draw(); save(); }
@@ -561,7 +644,7 @@ async function renderInvoiceEditor(view, id) {
     await api(`/api/invoices/${id}/payments/${b.dataset.delpay}`, { method: "DELETE" });
     refresh();
   }));
-  $("#inv-add").onclick = () => { items.push({ title: "", date: "", qty: 1, qty_label: "", unit_price: 0 }); drawItems(); };
+  $("#inv-add").onclick = () => { items.push(newRow()); drawItems(); draw(); save(); };
   $("#inv-asdefault").onclick = async () => { await api(`/api/invoice-templates/${inv.template_id || INV.tpls.default}`, { method: "PUT", body: profile }); toast("در قالب ذخیره شد ⭐"); };
   $("#inv-tpl").onchange = async (ev) => {
     if (!confirm("سربرگ و اطلاعات پرداخت این فاکتور با قالب انتخاب‌شده عوض شود؟")) { ev.target.value = inv.template_id || INV.tpls.default; return; }
