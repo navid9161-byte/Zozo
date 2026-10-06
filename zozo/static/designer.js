@@ -327,6 +327,7 @@ function openDesigner(opts) {
       if (["size", "lh", "pad", "radius", "opacity", "strokeW", "weight", "start", "end"].includes(k)) v = Number(enDigits(v)) || 0;
       if (el.type === "color") { const none = $(`[data-none="${k}"]`, p); if (none) none.checked = false; }
       L[k] = v;
+      if (L.type === "text" && unifyRuns(L, k)) { const ed = $(".dz-rich", p); if (ed) ed.innerHTML = runsToHTML(L); }
       if (k === "text" || el.type === "range") { draw(); const s = el.parentElement.querySelector("small"); if (s && el.type === "range") s.textContent = num(+Number(v).toFixed(2)); return; }
       draw();
       if (k !== "text") panel();
@@ -536,6 +537,13 @@ function mountRichEditor(p, getL, onChange, onFirst) {
     onChange(L);
   };
   ed.addEventListener("input", sync);
+  // چسباندن فقط متن (بدون رنگ و فونت سایت یا ورد) تا تنظیمات کلی روی آن کار کند
+  ed.addEventListener("paste", (ev) => {
+    const t = ev.clipboardData?.getData("text/plain");
+    if (t == null) return;
+    ev.preventDefault();
+    document.execCommand("insertText", false, t.replace(/\r\n?/g, "\n"));
+  });
   const selRange = () => {
     const sel = window.getSelection();
     if (!sel.rangeCount || !ed.contains(sel.anchorNode)) return null;
@@ -586,6 +594,17 @@ function mountRichEditor(p, getL, onChange, onFirst) {
   $("[data-rb]", p).onclick = () => apply((span, frag, cs) => { strip(frag, "fontWeight"); span.style.fontWeight = Number(cs.fontWeight) >= 800 ? "400" : "900"; });
   $("[data-rclear]", p).addEventListener("pointerdown", (ev) => ev.preventDefault());
   $("[data-rclear]", p).onclick = () => apply((span, frag) => { ["color", "fontSize", "fontWeight", "fontFamily"].forEach((k) => strip(frag, k)); });
+}
+
+// تغییر «کلی» رنگ/فونت/ضخامت/اندازه باید روی همه‌ی متن بنشیند: اگر همه‌ی تکه‌ها مقدار خودشان را دارند
+// (مثلاً متنِ چسبانده از سایت)، آن مقدارها برداشته می‌شوند؛ واژه‌هایی که جدا رنگ یا بزرگ شده‌اند می‌مانند.
+const RUN_KEY = { color: "c", font: "f", weight: "w", size: "s" };
+function unifyRuns(L, prop) {
+  const key = RUN_KEY[prop];
+  const rs = (L.runs || []).filter((r) => r.t.trim());
+  if (!key || !rs.length || !rs.every((r) => r[key] !== undefined)) return false;
+  L.runs.forEach((r) => delete r[key]);
+  return true;
 }
 
 // ───── تبدیل متن غنی ↔ تکه‌ها ─────

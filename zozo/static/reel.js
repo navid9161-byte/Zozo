@@ -393,6 +393,7 @@ function rlBindTextBoxes(root) {
       if (k === "hidden") v = !el.checked;
       if (["size", "bgA", "w", "weight"].includes(k)) v = Number(v);
       L()[k] = v;
+      if (unifyRuns(L(), k) && $(".dz-rich", box)) $(".dz-rich", box).innerHTML = runsToHTML(L());
       const sm = el.parentElement.querySelector("small");
       if (sm && k === "size") sm.textContent = num(Math.round(v));
       if (sm && k === "bgA") sm.textContent = `${num(Math.round(v * 100))}٪`;
