@@ -222,6 +222,17 @@ function openDesigner(opts) {
       for (const [hx, hy] of corners(L)) { ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs); }
       ctx.restore();
     }
+    // عکس/ویدیوی زیر لایه‌ها هم مثل یک لایه انتخاب می‌شود (کادر و دستگیره)
+    const br = sel === BG ? bgRect() : null;
+    if (br) {
+      ctx.save();
+      ctx.strokeStyle = "#ff8c1a"; ctx.lineWidth = Math.max(3, W / 300); ctx.setLineDash([12, 6]);
+      ctx.strokeRect(br.x, br.y, br.w, br.h);
+      ctx.setLineDash([]); ctx.fillStyle = "#ff8c1a";
+      const hs = Math.max(18, W / 45);
+      for (const [hx, hy] of corners(br)) ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
+      ctx.restore();
+    }
     ctx.save(); ctx.strokeStyle = "#ff2fb3"; ctx.lineWidth = 2;
     for (const g of guides) { ctx.beginPath(); if (g.x != null) { ctx.moveTo(g.x, 0); ctx.lineTo(g.x, H); } else { ctx.moveTo(0, g.y); ctx.lineTo(W, g.y); } ctx.stroke(); }
     ctx.restore();
@@ -229,6 +240,24 @@ function openDesigner(opts) {
   };
   DZ.onImg = draw;
   const corners = (L) => [[L.x, L.y], [L.x + L.w, L.y], [L.x, L.y + L.h], [L.x + L.w, L.y + L.h]];
+  const BG = "__bg";
+  // کادر عکس محدود به صفحه (اگر عکس از قاب بزرگ‌تر شد، دستگیره‌ها بیرون نروند)
+  const bgRect = () => {
+    const r = opts.bg?.rect ? opts.bg.rect(t) : null;
+    if (!r) return null;
+    const x1 = Math.max(0, r.x), y1 = Math.max(0, r.y), x2 = Math.min(W, r.x + r.w), y2 = Math.min(H, r.y + r.h);
+    return x2 > x1 && y2 > y1 ? { x: x1, y: y1, w: x2 - x1, h: y2 - y1 } : { x: 0, y: 0, w: W, h: H };
+  };
+  // قاب‌های توخالی (فقط خط دور) فقط از روی لبه انتخاب می‌شوند تا عکسِ زیرشان قابل انتخاب بماند
+  const hitTest = (l, p) => {
+    const inside = p.x >= l.x && p.x <= l.x + l.w && p.y >= l.y && p.y <= l.y + l.h;
+    if (!inside) return false;
+    if ((l.type === "rect" || l.type === "ellipse") && !l.fill) {
+      const tol = Math.max(W / 40, (l.strokeW || 0) * 2);
+      return p.x - l.x < tol || l.x + l.w - p.x < tol || p.y - l.y < tol || l.y + l.h - p.y < tol;
+    }
+    return true;
+  };
 
   // ── پنل ویژگی‌ها
   const panel = () => {
@@ -236,11 +265,12 @@ function openDesigner(opts) {
     const p = $(".dz-panel", wrap);
     const list = `<div class="dz-layers"><b class="small">لایه‌ها</b>${[...layers].reverse().map((l) => `<div class="dz-li ${l.id === sel ? "on" : ""}" data-sel="${l.id}">
       <span>${{ text: "🔤", rect: "⬛", ellipse: "⚪", line: "➖", image: "🖼" }[l.type]} ${esc((l.type === "text" ? l.text : { rect: "مستطیل", ellipse: "دایره", line: "خط", image: "عکس" }[l.type]) || "").slice(0, 22)}</span>
-      <span><button class="btn sm ghost" data-hide="${l.id}" title="پنهان/نمایش">${l.hidden ? "🙈" : "👁"}</button></span></div>`).join("") || `<div class="small muted">هنوز لایه‌ای نیست؛ از دکمه‌های بالا اضافه کنید.</div>`}</div>`;
+      <span><button class="btn sm ghost" data-hide="${l.id}" title="پنهان/نمایش">${l.hidden ? "🙈" : "👁"}</button></span></div>`).join("") || `<div class="small muted">هنوز لایه‌ای نیست؛ از دکمه‌های بالا اضافه کنید.</div>`}
+      ${opts.bg ? `<div class="dz-li ${sel === BG ? "on" : ""}" data-sel="${BG}"><span>📷 ${esc(opts.bg.label || "عکس/ویدیو")} (زیر همه)</span></div>` : ""}</div>`;
     const bgBox = opts.bg ? `<div class="dz-bg"><b class="small">📷 ${esc(opts.bg.label || "عکس/ویدیوی زیر لایه‌ها")}</b>
-      <div class="small muted">برای جابه‌جا کردن، جای خالیِ تصویر را بکشید (یا همین‌جا اندازه بدهید):</div>
+      <div class="small muted">روی عکس بزنید تا کادر نارنجی بیاید؛ وسطش را بکشید تا جابه‌جا شود و گوشه‌هایش را بکشید تا بزرگ و کوچک شود. یا از این دکمه‌ها:</div>
       <div class="btn-row"><button class="btn sm" data-bgz="0.9">− کوچک‌تر</button><button class="btn sm" data-bgz="1.1">+ بزرگ‌تر</button><button class="btn sm" data-bgr>↺ اندازه و جای اول</button></div></div>` : "";
-    if (!L) { p.innerHTML = bgBox + list; bindPanel(); return; }
+    if (!L) { p.innerHTML = (sel === BG || !layers.length ? bgBox : `<div class="small muted" style="margin-bottom:8px">برای ویرایش، روی یک لایه یا روی عکس بزنید.</div>` + bgBox) + list; bindPanel(); return; }
     const col = (k, label, allowNone) => `<label class="dz-f">${label}<span class="btn-row"><input type="color" data-p="${k}" value="${/^#[0-9a-f]{6}$/i.test(L[k] || "") ? L[k] : "#ffffff"}">${allowNone ? `<label class="small"><input type="checkbox" data-none="${k}" ${!L[k] ? "checked" : ""}> هیچ</label>` : ""}</span></label>`;
     const rng = (k, label, min, max, step = 1) => `<label class="dz-f">${label} <small>${num(+(L[k] ?? 0).toFixed?.(2) ?? L[k])}</small><input type="range" data-p="${k}" min="${min}" max="${max}" step="${step}" value="${L[k] ?? 0}"></label>`;
     let f = "";
@@ -422,15 +452,27 @@ function openDesigner(opts) {
       const ci = corners(L).findIndex(([x, y]) => Math.abs(p.x - x) < hs && Math.abs(p.y - y) < hs);
       if (ci >= 0) { snap(); drag = { mode: "resize", ci, p0: p, o: { ...L } }; cv.setPointerCapture(ev.pointerId); return; }
     }
-    const hit = [...layers].reverse().find((l) => visible(l) && p.x >= l.x && p.x <= l.x + l.w && p.y >= l.y && p.y <= l.y + l.h);
+    // دستگیره‌های عکس زیر لایه‌ها
+    const br = sel === BG ? bgRect() : null;
+    if (br) {
+      const ci = corners(br).findIndex(([x, y]) => Math.abs(p.x - x) < hs && Math.abs(p.y - y) < hs);
+      if (ci >= 0) {
+        const c = { x: br.x + br.w / 2, y: br.y + br.h / 2 };
+        drag = { mode: "bgsize", c, d: Math.max(1, Math.hypot(p.x - c.x, p.y - c.y)) };
+        cv.setPointerCapture(ev.pointerId); return;
+      }
+    }
+    const hit = [...layers].reverse().find((l) => visible(l) && hitTest(l, p));
     if (hit) {
       if (sel !== hit.id) { sel = hit.id; panel(); }
       snap();
       drag = { mode: "move", p0: p, o: { ...hit } };
       cv.setPointerCapture(ev.pointerId);
     } else {
-      sel = null; panel();
-      if (opts.bg) { drag = { mode: "bg", last: p, pts: new Map([[ev.pointerId, p]]) }; cv.setPointerCapture(ev.pointerId); }
+      const r0 = bgRect();
+      const onBg = opts.bg && (!opts.bg.rect || (r0 && p.x >= r0.x && p.x <= r0.x + r0.w && p.y >= r0.y && p.y <= r0.y + r0.h));
+      if (sel !== (onBg ? BG : null)) { sel = onBg ? BG : null; panel(); }
+      if (onBg) { drag = { mode: "bg", last: p, pts: new Map([[ev.pointerId, p]]) }; cv.setPointerCapture(ev.pointerId); }
     }
     draw();
   });
@@ -440,6 +482,11 @@ function openDesigner(opts) {
   });
   cv.addEventListener("pointermove", (ev) => {
     if (!drag) return;
+    if (drag.mode === "bgsize") {
+      const p = pt(ev), d = Math.max(1, Math.hypot(p.x - drag.c.x, p.y - drag.c.y));
+      opts.bg.zoom(d / drag.d, t); drag.d = d; draw();
+      return;
+    }
     if (drag.mode === "bg") {
       const p = pt(ev);
       if (!drag.pts.has(ev.pointerId)) return;
@@ -479,7 +526,7 @@ function openDesigner(opts) {
   cv.addEventListener("wheel", (ev) => {
     if (!opts.bg) return;
     const p = pt(ev);
-    if (layers.some((l) => visible(l) && p.x >= l.x && p.x <= l.x + l.w && p.y >= l.y && p.y <= l.y + l.h)) return;
+    if (layers.some((l) => visible(l) && hitTest(l, p))) return;
     ev.preventDefault();
     opts.bg.zoom(ev.deltaY < 0 ? 1.06 : 0.94, t); draw();
   }, { passive: false });

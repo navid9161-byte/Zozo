@@ -660,6 +660,21 @@ function tzTplLayers(W, H) {
   return out;
 }
 
+// جای عکس/ویدیوی یک تکه روی قاب (همان حسابی که drawMedia می‌کند) — برای کادر انتخاب در ویرایشگر
+function clipRect(c, W, H) {
+  const el = mediaEl(c);
+  const sw = el.videoWidth || el.naturalWidth, sh = el.videoHeight || el.naturalHeight;
+  if (!sw || !sh) return { x: 0, y: 0, w: W, h: H };
+  const sc = Number(c.scale) || 1, ox = Number(c.ox) || 0, oy = Number(c.oy) || 0;
+  if (TZ.s.fit === "crop") {
+    const k = Math.max(W / sw, H / sh) * Math.max(1, sc), dw = sw * k, dh = sh * k;
+    void dw; void dh;
+    return { x: 0, y: 0, w: W, h: H };  // در حالت «بریدن» عکس همیشه کل قاب را پر می‌کند
+  }
+  const k = Math.min(W / sw, H / sh) * sc, dw = sw * k, dh = sh * k;
+  return { x: (W - dw) / 2 + ox * W, y: (H - dh) / 2 + oy * H, w: dw, h: dh };
+}
+
 function openTeaserDesigner() {
   const s = TZ.s;
   stopPlay();
@@ -686,6 +701,7 @@ function openTeaserDesigner() {
       move: (dx, dy, t) => { const c = clipNow(t); if (c) { c.ox = +Math.max(-1, Math.min(1, (c.ox || 0) + dx)).toFixed(4); c.oy = +Math.max(-1, Math.min(1, (c.oy || 0) + dy)).toFixed(4); } },
       zoom: (f, t) => { const c = clipNow(t); if (c) c.scale = +Math.min(4, Math.max(0.3, (c.scale ?? 1) * f)).toFixed(3); },
       reset: (t) => { const c = clipNow(t); if (c) Object.assign(c, { scale: 1, ox: 0, oy: 0 }); },
+      rect: (t) => { const c = clipNow(t); return c ? clipRect(c, W, H) : null; },
     },
     onSave: (ls) => { s.layers = ls; s.layersSize = [W, H]; if (convert) s.freeTpl = true; saveDraft(); refresh(); },
   });

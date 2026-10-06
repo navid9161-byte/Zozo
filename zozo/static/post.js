@@ -402,6 +402,7 @@ function openPostDesigner() {
       },
       zoom: (f) => { s.zoom = Math.round(Math.min(300, Math.max(100, s.zoom * f))); },
       reset: () => { s.focus = 50; s.focusX = 50; s.zoom = 100; },
+      rect: () => (PS.photo ? { x: PS.photo.x, y: PS.photo.y, w: PS.photo.w, h: PS.photo.h } : null),
     } : null,
     onSave: (ls) => { s.layers = ls; if (convert) s.freeTexts = true; postSave(); refresh(); },
   });
