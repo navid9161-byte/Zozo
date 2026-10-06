@@ -325,6 +325,13 @@ def _place_filter(fit: str, w: int, h: int, bg: str, scale: float = 1.0, ox: flo
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[pv]")
 
 
+# همه‌ی تکه‌ها باید یک رنگ‌بندی داشته باشند؛ وگرنه ffmpeg وسط ویدیوی نهایی فیلترها را از نو می‌سازد
+# و لایه‌های رو (قاب، نوشته‌ها، زیرنویس) از آن لحظه به بعد گم می‌شوند.
+SEG_COLOR = "scale=out_range=tv:out_color_matrix=bt709,format=yuv420p,setparams=range=tv:colorspace=bt709:color_primaries=bt709:color_trc=bt709"
+SEG_ENC = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p",
+           "-color_range", "tv", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709"]
+
+
 def outro_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[str]:
     """پایان مُهری: لوگو بزرگ و کم‌رنگ از بالا می‌آید، محکم می‌نشیند (کمی فشرده می‌شود) و می‌ماند."""
     w, h = spec["size"]
@@ -338,13 +345,12 @@ def outro_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[str]
     fc = (f"[0:v]scale={w}:{h},setsar=1,fps={FPS},format=yuv420p[bg];"
           f"[1:v]format=rgba,fps={FPS},scale=w='trunc({lw}*{s_expr}/2)*2':h=-2:eval=frame,"
           f"fade=t=in:st={a:.3f}:d={fall * 0.75:.3f}:alpha=1[lg];"
-          f"[bg][lg]overlay=x='(W-w)/2':y='{cy}-h/2':format=auto,format=yuv420p[v]")
+          f"[bg][lg]overlay=x='(W-w)/2':y='{cy}-h/2':format=auto,{SEG_COLOR}[v]")
     return ["ffmpeg", "-y", "-v", "error", "-nostdin", "-loop", "1", "-t", f"{d:.2f}", "-i", clip["bg"],
             "-loop", "1", "-t", f"{d:.2f}", "-i", clip["logo"],
             "-f", "lavfi", "-t", f"{d:.2f}", "-i", "anullsrc=r=44100:cl=stereo",
             "-filter_complex", fc, "-map", "[v]", "-map", "2:a", "-t", f"{d:.2f}", "-r", str(FPS),
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2", "-threads", str(settings.render_threads), out]
+            *SEG_ENC, "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2", "-threads", str(settings.render_threads), out]
 
 
 def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[str]:
@@ -384,7 +390,7 @@ def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[st
     if spec["transition"] == "fade" and d >= 1.2:
         fc.append(f"{vlast}fade=t=in:st=0:d=0.25,fade=t=out:st={d - 0.25:.2f}:d=0.25[fv]")
         vlast = "[fv]"
-    fc.append(f"{vlast}format=yuv420p[v]")
+    fc.append(f"{vlast}{SEG_COLOR}[v]")
     if use_audio:
         fc.append(f"[0:a]aresample=44100,aformat=channel_layouts=stereo,volume={spec['video_volume'] * clip.get('vol', 1.0):.2f},"
                   f"apad,atrim=0:{d:.2f}[a]")
@@ -393,15 +399,14 @@ def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[st
         amap = "1:a"
     args += ["-filter_complex", ";".join(fc), "-map", "[v]", "-map", amap,
              "-t", f"{d:.2f}", "-r", str(FPS),
-             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p",
-             "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2",
+             *SEG_ENC, "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2",
              "-threads", str(settings.render_threads), out]
     return args
 
 
 def final_cmd(spec: dict[str, Any], concat_path: str, overlay_paths: list[str], out: str) -> list[str]:
     total = spec["total"]
-    args = ["ffmpeg", "-y", "-v", "error", "-nostdin", "-progress", "pipe:1", "-nostats", "-i", concat_path]
+    args = ["ffmpeg", "-y", "-v", "error", "-nostdin", "-progress", "pipe:1", "-nostats", "-reinit_filter", "0", "-i", concat_path]
     for p in overlay_paths:
         args += ["-i", p]
     music_idx = None

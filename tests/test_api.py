@@ -220,3 +220,27 @@ def test_teaser_tracks_and_outro(client):
     info = teaser.probe(teaser.teaser_file(tid))
     assert abs(info["duration"] - 3.2) < 0.3
     assert info["has_audio"]
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg نصب نیست")
+def test_segments_share_color_settings(tmp_path):
+    # عکس JPEG (تمام‌دامنه) و ویدیوی bt709 باید یک رنگ‌بندی بگیرند؛ وگرنه ffmpeg 7 وسط کار
+    # فیلترهای نهایی را از نو می‌سازد و قاب و نوشته‌ها روی ویدیو گم می‌شوند.
+    import json
+    import subprocess
+    jpg, vid = str(tmp_path / "p.jpg"), str(tmp_path / "v.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x240", "-frames:v", "1", jpg], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x240:d=1", "-pix_fmt", "yuv420p",
+                    "-colorspace", "bt709", "-color_range", "tv", vid], check=True)
+    spec = {"size": (360, 640), "fit": "crop", "bg_color": "#000000", "keep_audio": True, "video_volume": 1.0, "transition": "none"}
+    clips = [{"kind": "image", "path": jpg, "duration": 1, "zoom": False, "gray": True},
+             {"kind": "video", "path": vid, "start": 0, "duration": 1, "has_audio": False, "zoom": False}]
+    props = []
+    for i, c in enumerate(clips):
+        out = str(tmp_path / f"s{i}.mp4")
+        subprocess.run(teaser.segment_cmd(c, spec, out), check=True)
+        r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries",
+                            "stream=pix_fmt,color_range,color_space", "-of", "json", out], capture_output=True, text=True)
+        props.append(json.loads(r.stdout)["streams"][0])
+    assert props[0] == props[1]
+    assert props[0]["pix_fmt"] == "yuv420p" and props[0]["color_range"] == "tv"
