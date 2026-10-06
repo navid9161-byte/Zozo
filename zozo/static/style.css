@@ -600,3 +600,6 @@ dialog.designer:not([open]) { display: none; }
 .dz-rtb input[type=color] { width: 26px; height: 22px; padding: 0; border: 0; vertical-align: middle; margin-inline-start: 4px; }
 .dz-rich { min-height: 70px; max-height: 200px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: #fff; font-size: 16px; line-height: 1.8; outline: none; white-space: pre-wrap; font-family: Vazirmatn, Tahoma, sans-serif; }
 .dz-rich:focus { border-color: var(--primary); }
+.tz-lead { background: var(--bg); border-radius: 10px; padding: 10px; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.tz-sizes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+@media (max-width: 520px) { .tz-sizes { grid-template-columns: 1fr 1fr; } }

@@ -299,7 +299,7 @@ def tools_docx(body: DocxIn):
 def ai_task(task: str, body: TextIn):
     if task not in ai.TASKS:
         raise HTTPException(404, "کار ناشناخته")
-    return ai.run(task, body.text, max(1, min(body.n, 10)))
+    return ai.run(task, body.text, max(30, min(body.n, 400)) if task == "lead" else max(1, min(body.n, 10)))
 
 
 # ───────────────────────── بایگانی اسناد ─────────────────────────

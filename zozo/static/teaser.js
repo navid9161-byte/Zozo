@@ -28,7 +28,7 @@ function teaserDefaults() {
     footerText: "www.kermanravi.ir", logoId: "brand", captionsText: "", autoTime: true, manual: [], captionSize: 1,
     clips: [], musicId: null, musicVolume: 0.35, keepAudio: true, videoVolume: 1,
     intro: false, introText: "", outro: false, outroText: "", fade: true, transition: "fade", story_id: null,
-    layers: [], layersSize: null, capStyle: "box", capY: 0.66, subhead: "", footerSize: 1,
+    layers: [], layersSize: null, capStyle: "box", capY: 0.66, subhead: "", footerSize: 1, kickSize: 1, headSize: 1, subSize: 1,
   };
 }
 
@@ -57,9 +57,36 @@ function timeline() {
   return { introDur, outroDur, main, total, mainStart: introDur, mainEnd: +(introDur + main).toFixed(2) };
 }
 
+// متن بلند (مثلاً لید ۲۰۰ کلمه‌ای) ← زیرنویس‌های کوتاه؛ شکستن در نقطه/ویرگول، هر تکه حدود ۶ تا ۱۱ واژه
+function splitLead(text, max = 10) {
+  const out = [];
+  for (const para of String(text).split("\n").map((x) => x.trim()).filter(Boolean)) {
+    const words = para.split(/\s+/);
+    if (words.length <= max + 3) { out.push(para); continue; }
+    let cur = [];
+    words.forEach((w, i) => {
+      cur.push(w);
+      const end = /[.!؟?؛;،,:]$/.test(w.replace(/[*»"']+$/, ""));
+      const left = words.length - i - 1;
+      if ((end && cur.length >= 5) || cur.length >= max) {
+        if (left > 0 && left < 4 && !end) return;  // تکه‌ی آخر خیلی کوتاه نماند
+        out.push(cur.join(" ")); cur = [];
+      }
+    });
+    if (cur.length) out.push(cur.join(" "));
+  }
+  // ستاره‌های رنگی که بین دو تکه شکسته شده‌اند، در هر تکه کامل شوند
+  let open = false;
+  return out.map((l) => { let x = (open ? "*" : "") + l; const n = (l.match(/\*/g) || []).length; if ((n + (open ? 1 : 0)) % 2) { x += "*"; open = true; } else open = false; return x; });
+}
+
+function captionLines() {
+  return splitLead(TZ.s.captionsText, 14);
+}
+
 function captionTimes() {
   const s = TZ.s;
-  const lines = s.captionsText.split("\n").map((x) => x.trim()).filter(Boolean);
+  const lines = captionLines();
   const tl = timeline();
   if (!lines.length || tl.main <= 0) return [];
   if (!s.autoTime && s.manual.length) {
@@ -130,7 +157,7 @@ function drawHeadline(ctx, W, H) {
   if (!s.headline.trim() && !s.kicker.trim() && !sub) return;
   setup(ctx);
   const base = Math.min(W, H), m = base * 0.055, vertical = H > W;
-  const hs = base * (vertical ? 0.068 : 0.06), ks = base * 0.042, ss = hs * 0.62;
+  const hs = base * (vertical ? 0.068 : 0.06) * (Number(s.headSize) || 1), ks = base * 0.042 * (Number(s.kickSize) || 1), ss = base * (vertical ? 0.042 : 0.037) * (Number(s.subSize) || 1);
   ctx.font = `900 ${hs}px ${FONT}`;
   const maxW = W - m * 2 - base * 0.06;
   const lines = s.headline.trim() ? wrapParas(ctx, s.headline.replace(/\*/g, ""), maxW).slice(0, 5) : [];
@@ -392,7 +419,7 @@ function krHeadLayout(ctx, W, H) {
   const maxW = W * (vertical ? 0.66 : 0.5), maxH = H * (vertical ? 0.5 : 0.62);
   let k = 1, L;
   for (;;) {
-    const fs = base * (vertical ? 0.1 : 0.075) * k, ks = fs * 0.5, ss = fs * 0.56;
+    const fs = base * (vertical ? 0.1 : 0.075) * k * (Number(s.headSize) || 1), ks = base * (vertical ? 0.05 : 0.0375) * k * (Number(s.kickSize) || 1), ss = base * (vertical ? 0.056 : 0.042) * k * (Number(s.subSize) || 1);
     const parts = [];
     if (kick) { ctx.font = `800 ${ks}px ${FONT}`; parts.push({ text: kick, fs: ks, w: 800, lh: 1.5, ls: wrapRichParas(ctx, kick, KR.navy, KR.red, maxW), c: KR.navy, hi: KR.red }); }
     if (head) { ctx.font = `900 ${fs}px ${FONT}`; parts.push({ text: head, fs, w: 900, lh: 1.32, ls: wrapRichParas(ctx, head, KR.red, KR.navy, maxW), c: KR.red, hi: KR.navy }); }
@@ -843,6 +870,7 @@ VIEWS.teaser = async (view, params) => {
             <label class="wide">تیتر<textarea data-k="headline" rows="3" placeholder="تیتر اصلی کلیپ">${esc(s.headline)}</textarea>
               <small>هر جا Enter بزنید تیتر در ویدیو هم همان‌جا به سطر بعد می‌رود. واژه‌های بین دو ستاره رنگ دوم می‌گیرند: برگزاری *رویداد* سولار</small></label>
             <label class="wide">زیرتیتر (سطر کوچک زیر تیتر)<input data-k="subhead" value="${esc(s.subhead || "")}" placeholder="مثلاً: با هدف ارتقای ضریب ایمنی شهر"></label>
+            <div class="wide tz-sizes">${[["kickSize", "اندازه‌ی روتیتر"], ["headSize", "اندازه‌ی تیتر"], ["subSize", "اندازه‌ی زیرتیتر"]].map(([k, l]) => `<label>${l}<select data-k="${k}">${[[0.7, "خیلی کوچک"], [0.85, "کوچک"], [1, "معمولی"], [1.15, "بزرگ"], [1.3, "خیلی بزرگ"], [1.5, "درشت"]].map(([v, t]) => `<option value="${v}" ${Number(s[k] || 1) === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>`).join("")}</div>
             <label>نام گوینده (نوار پایین)<input data-k="speakerName" value="${esc(s.speakerName || "")}" placeholder="مثلاً حمید علیزاده"></label>
             <label>سمت گوینده<input data-k="speakerTitle" value="${esc(s.speakerTitle || "")}" placeholder="مثلاً مدیر دفتر …"></label>
             <label class="wide">تهیه و تدوین<input data-k="credit" value="${esc(s.credit || "")}" placeholder="نام خبرنگار (در ابتدای کلیپ نمایش داده می‌شود)"></label>
@@ -855,7 +883,16 @@ VIEWS.teaser = async (view, params) => {
           <div class="btn-row" style="margin-bottom:8px">
             <button class="btn primary" id="tz-asr">🎙 زیرنویس خودکار از صدای ویدیو</button>
             <button class="btn" id="tz-tap">👆 زمان‌بندی با ضربه</button>
-            ${s.story_id ? `<button class="btn sm" id="tz-fromstory">📝 از متن سوژه</button>` : ""}
+            ${s.story_id ? `<button class="btn sm" id="tz-fromstory">📝 جمله‌های کوتاه از متن سوژه</button>` : ""}
+          </div>
+          <div class="tz-lead">
+            <b class="small">📰 لید بلند به‌جای زیرنویس جمله‌به‌جمله</b>
+            <div class="btn-row">
+              ${s.story_id ? `<button class="btn sm" id="tz-lead">✍️ ساخت لید از متن سوژه</button>` : ""}
+              <label class="small">حدود <select id="tz-lead-n">${[100, 150, 200, 250, 300].map((n) => `<option value="${n}" ${n === 200 ? "selected" : ""}>${num(n)}</option>`).join("")}</select> کلمه</label>
+              <button class="btn sm" id="tz-split">✂️ تقسیم متن بلند به زیرنویس‌های کوتاه</button>
+            </div>
+            <p class="small muted" style="margin:4px 0 0">لید را در کادر زیر بچسبانید (یا از متن سوژه بسازید) و «تقسیم» را بزنید؛ هر تکه یک زیرنویس کوتاه می‌شود و به ترتیب در طول ویدیو نشان داده می‌شود. اگر هم تقسیم نکنید، جمله‌های بلند خودکار شکسته می‌شوند و بریده نمی‌شوند.</p>
           </div>
           <p class="small muted" style="margin-top:0">«زیرنویس خودکار» حرف‌های داخل ویدیو را می‌شنود و هر جمله را دقیقاً همان لحظه‌ای که گفته می‌شود نشان می‌دهد. اگر خودتان زیرنویس را نوشته باشید، فقط زمانش را با گفتار هماهنگ می‌کند. بعد می‌توانید متن را اصلاح کنید.</p>
           <div class="form-grid"><label class="wide">زیرنویس‌ها (هر خط یک زیرنویس)<textarea data-k="captionsText" rows="5" placeholder="جمله‌ی اول&#10;جمله‌ی دوم&#10;…">${esc(s.captionsText)}</textarea>
@@ -931,7 +968,7 @@ VIEWS.teaser = async (view, params) => {
     const k = el.dataset.k;
     let v = el.type === "checkbox" ? el.checked : el.value;
     if (["musicId", "story_id"].includes(k)) v = v ? Number(v) : null;
-    if (["musicVolume", "videoVolume", "captionSize", "capY", "footerSize"].includes(k)) v = Number(v);
+    if (["musicVolume", "videoVolume", "captionSize", "capY", "footerSize", "kickSize", "headSize", "subSize"].includes(k)) v = Number(v);
     s[k] = v;
     saveDraft();
     if (k === "captionsText" || k === "intro" || k === "outro") drawTimes();
@@ -956,6 +993,22 @@ VIEWS.teaser = async (view, params) => {
   $("#tz-simple").onclick = () => { TZ.simple = true; lsSet("tzSimple", "1"); refresh(); };
   $("#tz-adv").onclick = () => { TZ.simple = false; lsSet("tzSimple", "0"); refresh(); };
   $("#tz-asr").onclick = autoCaptions;
+  $("#tz-split").onclick = () => {
+    const parts = splitLead(s.captionsText, 10);
+    if (!parts.length) return toast("اول متن (لید) را در کادر زیرنویس بنویسید یا بچسبانید");
+    s.captionsText = parts.join("\n"); s.autoTime = true; s.manual = []; saveDraft(); refresh();
+    toast(`${num(parts.length)} زیرنویس ساخته شد ✔`);
+  };
+  if ($("#tz-lead")) $("#tz-lead").onclick = async () => {
+    const st = await api(`/api/stories/${s.story_id}`);
+    if (!st.body) return toast("متن این سوژه خالی است");
+    const n = Number($("#tz-lead-n").value) || 200;
+    const r = await api("/api/ai/lead", { method: "POST", body: { text: st.body, n } });
+    const lead = (r.lines || []).join(" ");
+    if (!lead) return toast("لیدی ساخته نشد");
+    s.captionsText = splitLead(lead, 10).join("\n"); s.autoTime = true; s.manual = []; saveDraft(); refresh();
+    toast(`لید حدود ${num(lead.split(/\s+/).length)} کلمه ساخته و به زیرنویس‌ها تقسیم شد ✔`, 4000);
+  };
   $("#tz-tap").onclick = startTapTiming;
   if ($("#tz-fromstory")) $("#tz-fromstory").onclick = async (ev) => {
     ev.preventDefault();
@@ -1108,7 +1161,7 @@ function drawTimes() {
 async function autoCaptions() {
   const s = TZ.s;
   if (!s.clips.some((c) => c.kind === "video")) return toast("اول ویدیوی دارای صدا اضافه کنید");
-  const lines = s.captionsText.split("\n").map((x) => x.trim()).filter(Boolean);
+  const lines = captionLines();
   const btn = $("#tz-asr");
   btn.disabled = true; btn.textContent = "در حال شنیدن ویدیو… (چند ثانیه)";
   try {
@@ -1133,7 +1186,7 @@ async function autoCaptions() {
 // زمان‌بندی با ضربه: ویدیو پخش می‌شود و با هر ضربه زیرنویس بعدی شروع می‌شود
 function startTapTiming() {
   const s = TZ.s;
-  const lines = s.captionsText.split("\n").map((x) => x.trim()).filter(Boolean);
+  const lines = captionLines();
   if (!lines.length) return toast("اول زیرنویس‌ها را بنویسید (هر خط یکی)");
   const tl = timeline();
   const box = $("#tz-tapbox");

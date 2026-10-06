@@ -36,6 +36,7 @@ TASKS = {
     "headlines": "برای این خبر {n} تیتر کوتاه و دقیق (هر کدام حداکثر ۱۲ کلمه) پیشنهاد کن؛ هر تیتر در یک خط، بدون شماره:\n\n{text}",
     "captions": "از این خبر {n} جمله‌ی کوتاه (هر کدام حداکثر ۱۰ کلمه) برای زیرنویس یک کلیپ خبری کوتاه بساز؛ "
                 "هر جمله در یک خط، بدون شماره:\n\n{text}",
+    "lead": "از این خبر یک لید خبری روان در حدود {n} کلمه بنویس (یک پاراگراف، بدون تیتر و بدون مقدمه):\n\n{text}",
     "rewrite": "این متن را با حفظ همه‌ی اطلاعات، روان‌تر و به سبک خبری بازنویسی کن:\n\n{text}",
 }
 
@@ -84,6 +85,15 @@ def _fallback(task: str, text: str, n: int) -> list[str]:
             for i in range(0, len(words), 9):
                 out.append(" ".join(words[i:i + 9]))
         return out[: max(n, 3) * 2]
+    if task == "lead":
+        # جمله‌های مهم به ترتیب متن، تا حدود n واژه
+        out, count = [], 0
+        for s in textnorm.extractive_summary(text, 30):
+            if count >= n * 0.85:
+                break
+            out.append(s)
+            count += len(s.split())
+        return [" ".join(out)]
     if task == "headlines":
         # جمله‌ی نخست (لید)، کوتاه‌شده
         return [" ".join(s.split()[:12]) for s in sents[:n]]
@@ -101,7 +111,7 @@ def run(task: str, text: str, n: int = 3) -> dict[str, Any]:
         try:
             prompt = TASKS[task].format(n=n, text=text[:12000])
             out = _openai(prompt) if p == "openai" else _claude(prompt)
-            lines = [ln.strip(" -•*\t") for ln in out.split("\n") if ln.strip()] if task != "rewrite" else [out]
+            lines = [ln.strip(" -•*\t") for ln in out.split("\n") if ln.strip()] if task not in ("rewrite", "lead") else [" ".join(out.split())]
             return {"mode": p, "lines": lines}
         except Exception as e:
             log.warning("هوش مصنوعی در دسترس نبود: %s", e)

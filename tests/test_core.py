@@ -322,3 +322,11 @@ def test_invoice_search_customers_export():
     c = next(x for x in invoices.customers() if x["name"] == "شرکت انار")
     assert c["count"] >= 2 and c["phone"] == "0912" and c["billed"] >= 2000
     assert "شرکت انار" in invoices.export_csv(invoices.list_all("انار")) and "انار" in invoices.customers_csv()
+
+
+def test_lead_fallback_length():
+    from zozo import ai
+
+    text = " ".join(f"جمله‌ی شماره {i} درباره‌ی خبر مهم امروز است." for i in range(60))
+    lead = ai._fallback("lead", text, 100)[0]
+    assert 70 <= len(lead.split()) <= 140
