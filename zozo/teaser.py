@@ -114,6 +114,8 @@ def add_media(fileobj: BinaryIO, filename: str) -> dict[str, Any]:
     tmp, size, _ = documents.save_upload(fileobj, media_dir(), settings.max_upload_mb * 1024 * 1024)
     try:
         info = probe(tmp)
+        if kind == "image" and filename.lower().endswith(".gif") and (info["duration"] or 0) > 0.2:
+            kind = "video"  # GIF متحرک مثل ویدیو (بی‌صدا) پخش می‌شود
         if kind in ("image", "video") and not info["width"]:
             raise db.ValidationError("تصویری در این فایل پیدا نشد")
         if kind == "image":
@@ -210,6 +212,15 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
         raise db.ValidationError(f"حداکثر {MAX_CLIPS} تکه")
     clips = []
     for c in clips_in:
+        if c.get("outro_bg"):
+            # پایانِ مُهری: پس‌زمینه + لوگویی که مثل مُهر روی صفحه می‌خورد (در ffmpeg متحرک می‌شود)
+            bg, lg = get_media(int(c["outro_bg"])), get_media(int(c["outro_logo"]))
+            clips.append({"kind": "outro", "bg": bg["path"], "logo": lg["path"],
+                          "duration": round(_num(c.get("duration"), 2.6, 1.0, 15), 2),
+                          "logo_w": _num(c.get("logo_w"), 0.55, 0.1, 1.0), "logo_y": _num(c.get("logo_y"), 0.42, 0.05, 0.95),
+                          "drop": _num(c.get("drop"), 0.25, 0, 3), "land": _num(c.get("land"), 0.85, 0.3, 5),
+                          "zoom": False, "gray": False, "start": 0.0, "has_audio": 0})
+            continue
         m = get_media(int(c["media_id"]))
         if m["kind"] not in ("image", "video"):
             raise db.ValidationError(f"«{m['filename']}» عکس یا ویدیو نیست")
@@ -225,7 +236,10 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
                       "gray": bool(c.get("gray", False)),
                       # جا و اندازه‌ی عکس/ویدیو در قاب: بزرگ‌نمایی و جابه‌جایی (نسبتی از عرض/ارتفاع قاب)
                       "scale": _num(c.get("scale"), 1.0, 0.3, 4.0), "ox": _num(c.get("ox"), 0.0, -1.0, 1.0),
-                      "oy": _num(c.get("oy"), 0.0, -1.0, 1.0)})
+                      "oy": _num(c.get("oy"), 0.0, -1.0, 1.0),
+                      "bright": _num(c.get("bright"), 0.0, -0.8, 0.8),
+                      "motion": c.get("motion") if c.get("motion") in ("zoom", "pan", "none") else None,
+                      "mute": bool(c.get("mute", False)), "vol": _num(c.get("vol"), 1.0, 0, 3)})
     total = round(sum(c["duration"] for c in clips), 2)
     if total > MAX_TOTAL_SECONDS:
         raise db.ValidationError(f"مدت کل کلیپ ({total:.0f} ثانیه) بیش از {MAX_TOTAL_SECONDS} ثانیه است")
@@ -236,6 +250,20 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
         e = _num(o.get("end"), total, s, total)
         if e - s > 0.05:
             overlays.append({"image": o["image"], "start": round(s, 2), "end": round(e, 2)})
+    # صداهای جدا روی خط زمان (موسیقی شروع، صدای مُهر، …)
+    tracks = []
+    for t in (spec.get("tracks") or [])[:6]:
+        m = get_media(int(t["media_id"]))
+        if m["kind"] not in ("audio", "video") or not m["has_audio"]:
+            raise db.ValidationError(f"«{m['filename']}» صدا ندارد")
+        at = _num(t.get("at"), 0, 0, total)
+        dur = _num(t.get("dur"), total - at, 0.1, max(0.1, total - at))
+        tracks.append({"path": m["path"], "src": _num(t.get("src"), 0, 0, max(0, (m["duration"] or 0) - 0.1)),
+                       "at": round(at, 2), "dur": round(dur, 2), "vol": _num(t.get("vol"), 1, 0, 3),
+                       "fin": _num(t.get("fin"), 0, 0, 10), "fout": _num(t.get("fout"), 0, 0, 10),
+                       "loop": bool(t.get("loop", True)),
+                       "duck": [[_num(d[0], 0, 0, total), _num(d[1], 0, 0, total), _num(d[2], 1, 0, 1)]
+                                for d in (t.get("duck") or [])[:8] if isinstance(d, (list, tuple)) and len(d) == 3]})
     music = None
     if spec.get("music_id"):
         m = get_media(int(spec["music_id"]))
@@ -252,7 +280,7 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
         "keep_audio": bool(spec.get("keep_audio", True)),
         "video_volume": _num(spec.get("video_volume"), 1.0, 0, 3),
         "fade": bool(spec.get("fade", True)),
-        "clips": clips, "overlays": overlays, "music": music, "total": total,
+        "clips": clips, "overlays": overlays, "music": music, "tracks": tracks, "total": total,
         "captions": [{"text": str(c.get("text", ""))[:300], "start": _num(c.get("start"), 0, 0, total),
                       "end": _num(c.get("end"), 0, 0, total)} for c in (spec.get("captions") or [])[:200]],
         "editor": spec.get("editor") if isinstance(spec.get("editor"), dict) else None,
@@ -297,7 +325,31 @@ def _place_filter(fit: str, w: int, h: int, bg: str, scale: float = 1.0, ox: flo
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[pv]")
 
 
+def outro_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[str]:
+    """پایان مُهری: لوگو بزرگ و کم‌رنگ از بالا می‌آید، محکم می‌نشیند (کمی فشرده می‌شود) و می‌ماند."""
+    w, h = spec["size"]
+    d = clip["duration"]
+    a, land = clip["drop"], clip["land"]
+    fall = max(0.15, land - a)
+    lw = round(w * clip["logo_w"] / 2) * 2
+    cy = round(h * clip["logo_y"])
+    s_expr = (f"if(lt(t,{a:.3f}),2.3,if(lt(t,{land:.3f}),1+1.3*pow(1-(t-{a:.3f})/{fall:.3f},2),"
+              f"1-0.05*sin(PI*min(1,(t-{land:.3f})/0.18))))")
+    fc = (f"[0:v]scale={w}:{h},setsar=1,fps={FPS},format=yuv420p[bg];"
+          f"[1:v]format=rgba,fps={FPS},scale=w='trunc({lw}*{s_expr}/2)*2':h=-2:eval=frame,"
+          f"fade=t=in:st={a:.3f}:d={fall * 0.75:.3f}:alpha=1[lg];"
+          f"[bg][lg]overlay=x='(W-w)/2':y='{cy}-h/2':format=auto,format=yuv420p[v]")
+    return ["ffmpeg", "-y", "-v", "error", "-nostdin", "-loop", "1", "-t", f"{d:.2f}", "-i", clip["bg"],
+            "-loop", "1", "-t", f"{d:.2f}", "-i", clip["logo"],
+            "-f", "lavfi", "-t", f"{d:.2f}", "-i", "anullsrc=r=44100:cl=stereo",
+            "-filter_complex", fc, "-map", "[v]", "-map", "2:a", "-t", f"{d:.2f}", "-r", str(FPS),
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2", "-threads", str(settings.render_threads), out]
+
+
 def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[str]:
+    if clip["kind"] == "outro":
+        return outro_cmd(clip, spec, out)
     w, h = spec["size"]
     d = clip["duration"]
     frames = max(1, round(d * FPS))
@@ -306,14 +358,21 @@ def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[st
         args += ["-i", clip["path"]]
     else:
         args += ["-ss", f"{clip['start']:.2f}", "-t", f"{d:.2f}", "-i", clip["path"]]
-    use_audio = clip["kind"] == "video" and clip["has_audio"] and spec["keep_audio"]
+    use_audio = clip["kind"] == "video" and clip["has_audio"] and spec["keep_audio"] and not clip.get("mute")
     if not use_audio:
         args += ["-f", "lavfi", "-t", f"{d:.2f}", "-i", "anullsrc=r=44100:cl=stereo"]
     fc = [_place_filter(spec["fit"], w, h, spec["bg_color"], clip.get("scale", 1.0), clip.get("ox", 0.0), clip.get("oy", 0.0))]
     if clip.get("gray"):
         fc[0] = fc[0][: -len("[pv]")] + ",hue=s=0[pv]"
+    if abs(clip.get("bright") or 0) > 0.005:
+        fc[0] = fc[0][: -len("[pv]")] + f",eq=brightness={clip['bright']:.3f}[pv]"
+    motion = clip.get("motion") or ("zoom" if clip["zoom"] else "none")
     if clip["kind"] == "image":
-        if clip["zoom"]:
+        if motion == "pan":
+            # جابه‌جایی آرام افقی روی تصویر کمی بزرگ‌شده
+            fc.append(f"[pv]scale={w * 2}:{h * 2},zoompan=z='1.12':d={frames}:"
+                      f"x='(iw-iw/zoom)*on/{frames}':y='ih/2-(ih/zoom/2)':s={w}x{h}:fps={FPS}[mv]")
+        elif motion == "zoom":
             # زوم آرام (افکت کن برنز) روی تصویر ۲ برابر برای حرکت نرم‌تر
             fc.append(f"[pv]scale={w * 2}:{h * 2},zoompan=z='1+0.08*on/{frames}':d={frames}:"
                       f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={w}x{h}:fps={FPS}[mv]")
@@ -327,7 +386,7 @@ def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[st
         vlast = "[fv]"
     fc.append(f"{vlast}format=yuv420p[v]")
     if use_audio:
-        fc.append(f"[0:a]aresample=44100,aformat=channel_layouts=stereo,volume={spec['video_volume']:.2f},"
+        fc.append(f"[0:a]aresample=44100,aformat=channel_layouts=stereo,volume={spec['video_volume'] * clip.get('vol', 1.0):.2f},"
                   f"apad,atrim=0:{d:.2f}[a]")
         amap = "[a]"
     else:
@@ -361,7 +420,39 @@ def final_cmd(spec: dict[str, Any], concat_path: str, overlay_paths: list[str], 
             vf.append(f"fade=t=out:st={total - 0.6:.2f}:d=0.6")
     vf.append("format=yuv420p")
     fc.append(f"{v}{','.join(vf)}[v]")
-    if music_idx is not None:
+    tracks = spec.get("tracks") or []
+    first_track = 1 + len(overlay_paths) + (1 if music_idx is not None else 0)
+    for t in tracks:
+        if t["loop"]:
+            args += ["-stream_loop", "-1"]
+        args += ["-ss", f"{t['src']:.2f}", "-i", t["path"]]
+    if tracks:
+        labels = []
+        for k, t in enumerate(tracks):
+            chain = [f"[{first_track + k}:a]aresample=44100,aformat=channel_layouts=stereo",
+                     f"atrim=0:{t['dur']:.2f}", "asetpts=PTS-STARTPTS"]
+            if t["fin"] > 0:
+                chain.append(f"afade=t=in:st=0:d={min(t['fin'], t['dur']):.2f}")
+            if t["fout"] > 0:
+                chain.append(f"afade=t=out:st={max(0.0, t['dur'] - t['fout']):.2f}:d={min(t['fout'], t['dur']):.2f}")
+            chain.append(f"volume={t['vol']:.2f}")
+            ms = int(round(t["at"] * 1000))
+            if ms:
+                chain.append(f"adelay={ms}|{ms}")
+            if t["duck"]:
+                expr = "*".join(f"if(between(t,{a:.2f},{b:.2f}),{f:.2f},1)" for a, b, f in t["duck"])
+                chain.append(f"volume=eval=frame:volume='{expr}'")
+            fc.append(",".join(chain) + f"[t{k}]")
+            labels.append(f"[t{k}]")
+        base = "[0:a]"
+        if music_idx is not None:
+            m = spec["music"]
+            fc.append(f"[{music_idx}:a]aresample=44100,aformat=channel_layouts=stereo,volume={m['volume']:.2f},"
+                      f"atrim=0:{total:.2f},afade=t=in:st=0:d=0.5,afade=t=out:st={max(0.0, total - 2):.2f}:d=2[mus]")
+            labels.append("[mus]")
+        fc.append(f"{base}{''.join(labels)}amix=inputs={1 + len(labels)}:duration=first:dropout_transition=0:normalize=0,"
+                  f"alimiter=limit=0.95[a]")
+    elif music_idx is not None:
         m = spec["music"]
         fade_st = max(0.0, total - 2)
         fc.append(f"[{music_idx}:a]aresample=44100,aformat=channel_layouts=stereo,volume={m['volume']:.2f},"
@@ -540,6 +631,11 @@ def create_teaser(spec_in: dict[str, Any]) -> dict[str, Any]:
             m = add_media_dataurl(c["card"], f"card-{len(clips)}.png")
             c = {**c, "media_id": m["id"], "zoom": c.get("zoom", False)}
             c.pop("card", None)
+        if c.get("outro"):
+            o = c["outro"]
+            bg = add_media_dataurl(o["bg"], f"card-outro-bg-{len(clips)}.png")
+            lg = add_media_dataurl(o["logo"], f"card-outro-logo-{len(clips)}.png")
+            c = {**{k: v for k, v in o.items() if k not in ("bg", "logo")}, "outro_bg": bg["id"], "outro_logo": lg["id"]}
         clips.append(c)
     spec = validate_spec({**spec_in, "clips": clips})
     story_id = spec_in.get("story_id") or None

@@ -1337,6 +1337,54 @@ $("#btn-notif").onclick = async (ev) => {
 document.addEventListener("click", (ev) => { if (!ev.target.closest("#notif-panel")) closeNotif(); });
 $("#btn-search").onclick = () => (location.hash = "#search");
 
+// ═════════════════════════ فونت‌ها ═════════════════════════
+// فونت‌های آزاد همراه برنامه + فونت‌هایی که کاربر بارگذاری کرده (مثل بی‌تیتر، بی‌نازنین)
+const FONTS = [["Vazirmatn", "وزیرمتن"], ["Estedad", "استعداد"], ["Lalezar", "لاله‌زار"], ["Shabnam", "شبنم"], ["Noto Naskh Arabic", "نوتو نسخ"]];
+const fontStack = (f) => `"${f || "Vazirmatn"}", Vazirmatn, Tahoma, sans-serif`;
+const fontName = (f) => (FONTS.find((x) => x[0] === f) || [f, f])[1];
+let FONTS_READY = null;
+function loadCustomFonts() {
+  FONTS_READY = api("/api/fonts").then(async (r) => {
+    for (const f of r.items) {
+      if (FONTS.some((x) => x[0] === f.family)) continue;
+      try {
+        const face = new FontFace(f.family, `url(/api/fonts/${f.id}/file)`);
+        document.fonts.add(await face.load());
+        FONTS.push([f.family, f.name, f.id]);
+      } catch { /* فایل خراب */ }
+    }
+  }).catch(() => {});
+  return FONTS_READY;
+}
+// وقتی فونتی هنوز دانلود نشده، بعد از آمدنش دوباره کشیده شود
+const _fontWait = new Set();
+function ensureFont(f, weight = 700, redraw) {
+  if (!f || !document.fonts || document.fonts.check(`${weight} 20px "${f}"`)) return;
+  const key = `${f}|${weight}`;
+  if (_fontWait.has(key)) return;
+  _fontWait.add(key);
+  document.fonts.load(`${weight} 40px "${f}"`, "ابپ").then(() => { _fontWait.delete(key); redraw?.(); }).catch(() => _fontWait.delete(key));
+}
+function fontOptions(cur) {
+  return FONTS.map(([f, n]) => `<option value="${esc(f)}" ${f === cur ? "selected" : ""} style="font-family:${esc(fontStack(f))}">${esc(n)}</option>`).join("");
+}
+// دکمه‌ی «افزودن فونت»: فایل ttf/otf/woff را بارگذاری می‌کند و همه‌جا قابل انتخاب می‌شود
+function pickFontFile(onDone) {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".ttf,.otf,.woff,.woff2";
+  inp.onchange = async () => {
+    const file = inp.files[0];
+    if (!file) return;
+    const name = prompt("نام این فونت (همان‌طور که در فهرست دیده شود):", file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ")) || "";
+    const r = await uploadOne("/api/fonts", file, { name }, () => {});
+    if (!r.ok) return toast(r.error);
+    await loadCustomFonts();
+    toast(`فونت «${r.data.name}» اضافه شد ✔`);
+    onDone?.(r.data.family);
+  };
+  inp.click();
+}
+
 // ═════════════════════════ شروع ═════════════════════════
 async function init() {
   try {
@@ -1350,6 +1398,7 @@ async function init() {
   document.title = `${META.app_name} — دستیار روزنامه‌نگار`;
   $("#brand").textContent = META.app_name;
   $("#today").textContent = fa(META.today_long);
+  loadCustomFonts();
   route();
   pollNotifications(true);
   clearInterval(init._t);

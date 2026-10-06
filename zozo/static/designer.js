@@ -74,7 +74,7 @@ function layerParas(L) {
   const paras = [[]];
   let word = null;
   for (const r of layerRuns(L)) {
-    const st = { c: r.c || L.color, s: r.s || 1, w: r.w || L.weight || 700 };
+    const st = { c: r.c || L.color, s: r.s || 1, w: r.w || L.weight || 700, f: r.f || L.font || "Vazirmatn" };
     for (const ch of String(r.t).split(/(\n|\s+)/)) {
       if (!ch) continue;
       if (ch === "\n") { word = null; paras.push([]); continue; }
@@ -93,9 +93,9 @@ function layerParas(L) {
 
 function drawTextLayer(ctx, L) {
   const pad = L.bg ? (L.pad ?? 16) : 0;
-  const font = (p) => `${p.w} ${L.size * p.s}px ${FONT}`;
+  const font = (p) => { ensureFont(p.f, p.w, () => (DZ.redraw || window.onFontLoaded)?.()); return `${p.w} ${L.size * p.s}px ${fontStack(p.f)}`; };
   const inner = Math.max(20, L.w - pad * 2);
-  ctx.font = font({ w: L.weight || 700, s: 1 });
+  ctx.font = font({ w: L.weight || 700, s: 1, f: L.font || "Vazirmatn" });
   const sp = ctx.measureText(" ").width;
   const lines = [];
   for (const para of layerParas(L)) {
@@ -116,9 +116,13 @@ function drawTextLayer(ctx, L) {
   const textH = lines.reduce((a, l) => a + lhOf(l), 0);
   const boxH = Math.max(L.h, textH + pad * 2);
   if (L.bg) {
+    // شفافیت کادر پشت متن جدا از خود متن (bgA)
+    ctx.save();
+    if (L.bgA != null) ctx.globalAlpha *= Math.max(0, Math.min(1, Number(L.bgA)));
     ctx.fillStyle = L.bg;
     rr(ctx, L.x, L.y, L.w, boxH, Math.min(L.radius || 0, L.w / 2));
     ctx.fill();
+    ctx.restore();
   }
   if (L.shadow) { ctx.shadowColor = "rgba(0,0,0,.65)"; ctx.shadowBlur = L.size * 0.25; ctx.shadowOffsetY = L.size * 0.05; }
   let y = L.y + pad + (boxH - textH - pad * 2) / 2;
@@ -239,6 +243,7 @@ function openDesigner(opts) {
     if (opts.timed) $(".dz-tl", wrap).textContent = `${num(t.toFixed(1))} ث`;
   };
   DZ.onImg = draw;
+  DZ.redraw = draw;
   const corners = (L) => [[L.x, L.y], [L.x + L.w, L.y], [L.x, L.y + L.h], [L.x + L.w, L.y + L.h]];
   const BG = "__bg";
   // کادر عکس محدود به صفحه (اگر عکس از قاب بزرگ‌تر شد، دستگیره‌ها بیرون نروند)
@@ -276,10 +281,8 @@ function openDesigner(opts) {
     let f = "";
     if (L.type === "text") {
       f += `<div class="dz-f wide"><span>متن <small>— واژه یا بخشی از متن را انتخاب کنید و فقط رنگ، اندازه یا ضخامت همان را عوض کنید</small></span>
-        <div class="dz-rtb"><label class="btn sm" title="رنگ بخش انتخاب‌شده">🎨 رنگ<input type="color" data-rc value="#9d1819"></label>
-          <button type="button" class="btn sm" data-rs="1.15" title="بزرگ‌تر">A+</button><button type="button" class="btn sm" data-rs="0.87" title="کوچک‌تر">A−</button>
-          <button type="button" class="btn sm" data-rb title="پررنگ / معمولی"><b>B</b></button><button type="button" class="btn sm ghost" data-rclear title="برگرداندن بخش انتخاب‌شده به حالت عادی">✕ قالب‌بندی</button></div>
-        <div class="dz-rich" contenteditable="true" dir="rtl" style="color:${esc(L.color)};font-weight:${L.weight || 700}">${runsToHTML(L)}</div></div>`;
+        ${richToolbarHTML()}${richBoxHTML(L)}</div>`;
+      f += `<label class="dz-f wide">فونت کل متن<span class="btn-row"><select data-p="font" style="flex:1">${fontOptions(L.font || "Vazirmatn")}</select><button type="button" class="btn sm" data-addfont title="بارگذاری فایل فونت">➕ افزودن فونت</button></span></label>`;
       f += rng("size", "اندازه", 14, 220);
       f += `<label class="dz-f">ضخامت<select data-p="weight">${[[400, "معمولی"], [700, "پررنگ"], [800, "پررنگ‌تر"], [900, "خیلی پررنگ"]].map(([v, l]) => `<option value="${v}" ${+L.weight === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>`;
       f += `<div class="dz-f wide"><span>چینش</span><div class="seg">${[["right", "راست"], ["center", "وسط"], ["left", "چپ"], ["justify", "تراز"]].map(([v, l]) => `<button type="button" data-align="${v}" class="${L.align === v ? "active" : ""}">${l}</button>`).join("")}</div></div>`;
@@ -308,65 +311,8 @@ function openDesigner(opts) {
   };
 
   // ویرایشگر متن غنی: انتخاب بخشی از متن ← رنگ/اندازه/ضخامت فقط برای همان بخش
-  const bindRich = (p) => {
-    const ed = $(".dz-rich", p);
-    if (!ed) return;
-    let typing = null;
-    const sync = () => {
-      const L = cur();
-      if (!L) return;
-      if (!typing) snap();
-      clearTimeout(typing); typing = setTimeout(() => (typing = null), 700);
-      L.runs = htmlToRuns(ed, L);
-      L.text = L.runs.map((r) => r.t).join("");
-      draw();
-    };
-    ed.addEventListener("input", sync);
-    const selRange = () => {
-      const sel = window.getSelection();
-      if (!sel.rangeCount || !ed.contains(sel.anchorNode)) return null;
-      const r = sel.getRangeAt(0);
-      if (r.collapsed) { toast("اول واژه یا بخشی از متن را انتخاب کنید (با کشیدن انگشت یا دوبار زدن روی واژه)"); return null; }
-      return r;
-    };
-    let saved = null;
-    ed.addEventListener("keyup", () => { const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode)) saved = s0.getRangeAt(0).cloneRange(); });
-    ed.addEventListener("mouseup", () => { const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode)) saved = s0.getRangeAt(0).cloneRange(); });
-    if (DZ.selHandler) document.removeEventListener("selectionchange", DZ.selHandler);
-    DZ.selHandler = () => { const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode) && !s0.isCollapsed) saved = s0.getRangeAt(0).cloneRange(); };
-    document.addEventListener("selectionchange", DZ.selHandler);
-    const apply = (fn) => {
-      let r = selRange();
-      if (!r && saved && !saved.collapsed) { r = saved; const s0 = window.getSelection(); s0.removeAllRanges(); s0.addRange(r); }
-      if (!r) return;
-      const host = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentElement;
-      const cs = getComputedStyle(host);
-      const anc = r.commonAncestorContainer.nodeType === 1 ? r.commonAncestorContainer : r.commonAncestorContainer.parentElement;
-      const parentPx = parseFloat(getComputedStyle(anc).fontSize);
-      const span = document.createElement("span");
-      const frag = r.extractContents();
-      fn(span, frag, cs, parentPx);
-      span.appendChild(frag);
-      r.insertNode(span);
-      const s0 = window.getSelection(); s0.removeAllRanges();
-      const nr = document.createRange(); nr.selectNodeContents(span); s0.addRange(nr); saved = nr.cloneRange();
-      sync();
-    };
-    const strip = (frag, prop) => frag.querySelectorAll?.("*").forEach((el) => { el.style[prop] = ""; if (prop === "color") el.removeAttribute("color"); });
-    $("[data-rc]", p).addEventListener("input", (ev) => apply((span, frag) => { strip(frag, "color"); span.style.color = ev.target.value; }));
-    $("[data-rc]", p).addEventListener("pointerdown", () => { const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode) && !s0.isCollapsed) saved = s0.getRangeAt(0).cloneRange(); });
-    $$("[data-rs]", p).forEach((b) => b.addEventListener("pointerdown", (ev) => ev.preventDefault()));
-    $$("[data-rs]", p).forEach((b) => (b.onclick = () => apply((span, frag, cs, parentPx) => {
-      strip(frag, "fontSize");
-      // اندازه‌ی تازه = اندازه‌ی فعلی × ضریب (نسبت به والد حساب می‌شود تا تودرتو دو برابر نشود)
-      const want = parseFloat(cs.fontSize) * Number(b.dataset.rs), basePx = parseFloat(getComputedStyle(ed).fontSize);
-      span.style.fontSize = `${(Math.min(4 * basePx, Math.max(0.3 * basePx, want)) / parentPx).toFixed(3)}em`;
-    })));
-    $("[data-rb]", p).addEventListener("pointerdown", (ev) => ev.preventDefault());
-    $("[data-rb]", p).onclick = () => apply((span, frag, cs) => { strip(frag, "fontWeight"); span.style.fontWeight = Number(cs.fontWeight) >= 800 ? "400" : "900"; });
-    $("[data-rclear]", p).addEventListener("pointerdown", (ev) => ev.preventDefault());
-    $("[data-rclear]", p).onclick = () => apply((span, frag) => { ["color", "fontSize", "fontWeight"].forEach((k) => strip(frag, k)); });
-  };
+  const bindRich = (p) => mountRichEditor(p, cur, () => draw(), () => snap());
+
 
   const bindPanel = () => {
     const p = $(".dz-panel", wrap);
@@ -392,6 +338,8 @@ function openDesigner(opts) {
     $$("[data-bgz]", p).forEach((b) => (b.onclick = () => { opts.bg.zoom(Number(b.dataset.bgz), t); draw(); }));
     if ($("[data-bgr]", p)) $("[data-bgr]", p).onclick = () => { opts.bg.reset(t); draw(); };
     bindRich(p);
+    const af = $("[data-addfont]", p);
+    if (af) af.onclick = () => pickFontFile((fam) => { const L = cur(); if (L) { snap(); L.font = fam; draw(); panel(); } });
     const rep = $("[data-replace]", p);
     if (rep) rep.onchange = async (ev) => { const src = await uploadLayerImage(ev.target.files[0]); if (src) { snap(); cur().src = src; draw(); } };
     $$("[data-c]", p).forEach((b) => (b.onclick = () => {
@@ -548,7 +496,7 @@ function openDesigner(opts) {
   const doUndo = () => { if (!undo.length) return; redo.push(JSON.stringify(layers)); layers = JSON.parse(undo.pop()); if (!cur()) sel = null; draw(); panel(); };
   const doRedo = () => { if (!redo.length) return; undo.push(JSON.stringify(layers)); layers = JSON.parse(redo.pop()); draw(); panel(); };
 
-  const close = () => { document.removeEventListener("keydown", onKey); if (DZ.selHandler) document.removeEventListener("selectionchange", DZ.selHandler); DZ.onImg = null; wrap.close(); wrap.remove(); };
+  const close = () => { DZ.redraw = null; document.removeEventListener("keydown", onKey); if (DZ.selHandler) document.removeEventListener("selectionchange", DZ.selHandler); DZ.onImg = null; wrap.close(); wrap.remove(); };
   $(".dz-top", wrap).addEventListener("click", (ev) => {
     const a = ev.target.closest("[data-a]")?.dataset.a;
     if (a === "undo") doUndo();
@@ -563,11 +511,88 @@ function openDesigner(opts) {
   draw(); panel();
 }
 
+
+// ───── ویرایشگر متن غنی (مشترک: ویرایشگر لایه‌ها و ریلزساز) ─────
+function richToolbarHTML() {
+  return `<div class="dz-rtb"><select data-rf title="فونت بخش انتخاب‌شده"><option value="">فونت انتخاب…</option>${fontOptions("")}</select>
+    <label class="btn sm" title="رنگ بخش انتخاب‌شده">🎨 رنگ<input type="color" data-rc value="#9d1819"></label>
+    <button type="button" class="btn sm" data-rs="1.15" title="بزرگ‌تر">A+</button><button type="button" class="btn sm" data-rs="0.87" title="کوچک‌تر">A−</button>
+    <button type="button" class="btn sm" data-rb title="پررنگ / معمولی"><b>B</b></button><button type="button" class="btn sm ghost" data-rclear title="برگرداندن بخش انتخاب‌شده به حالت عادی">✕ قالب‌بندی</button></div>`;
+}
+function richBoxHTML(L) {
+  return `<div class="dz-rich" contenteditable="true" dir="rtl" style="color:${esc(L.color)};font-weight:${L.weight || 700};font-family:${esc(fontStack(L.font))}">${runsToHTML(L)}</div>`;
+}
+function mountRichEditor(p, getL, onChange, onFirst) {
+  const ed = $(".dz-rich", p);
+  if (!ed) return;
+  let typing = null;
+  const sync = () => {
+    const L = getL();
+    if (!L) return;
+    if (!typing) onFirst?.();
+    clearTimeout(typing); typing = setTimeout(() => (typing = null), 700);
+    L.runs = htmlToRuns(ed, L);
+    L.text = L.runs.map((r) => r.t).join("");
+    onChange(L);
+  };
+  ed.addEventListener("input", sync);
+  const selRange = () => {
+    const sel = window.getSelection();
+    if (!sel.rangeCount || !ed.contains(sel.anchorNode)) return null;
+    const r = sel.getRangeAt(0);
+    if (r.collapsed) { toast("اول واژه یا بخشی از متن را انتخاب کنید (با کشیدن انگشت یا دوبار زدن روی واژه)"); return null; }
+    return r;
+  };
+  let saved = null;
+  ed.addEventListener("keyup", () => { const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode)) saved = s0.getRangeAt(0).cloneRange(); });
+  ed.addEventListener("mouseup", () => { const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode)) saved = s0.getRangeAt(0).cloneRange(); });
+  // انتخاب آخر نگه داشته می‌شود تا با زدن دکمه‌ها از دست نرود (شنونده با حذف ویرایشگر خودش پاک می‌شود)
+  const onSel = () => {
+    if (!ed.isConnected) { document.removeEventListener("selectionchange", onSel); return; }
+    const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode) && !s0.isCollapsed) saved = s0.getRangeAt(0).cloneRange();
+  };
+  document.addEventListener("selectionchange", onSel);
+  const apply = (fn) => {
+    let r = selRange();
+    if (!r && saved && !saved.collapsed) { r = saved; const s0 = window.getSelection(); s0.removeAllRanges(); s0.addRange(r); }
+    if (!r) return;
+    const host = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentElement;
+    const cs = getComputedStyle(host);
+    const anc = r.commonAncestorContainer.nodeType === 1 ? r.commonAncestorContainer : r.commonAncestorContainer.parentElement;
+    const parentPx = parseFloat(getComputedStyle(anc).fontSize);
+    const span = document.createElement("span");
+    const frag = r.extractContents();
+    fn(span, frag, cs, parentPx);
+    span.appendChild(frag);
+    r.insertNode(span);
+    const s0 = window.getSelection(); s0.removeAllRanges();
+    const nr = document.createRange(); nr.selectNodeContents(span); s0.addRange(nr); saved = nr.cloneRange();
+    sync();
+  };
+  const strip = (frag, prop) => frag.querySelectorAll?.("*").forEach((el) => { el.style[prop] = ""; if (prop === "color") el.removeAttribute("color"); });
+  $("[data-rc]", p).addEventListener("input", (ev) => apply((span, frag) => { strip(frag, "color"); span.style.color = ev.target.value; }));
+  $("[data-rc]", p).addEventListener("pointerdown", () => { const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode) && !s0.isCollapsed) saved = s0.getRangeAt(0).cloneRange(); });
+  $$("[data-rs]", p).forEach((b) => b.addEventListener("pointerdown", (ev) => ev.preventDefault()));
+  $$("[data-rs]", p).forEach((b) => (b.onclick = () => apply((span, frag, cs, parentPx) => {
+    strip(frag, "fontSize");
+    // اندازه‌ی تازه = اندازه‌ی فعلی × ضریب (نسبت به والد حساب می‌شود تا تودرتو دو برابر نشود)
+    const want = parseFloat(cs.fontSize) * Number(b.dataset.rs), basePx = parseFloat(getComputedStyle(ed).fontSize);
+    span.style.fontSize = `${(Math.min(4 * basePx, Math.max(0.3 * basePx, want)) / parentPx).toFixed(3)}em`;
+  })));
+  const rf = $("[data-rf]", p);
+  rf.addEventListener("pointerdown", () => { const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode) && !s0.isCollapsed) saved = s0.getRangeAt(0).cloneRange(); });
+  rf.addEventListener("change", () => { const v = rf.value; if (!v) return; apply((span, frag) => { strip(frag, "fontFamily"); span.style.fontFamily = fontStack(v); }); rf.value = ""; });
+  $("[data-rb]", p).addEventListener("pointerdown", (ev) => ev.preventDefault());
+  $("[data-rb]", p).onclick = () => apply((span, frag, cs) => { strip(frag, "fontWeight"); span.style.fontWeight = Number(cs.fontWeight) >= 800 ? "400" : "900"; });
+  $("[data-rclear]", p).addEventListener("pointerdown", (ev) => ev.preventDefault());
+  $("[data-rclear]", p).onclick = () => apply((span, frag) => { ["color", "fontSize", "fontWeight", "fontFamily"].forEach((k) => strip(frag, k)); });
+}
+
 // ───── تبدیل متن غنی ↔ تکه‌ها ─────
 function runsToHTML(L) {
   return layerRuns(L).map((r) => {
     const txt = esc(r.t).replace(/\n/g, "<br>");
-    const st = [r.c && `color:${r.c}`, r.s && r.s !== 1 && `font-size:${r.s}em`, r.w && `font-weight:${r.w}`].filter(Boolean).join(";");
+    const st = [r.c && `color:${r.c}`, r.s && r.s !== 1 && `font-size:${r.s}em`, r.w && `font-weight:${r.w}`, r.f && `font-family:${fontStack(r.f).replace(/"/g, "'")}`].filter(Boolean).join(";");
     return st ? `<span style="${st}">${txt}</span>` : txt;
   }).join("");
 }
@@ -580,16 +605,20 @@ function cssHex(c) {
 function htmlToRuns(ed, L) {
   const base = parseFloat(getComputedStyle(ed).fontSize) || 16;
   const baseColor = cssHex(getComputedStyle(ed).color), baseW = Number(L.weight || 700);
+  const fam = (cs) => (cs.fontFamily || "").split(",")[0].trim().replace(/^["']|["']$/g, "");
+  const baseF = fam(getComputedStyle(ed));
   const out = [];
   const push = (t, el) => {
     const cs = getComputedStyle(el);
     const c = cssHex(cs.color), s = +(parseFloat(cs.fontSize) / base).toFixed(3), w = Number(cs.fontWeight);
     const r = { t };
+    const f = fam(cs);
+    if (f && f !== baseF) r.f = f;
     if (c && c !== baseColor) r.c = c;
     if (Math.abs(s - 1) > 0.01) r.s = s;
     if (w && w !== baseW) r.w = w;
     const last = out[out.length - 1];
-    if (last && last.c === r.c && last.s === r.s && last.w === r.w) last.t += t; else out.push(r);
+    if (last && last.c === r.c && last.s === r.s && last.w === r.w && last.f === r.f) last.t += t; else out.push(r);
   };
   const walk = (node, parentEl) => {
     for (const n of node.childNodes) {

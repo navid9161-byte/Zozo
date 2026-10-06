@@ -1349,6 +1349,8 @@ function drawList(list) {
       $("#dlg").addEventListener("close", () => $("#dlg video")?.pause(), { once: true });
     } else if (d.edit) {
       const t = list.find((x) => x.id === Number(d.edit));
+      if (t.editor?.kr3) { lsSet("teaserMode", "new"); location.hash = `#teaser?load=${t.id}`; return; }
+      lsSet("teaserMode", "old");
       TZ.s = { ...teaserDefaults(), ...t.editor };
       saveDraft();
       refresh();

@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest
+from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest, fonts
 from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -101,7 +101,7 @@ def manifest():
 
 
 @app.get("/fonts/{name}", include_in_schema=False)
-def fonts(name: str):
+def static_font(name: str):
     if "/" in name or ".." in name or not name.lower().endswith((".ttf", ".woff2", ".woff")):
         raise HTTPException(404)
     for d in FONT_DIRS:
@@ -161,6 +161,33 @@ def logout():
 
 
 # ───────────────────────── عمومی ─────────────────────────
+
+
+@app.get("/api/fonts")
+def fonts_list():
+    return {"items": fonts.list_fonts()}
+
+
+@app.post("/api/fonts", status_code=201)
+def fonts_add(files: list[UploadFile] = File(...), name: str = Form("")):
+    return fonts.add_font(files[0].file, files[0].filename or "font.ttf", name)
+
+
+@app.get("/api/fonts/{fid}/file")
+def fonts_file(fid: int):
+    p, mime = fonts.font_path(fid)
+    return FileResponse(p, media_type=mime, headers={"Cache-Control": "private, max-age=2592000"})
+
+
+@app.patch("/api/fonts/{fid}")
+def fonts_rename(fid: int, data: dict[str, Any]):
+    return fonts.rename_font(fid, str(data.get("name") or ""))
+
+
+@app.delete("/api/fonts/{fid}")
+def fonts_delete(fid: int):
+    fonts.delete_font(fid)
+    return {"ok": True}
 
 
 @app.get("/api/meta")

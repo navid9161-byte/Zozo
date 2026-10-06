@@ -7,6 +7,15 @@
 @font-face { font-family: "Vazirmatn"; font-weight: 900; font-display: swap;
   src: local("Vazirmatn Black"), url("/fonts/Vazirmatn-Black.ttf") format("truetype"); }
 
+@font-face { font-family: "Estedad"; font-weight: 400; font-display: swap; src: url("/fonts/Estedad-Regular.woff2") format("woff2"); }
+@font-face { font-family: "Estedad"; font-weight: 700; font-display: swap; src: url("/fonts/Estedad-Bold.woff2") format("woff2"); }
+@font-face { font-family: "Estedad"; font-weight: 900; font-display: swap; src: url("/fonts/Estedad-Black.woff2") format("woff2"); }
+@font-face { font-family: "Lalezar"; font-weight: 100 900; font-display: swap; src: url("/fonts/Lalezar-Regular.woff2") format("woff2"); }
+@font-face { font-family: "Shabnam"; font-weight: 400; font-display: swap; src: url("/fonts/Shabnam-Regular.woff2") format("woff2"); }
+@font-face { font-family: "Shabnam"; font-weight: 700 900; font-display: swap; src: url("/fonts/Shabnam-Bold.woff2") format("woff2"); }
+@font-face { font-family: "Noto Naskh Arabic"; font-weight: 400; font-display: swap; src: url("/fonts/NotoNaskhArabic-Regular.woff2") format("woff2"); }
+@font-face { font-family: "Noto Naskh Arabic"; font-weight: 700 900; font-display: swap; src: url("/fonts/NotoNaskhArabic-Bold.woff2") format("woff2"); }
+
 :root {
   --bg: #f3f5f8;
   --card: #ffffff;
@@ -603,3 +612,8 @@ dialog.designer:not([open]) { display: none; }
 .tz-lead { background: var(--bg); border-radius: 10px; padding: 10px; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
 .tz-sizes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 @media (max-width: 520px) { .tz-sizes { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 899px) {
+  .rl-layout .teaser-preview { display: contents; }
+  .rl-layout .teaser-preview > .card:first-child { order: -1; }
+  .rl-layout .teaser-preview canvas { display: block; width: auto !important; max-width: 100%; max-height: 52vh; margin: 0 auto; }
+}

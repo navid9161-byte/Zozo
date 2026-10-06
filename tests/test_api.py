@@ -170,3 +170,53 @@ def test_story_suggestion(client, monkeypatch):
         assert r["media_id"]
         # بار دوم عکس از کش می‌آید
         assert client.post(f"/api/stories/{s['id']}/suggest").json()["media_id"] == r["media_id"]
+
+
+def _wav(sec=2.0, rate=8000):
+    import math
+    n = int(sec * rate)
+    data = b"".join(struct.pack("<h", int(8000 * math.sin(2 * math.pi * 440 * i / rate))) for i in range(n))
+    return (b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16)
+            + b"data" + struct.pack("<I", len(data)) + data)
+
+
+def test_custom_fonts(client):
+    login(client)
+    bad = client.post("/api/fonts", files={"files": ("x.ttf", b"not a font", "font/ttf")}, data={"name": "x"})
+    assert bad.status_code == 400
+    assert client.post("/api/fonts", files={"files": ("x.txt", b"\x00\x01\x00\x00", "text/plain")}).status_code == 400
+    r = client.post("/api/fonts", files={"files": ("B-Titr.ttf", b"\x00\x01\x00\x00" + b"\0" * 64, "font/ttf")}, data={"name": "بی تیتر"})
+    assert r.status_code == 201, r.text
+    f = r.json()
+    assert f["name"] == "بی تیتر" and f["family"] == f"zf{f['id']}"
+    assert any(x["id"] == f["id"] for x in client.get("/api/fonts").json()["items"])
+    assert client.get(f"/api/fonts/{f['id']}/file").status_code == 200
+    assert client.patch(f"/api/fonts/{f['id']}", json={"name": "تیتر"}).json()["name"] == "تیتر"
+    client.delete(f"/api/fonts/{f['id']}")
+    assert client.get(f"/api/fonts/{f['id']}/file").status_code == 404
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg نصب نیست")
+def test_teaser_tracks_and_outro(client):
+    login(client)
+    mid = client.post("/api/media", files={"files": ("p.png", _png(400, 300), "image/png")}).json()["added"][0]["id"]
+    aid = client.post("/api/media", files={"files": ("m.wav", _wav(), "audio/wav")}).json()["added"][0]["id"]
+    du = lambda w, h, c: "data:image/png;base64," + base64.b64encode(_png(w, h, c)).decode()
+    spec = {
+        "title": "ریلز", "format": "9:16", "quality": "720", "fade": False, "transition": "none",
+        "clips": [{"media_id": mid, "duration": 1, "gray": True, "bright": 0.2},
+                  {"media_id": mid, "duration": 1, "motion": "pan"},
+                  {"outro": {"bg": du(720, 1280, (255, 255, 255, 255)), "logo": du(200, 150, (200, 0, 0, 255)),
+                             "duration": 1.2, "logo_w": 0.5, "logo_y": 0.45, "drop": 0.2, "land": 0.7}}],
+        "tracks": [{"media_id": aid, "src": 0.2, "at": 0, "dur": 2.5, "vol": 0.8, "fin": 0.5, "fout": 0.5, "duck": [[1, 2, 0.3]]},
+                   {"media_id": aid, "at": 2.7, "dur": 0.4}],
+    }
+    r = client.post("/api/teasers", json=spec)
+    assert r.status_code == 201, r.text
+    tid = r.json()["id"]
+    teaser.renderer.run_pending()
+    t = client.get(f"/api/teasers/{tid}").json()
+    assert t["status"] == "done", t.get("error")
+    info = teaser.probe(teaser.teaser_file(tid))
+    assert abs(info["duration"] - 3.2) < 0.3
+    assert info["has_audio"]
