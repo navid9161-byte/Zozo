@@ -715,16 +715,20 @@ async function reelView(view, params) {
       <div>
         <div class="seg rl-tabs" id="rl-tabs"></div>
         <div id="rl-panel"></div>
+        <div class="card"><h3>ویدیوهای ساخته‌شده</h3><div class="list" id="tz-list"></div></div>
       </div>
-      <div class="teaser-preview">
+      <div class="teaser-preview rl-preview ${lsGet("reelPin", "1") === "1" ? "" : "unpinned"}">
         <div class="card"><h3>پیش‌نمایش</h3>
           <canvas id="rl-canvas" style="width:100%;height:auto;border-radius:10px;background:#000"></canvas>
           <div class="pv-controls"><button class="btn sm" id="rl-play">▶</button><input type="range" id="rl-range" min="0" step="0.05" value="0"><span class="small muted" id="rl-time"></span></div>
-          <div class="btn-row" style="margin-top:6px"><button class="btn sm" data-go2="1">⏮ شروع</button><button class="btn sm" data-go2="2">بدنه</button><button class="btn sm" data-go2="3">پایان ⏭</button></div>
+          <div class="btn-row" style="margin-top:6px"><button class="btn sm" data-go2="1">⏮ شروع</button><button class="btn sm" data-go2="2">بدنه</button><button class="btn sm" data-go2="3">پایان ⏭</button>
+            <button class="btn sm ghost" id="rl-pin" title="پیش‌نمایش با اسکرول همراه بیاید یا سر جایش بماند"></button></div>
         </div>
-        <div class="card"><h3>ویدیوهای ساخته‌شده</h3><div class="list" id="tz-list"></div></div>
       </div>
     </div>`;
+  const pinLbl = () => { $("#rl-pin").textContent = $(".rl-preview").classList.contains("unpinned") ? "📌 همراه اسکرول" : "📍 رها کردن"; };
+  pinLbl();
+  $("#rl-pin").onclick = () => { const u = $(".rl-preview").classList.toggle("unpinned"); lsSet("reelPin", u ? "0" : "1"); pinLbl(); };
   $("#rl-play").onclick = rlPlay;
   $("#rl-range").oninput = (ev) => { rlStop(); RL.t = Number(ev.target.value); reelDraw(); };
   $$("[data-go2]", view).forEach((b) => (b.onclick = () => { rlStop(); const tl = reelTL(), k = Number(b.dataset.go2); RL.t = k === 1 ? 0 : k === 2 ? tl.d1 : tl.outro; reelDraw(); }));
