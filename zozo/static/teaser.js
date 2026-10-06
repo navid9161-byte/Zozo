@@ -366,6 +366,19 @@ function krPattern(ctx, x0, y0, w, h) {
   pts.forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, h * 0.018, 0, Math.PI * 2); ctx.fill(); });
 }
 
+// نوار قرمز آدرس سایت (قالب کرمان راوی)؛ ارتفاعش را برمی‌گرداند (۰ اگر آدرسی نیست)
+function krUrlStrip(ctx, W, H, base) {
+  const s = TZ.s, txt = (s.footerText || "").trim();
+  if (!txt || s.showUrl === false) return 0;
+  const sh = base * 0.062 * (Number(s.footerSize) || 1);
+  ctx.fillStyle = KR.red;
+  ctx.fillRect(0, H - sh, W, sh);
+  ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+  ctx.font = `800 ${sh * 0.6}px ${FONT}`;
+  ctx.fillText(txt, W / 2, H - sh / 2 + sh * 0.04);
+  return sh;
+}
+
 function krBrand(ctx, W, H, phase = "main") {
   setup(ctx);
   const base = Math.min(W, H), vertical = H > W;
@@ -384,11 +397,14 @@ function krBrand(ctx, W, H, phase = "main") {
   krPattern(ctx, 0, by, W, bh);
   ctx.fillStyle = "rgba(25,49,83,.35)";
   ctx.fillRect(0, by, W, Math.max(1, base * 0.002));
+  // نوار قرمز آدرس سایت پایینِ نوار (درشت و خوانا)
+  const sh = krUrlStrip(ctx, W, H, base);
+  const ch = bh - sh;  // ارتفاع بخشِ لوگو و نام
   // لوگو سمت چپ
   if (TZ.logoEl && TZ.logoEl.complete && TZ.logoEl.naturalWidth) {
     const r = TZ.logoEl.naturalWidth / TZ.logoEl.naturalHeight;
-    const lh = bh * 0.62, lw = lh * r;
-    ctx.drawImage(TZ.logoEl, W * 0.05, by + (bh - lh) / 2, lw, lh);
+    const lh = ch * 0.66, lw = lh * r;
+    ctx.drawImage(TZ.logoEl, W * 0.05, by + (ch - lh) / 2, lw, lh);
   }
   // نام و سمت / تهیه و تدوین — سمت راست
   const lower = krLower(phase);
@@ -396,16 +412,17 @@ function krBrand(ctx, W, H, phase = "main") {
     const [kind, l1, l2] = lower.split("|");
     const right = W * 0.94;
     ctx.textAlign = "right";
-    ctx.font = `900 ${bh * 0.26}px ${FONT}`;
+    const k = ch / bh;
+    ctx.font = `900 ${bh * 0.26 * Math.max(0.8, k)}px ${FONT}`;
     ctx.fillStyle = KR.red;
-    ctx.fillText(l1, right, by + bh * (l2 ? 0.36 : 0.5));
+    ctx.fillText(l1, right, by + ch * (l2 ? 0.34 : 0.5));
     if (l2) {
-      let fs = bh * (kind === "cr" ? 0.24 : 0.17);
+      let fs = bh * (kind === "cr" ? 0.24 : 0.17) * Math.max(0.8, k);
       ctx.font = `${kind === "cr" ? 900 : 700} ${fs}px ${FONT}`;
       const maxW = W * 0.55;
       while (ctx.measureText(l2).width > maxW && fs > bh * 0.1) { fs *= 0.93; ctx.font = `700 ${fs}px ${FONT}`; }
       ctx.fillStyle = KR.navy;
-      ctx.fillText(l2, right, by + bh * 0.7);
+      ctx.fillText(l2, right, by + ch * 0.72);
     }
   }
 }
@@ -644,16 +661,21 @@ function tzTplLayers(W, H) {
     krPattern(b, 0, 0, W, bh);
     b.fillStyle = "rgba(25,49,83,.35)"; b.fillRect(0, 0, W, Math.max(1, base * 0.002));
     out.push({ id: id(), type: "image", tpl: 1, ...LAYER_DEFAULTS.image, src: bc.toDataURL("image/png"), fit: "cover", x: 0, y: by, w: W, h: bh, ...brandT });
+    const url = (s.footerText || "").trim(), sh = url && s.showUrl !== false ? base * 0.062 * (Number(s.footerSize) || 1) : 0, ch = bh - sh;
+    if (sh) {
+      out.push({ id: id(), type: "rect", tpl: 1, ...LAYER_DEFAULTS.rect, x: 0, y: H - sh, w: W, h: sh, fill: KR.red, radius: 0, ...brandT });
+      text({ text: url, size: +(sh * 0.6).toFixed(1), weight: 800, color: "#ffffff", hi: "#ffffff", align: "center", x: 0, y: H - sh, w: W, h: sh, ...brandT });
+    }
     if (hasLogo) {
-      const r = TZ.logoEl.naturalWidth / TZ.logoEl.naturalHeight, lh = bh * 0.62;
-      out.push({ id: id(), type: "image", tpl: 1, ...LAYER_DEFAULTS.image, src: logoUrl(s.logoId), fit: "contain", x: W * 0.05, y: by + (bh - lh) / 2, w: lh * r, h: lh, ...brandT });
+      const r = TZ.logoEl.naturalWidth / TZ.logoEl.naturalHeight, lh = ch * 0.66;
+      out.push({ id: id(), type: "image", tpl: 1, ...LAYER_DEFAULTS.image, src: logoUrl(s.logoId), fit: "contain", x: W * 0.05, y: by + (ch - lh) / 2, w: lh * r, h: lh, ...brandT });
     }
     const lower = krLower("main");
     if (lower) {
       const [kind, l1, l2] = lower.split("|");
-      const fs1 = bh * 0.26, fs2 = bh * (kind === "cr" ? 0.24 : 0.17);
-      text({ text: l1, size: Math.round(fs1), weight: 900, color: KR.red, hi: KR.navy, align: "right", x: W * 0.94 - W * 0.6, w: W * 0.6, y: by + bh * (l2 ? 0.36 : 0.5) - fs1 * 0.7, h: fs1 * 1.4, ...brandT });
-      if (l2) text({ text: l2, size: Math.round(fs2), weight: kind === "cr" ? 900 : 700, color: KR.navy, hi: KR.red, align: "right", x: W * 0.94 - W * 0.6, w: W * 0.6, y: by + bh * 0.7 - fs2 * 0.7, h: fs2 * 1.4, ...brandT });
+      const kk = Math.max(0.8, ch / bh), fs1 = bh * 0.26 * kk, fs2 = bh * (kind === "cr" ? 0.24 : 0.17) * kk;
+      text({ text: l1, size: Math.round(fs1), weight: 900, color: KR.red, hi: KR.navy, align: "right", x: W * 0.94 - W * 0.6, w: W * 0.6, y: by + ch * (l2 ? 0.34 : 0.5) - fs1 * 0.7, h: fs1 * 1.4, ...brandT });
+      if (l2) text({ text: l2, size: Math.round(fs2), weight: kind === "cr" ? 900 : 700, color: KR.navy, hi: KR.red, align: "right", x: W * 0.94 - W * 0.6, w: W * 0.6, y: by + ch * 0.72 - fs2 * 0.7, h: fs2 * 1.4, ...brandT });
     }
     // سربرگ تیتر: کادر سفید + سه نوشته‌ی جدا (همان چیدمان خودکار)
     const L = krHeadLayout(m, W, H);
@@ -865,8 +887,8 @@ VIEWS.teaser = async (view, params) => {
           <div class="form-grid">
             <label class="wide">روتیتر (سطر کوچک بالای تیتر)<input data-k="kicker" value="${esc(s.kicker)}" placeholder="مثلاً: در یکصدوپانزدهمین طرح توسعه‌ی شهری"></label>
             <label class="adv">نام رسانه (کارت‌ها)<input data-k="brand" value="${esc(s.brand)}" placeholder="مثلاً خبرگزاری …"></label>
-            <label class="wide adv">نوشته‌ی نوار پایین (قالب «کرمان راوی (نوار)»)<input data-k="footerText" value="${esc(s.footerText || "")}" class="ltr" placeholder="www.kermanravi.ir"></label>
-            <label class="adv">اندازه‌ی نوشته‌ی نوار پایین<select data-k="footerSize">${[[0.8, "کوچک"], [1, "معمولی"], [1.25, "بزرگ"], [1.5, "خیلی بزرگ"]].map(([v, l]) => `<option value="${v}" ${Number(s.footerSize || 1) === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+            <label class="wide">آدرس سایت (نوار پایین ویدیو)<input data-k="footerText" value="${esc(s.footerText || "")}" class="ltr" placeholder="www.kermanravi.ir"><small>خالی بگذارید تا نمایش داده نشود.</small></label>
+            <label>اندازه‌ی آدرس سایت<select data-k="footerSize">${[[0.8, "کوچک"], [1, "معمولی"], [1.25, "بزرگ"], [1.5, "خیلی بزرگ"]].map(([v, l]) => `<option value="${v}" ${Number(s.footerSize || 1) === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
             <label class="wide">تیتر<textarea data-k="headline" rows="3" placeholder="تیتر اصلی کلیپ">${esc(s.headline)}</textarea>
               <small>هر جا Enter بزنید تیتر در ویدیو هم همان‌جا به سطر بعد می‌رود. واژه‌های بین دو ستاره رنگ دوم می‌گیرند: برگزاری *رویداد* سولار</small></label>
             <label class="wide">زیرتیتر (سطر کوچک زیر تیتر)<input data-k="subhead" value="${esc(s.subhead || "")}" placeholder="مثلاً: با هدف ارتقای ضریب ایمنی شهر"></label>
