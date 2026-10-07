@@ -170,7 +170,7 @@ def fonts_list():
 
 @app.post("/api/fonts", status_code=201)
 def fonts_add(files: list[UploadFile] = File(...), name: str = Form("")):
-    return fonts.add_font(files[0].file, files[0].filename or "font.ttf", name)
+    return fonts.add_upload(files[0].file, files[0].filename or "font.ttf", name)
 
 
 @app.get("/api/fonts/{fid}/file")

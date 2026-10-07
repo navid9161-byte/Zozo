@@ -1368,10 +1368,10 @@ function ensureFont(f, weight = 700, redraw) {
 function fontOptions(cur) {
   return FONTS.map(([f, n]) => `<option value="${esc(f)}" ${f === cur ? "selected" : ""} style="font-family:${esc(fontStack(f))}">${esc(n)}</option>`).join("");
 }
-// دکمه‌ی «افزودن فونت»: فایل ttf/otf/woff را بارگذاری می‌کند و همه‌جا قابل انتخاب می‌شود
+// دکمه‌ی «افزودن فونت»: فایل ttf/otf/woff یا زیپی که فونت داخلش است را بارگذاری می‌کند و همه‌جا قابل انتخاب می‌شود
 function pickFontFile(onDone) {
   const inp = document.createElement("input");
-  inp.type = "file"; inp.accept = ".ttf,.otf,.woff,.woff2";
+  inp.type = "file"; inp.accept = ".ttf,.otf,.woff,.woff2,.zip";
   inp.onchange = async () => {
     const file = inp.files[0];
     if (!file) return;
@@ -1379,7 +1379,8 @@ function pickFontFile(onDone) {
     const r = await uploadOne("/api/fonts", file, { name }, () => {});
     if (!r.ok) return toast(r.error);
     await loadCustomFonts();
-    toast(`فونت «${r.data.name}» اضافه شد ✔`);
+    const added = r.data.added || [r.data];
+    toast(added.length > 1 ? `${num(added.length)} فونت اضافه شد ✔ (${added.map((f) => f.name).join("، ")})` : `فونت «${r.data.name}» اضافه شد ✔`, 5000);
     onDone?.(r.data.family);
   };
   inp.click();

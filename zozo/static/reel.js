@@ -367,7 +367,7 @@ function rlTextBox(key, label, hint) {
       ${key !== "caps" ? `<label class="small"><input type="checkbox" data-tk="hidden" ${L.hidden ? "" : "checked"}> نمایش</label>` : ""}</div>
     ${key === "caps" ? "" : `${richToolbarHTML()}${richBoxHTML(L)}`}
     <div class="rl-grid">
-      <label>فونت<span class="btn-row"><select data-tk="font">${fontOptions(L.font || "Vazirmatn")}</select><button type="button" class="btn sm" data-addfont title="بارگذاری فایل فونت">➕ افزودن فونت</button></span></label>
+      <label>فونت<span class="btn-row"><select data-tk="font">${fontOptions(L.font || "Vazirmatn")}</select><button type="button" class="btn sm" data-addfont title="بارگذاری فایل فونت (ttf، otf، woff یا فایل زیپ دانلودشده)">➕ افزودن فونت</button></span></label>
       <label>اندازه <small>${num(Math.round(L.size))}</small><input type="range" min="18" max="200" data-tk="size" value="${L.size}"></label>
       <label>رنگ متن<input type="color" data-tk="color" value="${L.color}"></label>
       ${key === "caps" ? `<label>رنگ واژه‌های *ستاره‌دار*<input type="color" data-tk="hi" value="${L.hi}"></label>` : ""}

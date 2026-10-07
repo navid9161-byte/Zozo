@@ -282,7 +282,7 @@ function openDesigner(opts) {
     if (L.type === "text") {
       f += `<div class="dz-f wide"><span>متن <small>— واژه یا بخشی از متن را انتخاب کنید و فقط رنگ، اندازه یا ضخامت همان را عوض کنید</small></span>
         ${richToolbarHTML()}${richBoxHTML(L)}</div>`;
-      f += `<label class="dz-f wide">فونت کل متن<span class="btn-row"><select data-p="font" style="flex:1">${fontOptions(L.font || "Vazirmatn")}</select><button type="button" class="btn sm" data-addfont title="بارگذاری فایل فونت">➕ افزودن فونت</button></span></label>`;
+      f += `<label class="dz-f wide">فونت کل متن<span class="btn-row"><select data-p="font" style="flex:1">${fontOptions(L.font || "Vazirmatn")}</select><button type="button" class="btn sm" data-addfont title="بارگذاری فایل فونت (ttf، otf، woff یا فایل زیپ دانلودشده)">➕ افزودن فونت</button></span></label>`;
       f += rng("size", "اندازه", 14, 220);
       f += `<label class="dz-f">ضخامت<select data-p="weight">${[[400, "معمولی"], [700, "پررنگ"], [800, "پررنگ‌تر"], [900, "خیلی پررنگ"]].map(([v, l]) => `<option value="${v}" ${+L.weight === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>`;
       f += `<div class="dz-f wide"><span>چینش</span><div class="seg">${[["right", "راست"], ["center", "وسط"], ["left", "چپ"], ["justify", "تراز"]].map(([v, l]) => `<button type="button" data-align="${v}" class="${L.align === v ? "active" : ""}">${l}</button>`).join("")}</div></div>`;

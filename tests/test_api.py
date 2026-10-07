@@ -244,3 +244,41 @@ def test_segments_share_color_settings(tmp_path):
         props.append(json.loads(r.stdout)["streams"][0])
     assert props[0] == props[1]
     assert props[0]["pix_fmt"] == "yuv420p" and props[0]["color_range"] == "tv"
+
+
+def test_custom_fonts_from_zip(client):
+    import zipfile
+    login(client)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("B-Titr/read me!.txt", "hello")
+        z.writestr("B-Titr/Fontyab.com.url", "[InternetShortcut]")
+        z.writestr("__MACOSX/B-Titr/._B Titr Bold_0.ttf", b"\x00\x01\x00\x00junk")
+        z.writestr("B-Titr/B Titr Bold_0.ttf", b"\x00\x01\x00\x00" + b"\0" * 64)
+    r = client.post("/api/fonts", files={"files": ("B-Titr.zip", buf.getvalue(), "application/zip")}, data={"name": "بی تیتر"})
+    assert r.status_code == 201, r.text
+    assert [f["name"] for f in r.json()["added"]] == ["بی تیتر"]
+    assert client.get(f"/api/fonts/{r.json()['id']}/file").status_code == 200
+    # چند فونت در یک زیپ: نام از نام فایل‌ها
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("Sahel.ttf", b"\x00\x01\x00\x00" + b"sahel" * 20)
+        z.writestr("Sahel-Bold.woff2", b"wOF2" + b"\0" * 64)
+    r = client.post("/api/fonts", files={"files": ("sahel.zip", buf.getvalue(), "application/zip")}, data={"name": "x"})
+    assert r.status_code == 201 and len(r.json()["added"]) == 2
+    assert {f["name"] for f in r.json()["added"]} == {"Sahel"}
+    # زیپ بدون فونت یا خراب
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("readme.txt", "no fonts")
+    assert client.post("/api/fonts", files={"files": ("x.zip", buf.getvalue(), "application/zip")}).status_code == 400
+    assert client.post("/api/fonts", files={"files": ("x.zip", b"not a zip", "application/zip")}).status_code == 400
+
+
+def test_custom_font_upload_twice_is_not_duplicated(client):
+    login(client)
+    data = b"\x00\x01\x00\x00" + b"dup" * 30
+    a = client.post("/api/fonts", files={"files": ("Dup.ttf", data, "font/ttf")}).json()
+    b = client.post("/api/fonts", files={"files": ("Dup.ttf", data, "font/ttf")}).json()
+    assert a["id"] == b["id"]
+    assert sum(1 for f in client.get("/api/fonts").json()["items"] if f["id"] == a["id"]) == 1
