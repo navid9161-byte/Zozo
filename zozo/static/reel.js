@@ -443,14 +443,16 @@ function rlPanel() {
     h = `<div class="card"><h3>🎞 ویدیو یا تصویر متحرک</h3>
         <div class="btn-row"><button class="btn primary" id="rl-vid">⬆️ بارگذاری ویدیو / GIF / عکس</button>${rlMediaSelect(["video", "image"], c.media_id, 'id="rl-vid-lib"')}
           ${c.media_id ? `<button class="btn sm danger" id="rl-vid-x">حذف</button>` : ""}</div>
+        ${c.media_id && c.kind === "video" ? rlTrimHTML(c) : ""}
         ${c.media_id ? `<div class="rl-grid" style="margin-top:8px">
-          ${c.kind === "video" ? `<label>از ثانیه<input type="number" min="0" step="0.5" data-c="start" value="${c.start}"></label>
-            <label>به مدت (ثانیه) <small>کل: ${num((c.mediaDur || 0).toFixed(1))}</small><input type="number" min="0.5" step="0.5" data-c="dur" value="${c.dur}"></label>`
-          : `<label>مدت (ثانیه)<input type="number" min="0.5" max="60" step="0.5" data-c="dur" value="${c.dur}"></label>
+          ${c.kind === "video" ? "" : `<label>مدت (ثانیه)<input type="number" min="0.5" max="60" step="0.5" data-c="dur" value="${c.dur}"></label>
             <label>حرکت آرام<select data-c="motion">${[["none", "بدون حرکت"], ["zoom", "زوم آرام"], ["pan", "جابه‌جایی آرام"]].map(([v, l]) => `<option value="${v}" ${c.motion === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>`}
-          <label>اندازه<span class="btn-row"><button class="btn sm" data-sz="s2:0.9">−</button><b>${num(Math.round((c.scale || 1) * 100))}٪</b><button class="btn sm" data-sz="s2:1.1">+</button><button class="btn sm ghost" data-szr="s2">↺</button></span></label>
+          <label class="wide">اندازه <small id="rl-szv">${num(Math.round((c.scale || 1) * 100))}٪</small>
+            <span class="btn-row" style="flex-wrap:nowrap"><input type="range" id="rl-sz2" min="0.3" max="3" step="0.01" value="${c.scale || 1}" style="flex:1">
+            <button class="btn sm ghost" data-szr="s2" title="اندازه و جای اول">↺</button></span></label>
           <label>جای ویدیو در صفحه<select id="rl-fit">${[["fit", "کامل، روی سیاه"], ["blur", "کامل، پس‌زمینه‌ی تار"], ["crop", "پر کردن کل صفحه"]].map(([v, l]) => `<option value="${v}" ${s.fit === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-        </div>` : ""}</div>
+        </div>
+        <p class="small muted" style="margin:4px 0 0">👆 جای ویدیو را روی پیش‌نمایش با انگشت بکشید.</p>        </div>` : ""}</div>
       ${rlTextBox("b1", "نوشته‌ی اول زیر قاب")}${rlTextBox("b2", "نوشته‌ی دوم زیر قاب")}
       <div class="card"><h3>💬 زیرنویس (داخل قاب، پایین)</h3>
         <div class="btn-row">
@@ -498,6 +500,132 @@ function rlPanel() {
   }
   box.innerHTML = h;
   rlBind(box);
+}
+
+// ───── ویرایش ویدیو در مرحله‌ی ۲: انتخاب شروع و پایان (بریدن) ─────
+function rlTrimHTML(c) {
+  return `<div class="rl-trim" id="rl-trim">
+    <video id="rl-tv" src="/api/media/${c.media_id}/file" playsinline preload="auto"></video>
+    <div class="rl-tt" id="rl-tt" dir="ltr">
+      <canvas class="rl-strip" id="rl-strip"></canvas>
+      <div class="rl-dim" id="rl-dim-l"></div><div class="rl-dim" id="rl-dim-r"></div>
+      <div class="rl-sel" id="rl-sel"><span class="rl-h" data-h="s" title="شروع"></span><span class="rl-h" data-h="e" title="پایان"></span></div>
+      <div class="rl-ph" id="rl-ph"></div>
+    </div>
+    <div class="rl-trim-info" id="rl-ti"></div>
+    <div class="btn-row">
+      <button class="btn sm primary" id="rl-tplay">▶ پخش بخش انتخاب‌شده</button>
+      <button class="btn sm" id="rl-tset-s" title="ویدیو را تا جای دلخواه ببرید و این را بزنید">⏮ شروع از اینجا</button>
+      <button class="btn sm" id="rl-tset-e">⏭ پایان اینجا</button>
+      <button class="btn sm ghost" id="rl-tall" title="همه‌ی ویدیو">↔ کل ویدیو</button>
+    </div>
+    <div class="rl-grid">
+      <label>از ثانیه<input type="number" min="0" step="0.1" data-c="start" value="${(+c.start || 0).toFixed(1)}"></label>
+      <label>تا ثانیه<input type="number" min="0.5" step="0.1" id="rl-tend" value="${((+c.start || 0) + (+c.dur || 0)).toFixed(1)}"></label>
+    </div>
+    <p class="small muted" style="margin:2px 0 0">✂️ دو دستگیره‌ی قرمز را بکشید تا شروع و پایان ویدیو انتخاب شود؛ روی نوار بزنید تا آن لحظه را ببینید.</p>
+  </div>`;
+}
+
+function rlBindTrim(box) {
+  const s = RL.s, c = s.s2, v = $("#rl-tv", box), tt = $("#rl-tt", box);
+  if (!v || !tt) return;
+  const total = () => c.mediaDur || v.duration || 0;
+  const fmt = (x) => num((+x).toFixed(1));
+  const layout = () => {
+    const T = total(); if (!T || !tt.isConnected) return;
+    const a = (c.start || 0) / T * 100, b = Math.min(100, ((c.start || 0) + c.dur) / T * 100);
+    $("#rl-sel", box).style.cssText = `left:${a}%;width:${b - a}%`;
+    $("#rl-dim-l", box).style.cssText = `left:0;width:${a}%`;
+    $("#rl-dim-r", box).style.cssText = `left:${b}%;right:0`;
+    $("#rl-ph", box).style.left = `${Math.min(100, v.currentTime / T * 100)}%`;
+    $("#rl-ti", box).innerHTML = `از <b>${fmt(c.start || 0)}</b> تا <b>${fmt((c.start || 0) + c.dur)}</b> ثانیه · مدت <b>${fmt(c.dur)}</b> ثانیه <span class="muted">(کل ویدیو ${fmt(T)})</span>`;
+    const si = $("[data-c=start]", box), ei = $("#rl-tend", box);
+    if (si && document.activeElement !== si) si.value = (+c.start || 0).toFixed(1);
+    if (ei && document.activeElement !== ei) ei.value = ((+c.start || 0) + c.dur).toFixed(1);
+  };
+  const set = (a, b) => {
+    const T = total() || 9999;
+    a = Math.max(0, Math.min(a, T - 0.5)); b = Math.max(a + 0.5, Math.min(b, T));
+    c.start = +a.toFixed(2); c.dur = +(b - a).toFixed(2);
+    layout();
+  };
+  const done = () => { reelSave(); rlTimes(); reelDraw(); };
+  // پیش‌نمایش اصلی هم همان لحظه را نشان دهد
+  const showMain = (t) => { const tl = reelTL(); RL.t = tl.d1 + Math.max(0, Math.min(c.dur - 0.05, t - (c.start || 0))); reelDraw(); };
+  v.addEventListener("loadedmetadata", () => {
+    if (!c.mediaDur && v.duration && isFinite(v.duration)) { c.mediaDur = +v.duration.toFixed(2); set(c.start || 0, (c.start || 0) + Math.min(c.dur, 60)); reelSave(); }
+    layout(); rlStrip(c, v);
+  });
+  let stopAt = null;
+  v.addEventListener("timeupdate", () => {
+    layout();
+    if (stopAt != null && v.currentTime >= stopAt) { v.pause(); stopAt = null; }
+  });
+  // نوار زمان: کشیدن دستگیره‌ها یا زدن روی نوار برای دیدن آن لحظه
+  tt.style.touchAction = "none";
+  let drag = null;
+  const timeAt = (ev) => { const r = tt.getBoundingClientRect(); return Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * total(); };
+  tt.addEventListener("pointerdown", (ev) => {
+    if (!total()) return;
+    tt.setPointerCapture(ev.pointerId);
+    const t = timeAt(ev), r = tt.getBoundingClientRect(), px = (x) => (x / total()) * r.width;
+    const dS = Math.abs(px(t) - px(c.start || 0)), dE = Math.abs(px(t) - px((c.start || 0) + c.dur));
+    const h = ev.target.dataset?.h || (Math.min(dS, dE) < 22 ? (dS <= dE ? "s" : "e") : null);
+    drag = h || "seek";
+    if (drag === "seek") { v.currentTime = t; showMain(t); }
+  });
+  tt.addEventListener("pointermove", (ev) => {
+    if (!drag) return;
+    const t = timeAt(ev), end = (c.start || 0) + c.dur;
+    if (drag === "s") { set(t, end); v.currentTime = c.start; showMain(c.start); }
+    else if (drag === "e") { set(c.start || 0, t); v.currentTime = Math.max(0, (c.start || 0) + c.dur - 0.05); showMain(v.currentTime); }
+    else { v.currentTime = t; showMain(t); }
+  });
+  const up = () => { if (drag && drag !== "seek") done(); drag = null; };
+  tt.addEventListener("pointerup", up); tt.addEventListener("pointercancel", up);
+  $("#rl-tplay", box).onclick = () => { rlStop(); v.currentTime = c.start || 0; stopAt = (c.start || 0) + c.dur; v.play(); };
+  $("#rl-tset-s", box).onclick = () => { set(v.currentTime, (c.start || 0) + c.dur > v.currentTime + 0.5 ? (c.start || 0) + c.dur : v.currentTime + Math.min(5, total() - v.currentTime)); done(); toast("شروع ویدیو تنظیم شد ✔"); };
+  $("#rl-tset-e", box).onclick = () => { if (v.currentTime <= (c.start || 0) + 0.4) return toast("پایان باید بعد از شروع باشد"); set(c.start || 0, v.currentTime); done(); toast("پایان ویدیو تنظیم شد ✔"); };
+  $("#rl-tall", box).onclick = () => { set(0, total()); done(); };
+  $("#rl-tend", box).addEventListener("change", (ev) => { set(c.start || 0, Number(enDigits(ev.target.value)) || 0); done(); });
+  if (v.readyState >= 1) { layout(); rlStrip(c, v); }
+}
+
+// نوار کوچک تصاویر ویدیو (یک بار برای هر ویدیو ساخته و نگه داشته می‌شود)
+function rlStrip(c, v) {
+  const cv = $("#rl-strip");
+  if (!cv) return;
+  const W = 600, H = 60;
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d");
+  RL.strips = RL.strips || {};
+  const cached = RL.strips[c.media_id];
+  if (cached) { if (cached.complete) ctx.drawImage(cached, 0, 0, W, H); else cached.onload = () => ctx.drawImage(cached, 0, 0, W, H); return; }
+  if (RL.stripBusy === c.media_id) return;
+  RL.stripBusy = c.media_id;
+  const tv = document.createElement("video");
+  tv.muted = true; tv.playsInline = true; tv.preload = "auto"; tv.src = v.currentSrc || v.src;
+  const n = 10, off = document.createElement("canvas"); off.width = W; off.height = H;
+  const octx = off.getContext("2d");
+  octx.fillStyle = "#222"; octx.fillRect(0, 0, W, H);
+  let i = 0;
+  const next = () => {
+    if (i >= n || !tv.duration) {
+      const im = new Image(); im.src = off.toDataURL("image/jpeg", 0.7); RL.strips[c.media_id] = im; RL.stripBusy = null;
+      const cur = $("#rl-strip"); if (cur) cur.getContext("2d").drawImage(off, 0, 0, W, H);
+      return;
+    }
+    tv.currentTime = Math.min(tv.duration - 0.05, (i + 0.5) * tv.duration / n);
+  };
+  tv.addEventListener("seeked", () => {
+    const cw = W / n, vw = tv.videoWidth, vh = tv.videoHeight;
+    if (vw && vh) { const sc = Math.max(cw / vw, H / vh), dw = vw * sc, dh = vh * sc; octx.save(); octx.beginPath(); octx.rect(i * cw, 0, cw, H); octx.clip(); octx.drawImage(tv, i * cw + (cw - dw) / 2, (H - dh) / 2, dw, dh); octx.restore(); }
+    ctx.drawImage(off, 0, 0, W, H);
+    i++; next();
+  });
+  tv.addEventListener("loadedmetadata", next, { once: true });
+  tv.addEventListener("error", () => { RL.stripBusy = null; }, { once: true });
 }
 
 function rlJumpTab() {
@@ -551,6 +679,8 @@ function rlBind(box) {
     }
     upd();
   }));
+  on("#rl-sz2", "input", (ev) => { s.s2.scale = +Number(ev.target.value).toFixed(3); $("#rl-szv").textContent = `${num(Math.round(s.s2.scale * 100))}٪`; reelDraw(); clearTimeout(RL.szT); RL.szT = setTimeout(reelSave, 300); });
+  if ($("#rl-trim", box)) rlBindTrim(box);
   on("#rl-fit", "change", (ev) => { s.fit = ev.target.value; upd(); });
   on("#rl-mode", "change", (ev) => { s.audio1.mode = ev.target.value; upd(); rlPanel(); });
   on("#rl-duck", "input", (ev) => { s.audio1.duckF = Number(ev.target.value); ev.target.parentElement.querySelector("small").textContent = `${num(Math.round(s.audio1.duckF * 100))}٪`; upd(); });
