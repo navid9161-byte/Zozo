@@ -151,7 +151,9 @@ function rlOutroScale(t) {
   if (t < OUT_LAND) return 1 + 1.3 * Math.pow(1 - (t - OUT_DROP) / (OUT_LAND - OUT_DROP), 2);
   return 1 - 0.05 * Math.sin(Math.PI * Math.min(1, (t - OUT_LAND) / 0.18));
 }
-function rlOutroBg(ctx) { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, DW, DH); rlChrome(ctx, true); }
+// پس‌زمینه‌ی پایان: سورمه‌ای خود مُهر (#193153) با ۴۰٪ پررنگی روی سفید
+const OUT_BG = "#a3adba";
+function rlOutroBg(ctx) { ctx.fillStyle = OUT_BG; ctx.fillRect(0, 0, DW, DH); rlChrome(ctx, true); }
 function rlOutro(ctx, lt) {
   rlOutroBg(ctx);
   const lg = rlOutroLogo();
