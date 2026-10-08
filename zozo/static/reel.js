@@ -295,8 +295,10 @@ function rlTrack1() {
 async function reelRender() {
   const s = RL.s, tl = reelTL();
   if (!s.s1.media_id) return toast("اول عکس شروع را انتخاب کنید (مرحله‌ی ۱)");
-  const btn = $("#rl-render");
+  // دکمه فقط در زبانه‌ی «ساخت» است؛ ساخت خودکار (از پیشنهاد سوژه) بدون آن هم کار کند
+  const btn = $("#rl-render") || { disabled: false, textContent: "" };
   btn.disabled = true; btn.textContent = "در حال آماده‌سازی…";
+  toast("در حال آماده‌سازی ویدیو…", 4000);
   try {
     if (document.fonts) await document.fonts.ready;
     await FONTS_READY;
@@ -747,8 +749,8 @@ function rlBindLead(box) {
   const loadStories = async () => {
     if (sel.options.length > 1) return;
     const list = await api("/api/stories?limit=300").catch(() => []);
-    sel.innerHTML = `<option value="">— انتخاب سوژه —</option>` + list.filter((x) => x.body).map((x) => `<option value="${x.id}">${esc(x.title)}</option>`).join("");
-    if (!list.some((x) => x.body)) sel.innerHTML = `<option value="">سوژه‌ای با متن پیدا نشد</option>`;
+    sel.innerHTML = `<option value="">— انتخاب سوژه —</option>` + list.map((x) => `<option value="${x.id}">${esc(x.title)}</option>`).join("");
+    if (!list.length) sel.innerHTML = `<option value="">هنوز سوژه‌ای ثبت نشده</option>`;
     if (RL.leadStory) sel.value = String(RL.leadStory);
   };
   sel.onchange = () => { RL.leadStory = sel.value; };
@@ -772,7 +774,7 @@ function rlBindLead(box) {
       } else if (how === "story") {
         if (!sel.value) return toast("یک سوژه انتخاب کنید");
         busy("در حال خواندن متن سوژه…");
-        text = (await api(`/api/stories/${sel.value}`)).body || "";
+        text = (await api(`/api/stories/${sel.value}/text`)).text || "";
       } else {
         text = ($("#rl-caps", box)?.value || s.caps.text || "").replace(/\*/g, "");
       }
@@ -885,12 +887,84 @@ function rlBindDrag(cv) {
   }, { passive: false });
 }
 
+// آیا در ریلزساز کاری انجام شده که با بارگذاری سوژه از دست برود؟
+function rlHasWork() {
+  let s = RL.s;
+  if (!s) { try { s = JSON.parse(lsGet("reelDraft", "null") || "null"); } catch { s = null; } }
+  return !!(s && (s.s1?.media_id || s.s2?.media_id || String(s.caps?.text || "").trim()
+    || ["kick", "head", "sub"].some((k) => String(s.texts?.[k]?.text || "").trim())));
+}
+
+// ساختن ریلز آماده از روی یک سوژه: عکس خبر در شروع، تیتر، و لید خبر (حدود n کلمه) به‌صورت زیرنویس روی همان عکس
+async function reelFromStory(storyId, { mediaId = null, title = "", n = 200 } = {}) {
+  const s = reelDefaults();
+  if (!title) title = (await api(`/api/stories/${storyId}`)).title || "";
+  s.title = title;
+  const head = s.texts.head;
+  head.text = title;
+  head.size = title.length > 90 ? 58 : title.length > 60 ? 70 : title.length > 35 ? 82 : 92;
+  head.h = Math.min(420, Math.ceil(title.length / (head.size > 80 ? 14 : 20)) * head.size * 1.35 + 40);
+  s.texts.sub.y = head.y + head.h + 20;
+  let lead = "";
+  const text = (await api(`/api/stories/${storyId}/text`).catch(() => ({ text: "" }))).text || "";
+  if (text.trim()) {
+    const r = await api("/api/ai/lead", { method: "POST", body: { text, n } }).catch(() => ({ lines: [] }));
+    lead = (r.lines || []).join(" ").trim();
+    const w = lead.split(/\s+/);
+    if (w.length > n * 1.25) lead = w.slice(0, n).join(" ") + " …";
+  }
+  const parts = lead ? splitLead(lead, 10) : [];
+  s.caps.text = parts.join("\n");
+  if (mediaId) {
+    s.s1.media_id = mediaId;
+    // بدنه: همان عکس با زوم آرام تا زیرنویس‌های لید رویش دیده شوند (بعداً می‌شود ویدیو گذاشت)
+    s.s2 = { ...s.s2, media_id: mediaId, kind: "image", motion: "zoom", dur: +Math.min(60, Math.max(6, parts.length * 2.8)).toFixed(1) };
+  }
+  RL.leadSrc = "story"; RL.leadStory = String(storyId); RL.leadN = n;
+  return s;
+}
+
+// یک فریم از ریلز (برای پیش‌نمایش پیشنهاد سوژه) روی یک بوم دلخواه
+async function reelSnapshot(cv, state, t) {
+  const wait = (im) => (im && !(im.complete && im.naturalWidth) ? new Promise((r) => { im.addEventListener("load", r, { once: true }); im.addEventListener("error", r, { once: true }); setTimeout(r, 4000); }) : null);
+  if (!RL.logoBar) RL.logoBar = rlImg("/static/brand/logo-bar.png");
+  if (!RL.mark) RL.mark = rlImg("/static/brand/logo-mark.png");
+  const ids = [...new Set([state.s1.media_id, state.s2.kind === "image" ? state.s2.media_id : null].filter(Boolean))];
+  await Promise.all([RL.logoBar, RL.mark, ...ids.map((id) => rlEl(id, "image"))].map(wait));
+  if (document.fonts) await document.fonts.ready;
+  const keep = RL.s, keepSel = RL.sel;
+  RL.s = state; RL.sel = null;
+  cv.width = 540; cv.height = 960;
+  const ctx = cv.getContext("2d");
+  ctx.save(); ctx.scale(540 / DW, 960 / DH); rlFrame(ctx, t); ctx.restore();
+  RL.s = keep; RL.sel = keepSel;
+}
+
 async function reelView(view, params) {
   rlStop();
-  if (typeof stopPlay === "function") stopPlay();
   const [media, list] = await Promise.all([api("/api/media"), api("/api/teasers")]);
   RL.media = media;
   if (!RL.s) { try { RL.s = { ...reelDefaults(), ...JSON.parse(lsGet("reelDraft", "null") || "{}") }; } catch { RL.s = reelDefaults(); } }
+  if (params.get("story")) {
+    const sid = Number(params.get("story"));
+    history.replaceState(null, "", "#teaser");
+    if (!rlHasWork() || confirm("ریلزِ نیمه‌کاره‌ی فعلی با ریلز این سوژه جایگزین شود؟")) {
+      view.innerHTML = `<div class="card empty center">در حال آماده‌سازی ریلز از روی سوژه… (عکس، تیتر و لید خبر)</div>`;
+      try {
+        const sg = await api(`/api/stories/${sid}/suggest`, { method: "POST" });
+        RL.s = await reelFromStory(sid, { mediaId: sg.media_id, title: sg.story.title });
+        RL.tab = 1; reelSave();
+        if (!sg.media_id) toast("عکسی برای این سوژه پیدا نشد؛ در مرحله‌ی ۱ عکس را انتخاب کنید", 6000);
+      } catch (e) { if (!(e instanceof LoginRequired)) toast(e.message, 6000); }
+    }
+  }
+  const capsFromTools = lsGet("teaserCaptions");
+  if (capsFromTools) {
+    try { RL.s.caps.text = JSON.parse(capsFromTools).join("\n"); RL.s.caps.manual = []; RL.tab = 2; reelSave(); } catch { /* */ }
+    try { localStorage.removeItem("teaserCaptions"); } catch { /* */ }
+  }
+  const autoRender = !!params.get("auto");
+  if (autoRender) history.replaceState(null, "", "#teaser");
   if (params.get("load")) {
     const t = list.find((x) => x.id === Number(params.get("load")));
     if (t?.editor?.kr3) { RL.s = { ...reelDefaults(), ...t.editor.kr3 }; reelSave(); }
@@ -902,7 +976,7 @@ async function reelView(view, params) {
   if (!META.ffmpeg) { view.innerHTML = `<div class="card error">ffmpeg روی سرور نصب نیست؛ ساخت ویدیو ممکن نیست.</div>`; return; }
   view.innerHTML = `
     <div class="page-title"><h2>🎬 ریلزساز کرمان راوی</h2><div class="btn-row">
-      <button class="btn" id="rl-new">🆕 ریلز تازه</button><button class="btn sm ghost" id="rl-old" title="تیزرساز قبلی با قالب‌ها و تنظیمات بیشتر">⚙️ تیزرساز قبلی</button></div></div>
+      <button class="btn" id="rl-new">🆕 ریلز تازه</button></div></div>
     <div class="teaser-layout rl-layout">
       <div>
         <div class="seg rl-tabs" id="rl-tabs"></div>
@@ -925,30 +999,14 @@ async function reelView(view, params) {
   $("#rl-range").oninput = (ev) => { rlStop(); RL.t = Number(ev.target.value); reelDraw(); };
   $$("[data-go2]", view).forEach((b) => (b.onclick = () => { rlStop(); const tl = reelTL(), k = Number(b.dataset.go2); RL.t = k === 1 ? 0 : k === 2 ? tl.d1 : tl.outro; reelDraw(); }));
   $("#rl-new").onclick = () => { if (!confirm("همه‌ی تنظیمات این ریلز پاک شود؟")) return; RL.s = reelDefaults(); reelSave(); RL.tab = 1; refresh(); };
-  $("#rl-old").onclick = () => { lsSet("teaserMode", "old"); refresh(); };
   rlBindDrag($("#rl-canvas"));
   rlPanel();
   drawList(list);
   rlJumpTab();
   if (document.fonts) document.fonts.ready.then(reelDraw);
+  if (autoRender) { RL.tab = 4; rlPanel(); setTimeout(() => reelRender(), 600); }
   FONTS_READY?.then(() => { reelDraw(); });
 }
 
-// صفحه‌ی «تیزر»: ریلزساز سه‌مرحله‌ای (پیش‌فرض) یا تیزرساز قبلی
-const OLD_TEASER_VIEW = VIEWS.teaser;
-VIEWS.teaser = (view, params) => {
-  if (params.get("story") || params.get("auto")) lsSet("teaserMode", "old");
-  if (lsGet("teaserMode", "") === "old") {
-    window.onFontLoaded = () => typeof drawPreview === "function" && drawPreview();
-    return OLD_TEASER_VIEW(view, params).then(() => {
-      const t = $(".page-title .btn-row", view);
-      if (t && !$("#tz-tonew", view)) {
-        const b = document.createElement("button");
-        b.className = "btn primary"; b.id = "tz-tonew"; b.textContent = "✨ ریلزساز کرمان راوی (سه‌مرحله‌ای)";
-        b.onclick = () => { lsSet("teaserMode", "new"); refresh(); };
-        t.prepend(b);
-      }
-    });
-  }
-  return reelView(view, params);
-};
+// صفحه‌ی «تیزر»: فقط ریلزساز سه‌مرحله‌ای
+VIEWS.teaser = reelView;

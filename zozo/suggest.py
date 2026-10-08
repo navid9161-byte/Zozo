@@ -89,6 +89,9 @@ def suggest(story_id: int) -> dict[str, Any]:
             log.info("دریافت صفحه‌ی خبر ناموفق: %s", e)
     body_src = "\n".join(x for x in (s.get("body"), lead, *paras, s.get("notes")) if x)
     body_src = re.sub(r"^منبع:.*$", "", body_src, flags=re.M).strip()
+    if body_src:  # متن کامل (سوژه + صفحه‌ی خبر) برای ساختن لید در ریلزساز
+        with db.connect() as conn:
+            db.kv_set(conn, f"story_text:{story_id}", body_src[:20000])
     summary = textnorm.extractive_summary(body_src, 3) if body_src else []
     body = " ".join(summary)
     if len(body) > 520:
@@ -102,3 +105,13 @@ def suggest(story_id: int) -> dict[str, Any]:
         "media_id": media_id,
         "source_fetched": source_ok,
     }
+
+
+def story_text(story_id: int) -> str:
+    """متن کامل خبر برای لید: متنی که هنگام «پیشنهاد» از صفحه‌ی خبر گرفته شده، وگرنه متن و یادداشت سوژه."""
+    with db.connect() as conn:
+        s = db.get(conn, "stories", story_id)
+        cached = db.kv_get(conn, f"story_text:{story_id}")
+    if cached:
+        return cached
+    return "\n".join(x for x in (s.get("body"), s.get("notes")) if x).strip()

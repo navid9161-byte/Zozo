@@ -629,6 +629,11 @@ def stories_image(story_id: int, data: dict[str, Any]):
     return {"ok": True}
 
 
+@app.get("/api/stories/{story_id}/text")
+def stories_text(story_id: int):
+    return {"text": suggest.story_text(story_id)}
+
+
 @app.post("/api/stories/{story_id}/suggest")
 def stories_suggest(story_id: int):
     return suggest.suggest(story_id)

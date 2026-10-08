@@ -225,7 +225,7 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
         if m["kind"] not in ("image", "video"):
             raise db.ValidationError(f"«{m['filename']}» عکس یا ویدیو نیست")
         if m["kind"] == "image":
-            dur = _num(c.get("duration"), 3.0, 0.5, 30)
+            dur = _num(c.get("duration"), 3.0, 0.5, 60)  # هم‌اندازه با ریلزساز (عکس بدنه با زیرنویس‌های لید)
             start = 0.0
         else:
             total = m["duration"] or 0

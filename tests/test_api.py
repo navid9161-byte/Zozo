@@ -287,3 +287,11 @@ def test_custom_font_upload_twice_is_not_duplicated(client):
 def test_teaser_transcript_validation(client):
     login(client)
     assert client.post("/api/teasers/transcript", json={}).status_code == 400
+
+
+def test_teaser_long_still_image_keeps_its_length(client):
+    # عکسِ بدنه‌ی ریلز با لید بلند می‌تواند تا ۶۰ ثانیه باشد؛ نباید سرور آن را کوتاه کند
+    login(client)
+    mid = client.post("/api/media", files={"files": ("p.png", _png(400, 300), "image/png")}).json()["added"][0]["id"]
+    v = teaser.validate_spec({"format": "9:16", "clips": [{"media_id": mid, "duration": 4}, {"media_id": mid, "duration": 36.4}]})
+    assert [c["duration"] for c in v["clips"]] == [4, 36.4] and v["total"] == 40.4
