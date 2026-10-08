@@ -649,3 +649,7 @@ dialog.designer:not([open]) { display: none; }
 .bale-code b { font-size: 26px; letter-spacing: 4px; background: var(--bg); border: 1px dashed var(--line); border-radius: 10px; padding: 2px 14px; }
 .tip { background: var(--warn-soft); border-radius: 10px; padding: 10px 12px; font-size: 14px; line-height: 1.9; }
 .dz-selhint { margin-top: 6px; padding: 6px 10px; border-radius: 8px; background: #e8f1ff; color: #17406b; font-size: 13px; line-height: 1.9; }
+.rl-snd .snd-row { border-top: 1px solid var(--line); padding: 8px 0; display: grid; gap: 4px; }
+.rl-snd .snd-row .chk { font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.rl-snd .snd-row > label:not(.chk) { display: flex; align-items: center; gap: 8px; }
+.rl-snd .snd-row > label:not(.chk) input[type=range] { flex: 1; }

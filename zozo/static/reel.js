@@ -24,6 +24,7 @@ function reelDefaults() {
       sub: textL({ y: 660, h: 80, size: 50, weight: 800 }),
     },
     audio1: { media_id: null, src: 0, at: 0, end: null, vol: 0.8, fin: true, finD: 1, fout: true, foutD: 1.5, mode: "duck", duckF: 0.25 },
+    audio2: { media_id: null, src: 0, vol: 1, fin: false, finD: 0.5, fout: true, foutD: 1 },
     s2: { media_id: null, kind: null, start: 0, dur: 6, mediaDur: 0, has_audio: false, motion: "none", scale: 1, ox: 0, oy: 0, vol: 1 },
     b1: textL({ x: 60, y: 1492, w: 960, h: 84, size: 60, color: "#ffffff", hi: "#ffd23f", bg: "#000000", bgA: 0, pad: 10, shadow: true, align: "center" }),
     b2: textL({ x: 60, y: 1600, w: 960, h: 70, size: 46, weight: 700, color: "#ffffff", hi: "#ffd23f", bg: "#000000", bgA: 0, pad: 10, shadow: true, align: "center" }),
@@ -226,6 +227,7 @@ function rlStop() {
   cancelAnimationFrame(RL.raf);
   for (const el of Object.values(RL.els)) if (el.pause) { el.pause(); el.muted = true; }
   RL.audio?.pause(); RL.audio = null;
+  RL.audio2?.pause(); RL.audio2 = null;
   RL.stampAudio?.pause(); RL.stampAudio = null;
   const b = $("#rl-play"); if (b) b.textContent = "▶";
 }
@@ -239,6 +241,7 @@ function rlPlay() {
   const a1 = s.audio1;
   let stamped = from > tl.outro + OUT_LAND;
   if (a1.media_id) { RL.audio = new Audio(`/api/media/${a1.media_id}/file`); RL.audio.preload = "auto"; }
+  if (s.audio2?.media_id && tl.d2) { RL.audio2 = new Audio(`/api/media/${s.audio2.media_id}/file`); RL.audio2.preload = "auto"; }
   let vStarted = false;
   const step = () => {
     if (!RL.playing) return;
@@ -249,7 +252,7 @@ function rlPlay() {
     const c = s.s2, el = c.kind === "video" ? rlEl(c.media_id, "video") : null;
     if (el) {
       if (t >= tl.d1 && t < tl.outro) {
-        if (!vStarted) { el.currentTime = (Number(c.start) || 0) + (t - tl.d1); el.muted = a1.mode === "music_only" || !c.has_audio; el.volume = Math.min(1, c.vol ?? 1); el.play().catch(() => {}); vStarted = true; }
+        if (!vStarted) { el.currentTime = (Number(c.start) || 0) + (t - tl.d1); el.muted = !rlSound().video; el.volume = Math.min(1, c.vol ?? 1); el.play().catch(() => {}); vStarted = true; }
       } else if (vStarted) { el.pause(); vStarted = false; }
     }
     // صدای مرحله‌ی ۱ (با محو شدن و کم شدن هنگام ویدیو)
@@ -265,6 +268,18 @@ function rlPlay() {
         if (RL.audio.paused) { RL.audio.currentTime = tr.src + lt; RL.audio.play().catch(() => {}); }
       } else if (!RL.audio.paused) RL.audio.pause();
     }
+    // صدای جداگانه‌ی مرحله‌ی ۲
+    if (RL.audio2) {
+      const tr = rlTrack2(), inR = tr && t >= tr.at && t < tr.at + tr.dur;
+      if (inR) {
+        const lt = t - tr.at;
+        let v = tr.vol;
+        if (tr.fin) v *= Math.min(1, lt / tr.fin);
+        if (tr.fout) v *= Math.min(1, (tr.dur - lt) / tr.fout);
+        RL.audio2.volume = Math.max(0, Math.min(1, v));
+        if (RL.audio2.paused) { RL.audio2.currentTime = tr.src + lt; RL.audio2.play().catch(() => {}); }
+      } else if (!RL.audio2.paused) RL.audio2.pause();
+    }
     // صدای مُهر
     if (!stamped && s.s3.stamp_id && t >= tl.outro + OUT_LAND + (Number(s.s3.stamp_off) || 0)) {
       stamped = true;
@@ -278,17 +293,36 @@ function rlPlay() {
   step();
 }
 
+// صداهای مرحله‌ی ۲: صدای خود ویدیو، ادامه‌ی صدای مرحله‌ی ۱، صدای جداگانه (هر سه مستقل از هم)
+// (پیش‌نویس‌های قدیمی فقط «mode» داشتند؛ از روی آن مقدار پیش‌فرض ساخته می‌شود)
+function rlSound() {
+  const s = RL.s, a = s.audio1, c = s.s2, mode = a.mode || "duck";
+  return {
+    video: c.kind === "video" && !!c.has_audio && (c.sound ?? mode !== "music_only"),
+    cont: !!a.media_id && (a.s2on ?? mode !== "cut"),
+    level: Math.max(0, Math.min(1, Number(a.s2vol ?? (mode === "duck" ? a.duckF ?? 0.25 : 1)))),
+  };
+}
+
 // مشخصات صدای مرحله‌ی ۱ روی خط زمان (هم برای پیش‌نمایش، هم برای سرور)
 function rlTrack1() {
-  const s = RL.s, a = s.audio1, tl = reelTL();
+  const s = RL.s, a = s.audio1, tl = reelTL(), snd = rlSound();
   if (!a.media_id) return null;
   const at = Math.max(0, Math.min(tl.total - 0.2, Number(a.at) || 0));
   let end = a.end == null || a.end === "" ? tl.outro + 0.3 : Math.min(tl.total, Number(a.end));
-  if (a.mode === "cut") end = Math.min(end, tl.d1);
+  if (!snd.cont && tl.d2) end = Math.min(end, tl.d1);
   const dur = Math.max(0.2, end - at);
-  const duck = a.mode === "duck" && tl.d2 ? [[tl.d1, tl.outro, Math.max(0, Math.min(1, Number(a.duckF) || 0.25))]] : [];
+  const duck = snd.cont && tl.d2 && snd.level < 0.999 ? [[tl.d1, tl.outro, snd.level]] : [];
   return { media_id: a.media_id, src: Number(a.src) || 0, at, dur, vol: Number(a.vol) || 0, fin: a.fin ? Number(a.finD) || 1 : 0,
     fout: a.fout ? Number(a.foutD) || 1.5 : 0, duck, loop: true };
+}
+
+// صدای جداگانه‌ی مرحله‌ی ۲: فقط در طول همین بخش پخش می‌شود
+function rlTrack2() {
+  const s = RL.s, a = s.audio2, tl = reelTL();
+  if (!a?.media_id || !tl.d2) return null;
+  return { media_id: a.media_id, src: Number(a.src) || 0, at: tl.d1, dur: tl.d2, vol: Number(a.vol ?? 1),
+    fin: a.fin ? Number(a.finD) || 0.5 : 0, fout: a.fout ? Number(a.foutD) || 1 : 0, duck: [], loop: true };
 }
 
 // ───── ساخت ویدیو ─────
@@ -321,11 +355,13 @@ async function reelRender() {
     const lg = rlOutroLogo();
     const clips = [{ media_id: s.s1.media_id, duration: tl.d1, gray: !!s.s1.gray, bright: Number(s.s1.bright) || 0, scale: s.s1.scale, ox: s.s1.ox, oy: s.s1.oy, motion: "none", zoom: false }];
     if (tl.d2) clips.push({ media_id: s.s2.media_id, start: s.s2.start || 0, duration: tl.d2, scale: s.s2.scale, ox: s.s2.ox, oy: s.s2.oy,
-      motion: s.s2.motion, zoom: s.s2.motion === "zoom", mute: s.audio1.mode === "music_only", vol: Number(s.s2.vol ?? 1) });
+      motion: s.s2.motion, zoom: s.s2.motion === "zoom", mute: !rlSound().video, vol: Number(s.s2.vol ?? 1) });
     clips.push({ outro: { bg: shot((x) => rlOutroBg(x)), logo: lg.toDataURL("image/png"), duration: tl.d3, logo_w: OUT_W, logo_y: OUT_Y, drop: OUT_DROP, land: OUT_LAND } });
     const tracks = [];
     const t1r = rlTrack1();
     if (t1r) tracks.push(t1r);
+    const t2r = rlTrack2();
+    if (t2r) tracks.push(t2r);
     if (s.s3.stamp_id) tracks.push({ media_id: s.s3.stamp_id, src: 0, at: Math.max(0, tl.outro + OUT_LAND + (Number(s.s3.stamp_off) || 0) - 0.02), dur: Math.min(3, tl.d3), vol: Number(s.s3.stamp_vol) || 1, fin: 0, fout: 0.2, loop: false, duck: [] });
     btn.textContent = "در حال فرستادن…";
     const head = (s.texts.head.text || "").replace(/\n/g, " ").trim();
@@ -482,7 +518,7 @@ function rlPanel() {
         <div class="tz-lead">
           <b class="small">📰 لید (متن بلند) به‌جای زیرنویس جمله‌به‌جمله</b>
           <div class="btn-row">
-            <select id="rl-lsrc">${[["video", "🎞 از صدای ویدیوی همین مرحله"], ["audio", "🎵 از فایل صوتی مرحله‌ی ۱"], ["story", "📝 از متن یک سوژه"], ["text", "📋 از متنی که در کادر زیر چسبانده‌ام"]]
+            <select id="rl-lsrc">${[["video", "🎞 از صدای ویدیوی همین مرحله"], ["audio", "🎵 از فایل صوتی مرحله‌ی ۱"], ["audio2", "🎧 از صدای جداگانه‌ی این بخش"], ["story", "📝 از متن یک سوژه"], ["text", "📋 از متنی که در کادر زیر چسبانده‌ام"]]
               .map(([v, l]) => `<option value="${v}" ${(RL.leadSrc || "video") === v ? "selected" : ""}>${l}</option>`).join("")}</select>
             <select id="rl-lstory" ${RL.leadSrc === "story" ? "" : "hidden"}><option value="">— انتخاب سوژه —</option></select>
             <label class="small">حدود <select id="rl-ln">${[100, 150, 200, 250, 300, 400].map((n) => `<option value="${n}" ${(RL.leadN || 200) === n ? "selected" : ""}>${num(n)}</option>`).join("")}</select> کلمه</label>
@@ -496,12 +532,28 @@ function rlPanel() {
         <div id="rl-times" class="captions"></div>
       </div>
       ${rlTextBox("caps", "ظاهر زیرنویس", "فونت، اندازه، رنگ و شفافیت کادر سفید")}
-      <div class="card"><h3>🔊 صدای ویدیو و صدای مرحله‌ی ۱</h3>
-        <div class="rl-grid">
-          <label>وقتی ویدیو پخش می‌شود<select id="rl-mode">${[["mix", "هر دو با هم"], ["duck", "صدای مرحله‌ی ۱ کم شود"], ["cut", "صدای مرحله‌ی ۱ قطع شود"], ["music_only", "فقط صدای مرحله‌ی ۱ (ویدیو بی‌صدا)"]].map(([v, l]) => `<option value="${v}" ${a.mode === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-          ${a.mode === "duck" ? `<label>صدای مرحله‌ی ۱ هنگام ویدیو <small>${num(Math.round((a.duckF ?? 0.25) * 100))}٪</small><input type="range" min="0.05" max="0.9" step="0.05" id="rl-duck" value="${a.duckF ?? 0.25}"></label>` : ""}
-          <label>بلندی صدای خود ویدیو <small>${num(Math.round((c.vol ?? 1) * 100))}٪</small><input type="range" min="0" max="2" step="0.05" data-c="vol" value="${c.vol ?? 1}"></label>
-        </div></div>`;
+      <div class="card rl-snd"><h3>🔊 صدای این بخش</h3>
+        <p class="small muted" style="margin-top:0">هر کدام را که بخواهید روشن کنید؛ صداهای روشن با هم پخش می‌شوند.</p>
+        ${(() => {
+          const snd = rlSound(), a2 = s.audio2 || {}, hasVA = c.kind === "video" && c.has_audio;
+          return `<div class="snd-row"><label class="chk"><input type="checkbox" id="rl-vs" ${snd.video ? "checked" : ""} ${hasVA ? "" : "disabled"}> 🎞 صدای خود ویدیو</label>
+            ${hasVA ? (snd.video ? `<label>بلندی <small>${num(Math.round((c.vol ?? 1) * 100))}٪</small><input type="range" min="0" max="2" step="0.05" data-c="vol" value="${c.vol ?? 1}"></label>` : "")
+              : `<small class="muted">${!c.media_id ? "(هنوز ویدیویی نگذاشته‌اید)" : c.kind === "image" ? "(عکس صدا ندارد)" : "(این ویدیو صدا ندارد)"}</small>`}</div>
+          <div class="snd-row"><label class="chk"><input type="checkbox" id="rl-a1c" ${snd.cont ? "checked" : ""} ${a.media_id ? "" : "disabled"}> 🎵 ادامه‌ی صدای مرحله‌ی ۱</label>
+            ${a.media_id ? (snd.cont ? `<label>بلندی در این بخش <small>${num(Math.round(snd.level * 100))}٪</small><input type="range" min="0.05" max="1" step="0.05" id="rl-a1v" value="${snd.level}"></label>` : `<small class="muted">صدای مرحله‌ی ۱ اول این بخش قطع می‌شود</small>`)
+              : `<small class="muted">(در مرحله‌ی ۱ صدایی نگذاشته‌اید)</small>`}</div>
+          <div class="snd-row"><b>🎧 صدای جداگانه برای این بخش</b>
+            <div class="btn-row"><button class="btn sm" id="rl-a2">🎵 بارگذاری فایل صوتی</button>${rlMediaSelect(["audio", "video"], a2.media_id, 'id="rl-a2-lib"')}
+              ${a2.media_id ? `<button class="btn sm danger" id="rl-a2-x">حذف</button>` : ""}</div>
+            ${a2.media_id ? `<div class="rl-grid" style="margin-top:6px">
+              <label>بلندی <small>${num(Math.round((a2.vol ?? 1) * 100))}٪</small><input type="range" min="0" max="2" step="0.05" data-a2="vol" value="${a2.vol ?? 1}"></label>
+              <label>از ثانیه‌ی چندمِ فایل<input type="number" min="0" step="0.5" data-a2="src" value="${a2.src || 0}"></label>
+              <label><span><input type="checkbox" data-a2="fin" ${a2.fin ? "checked" : ""}> آغاز آرام</span><input type="number" min="0.2" max="10" step="0.2" data-a2="finD" value="${a2.finD ?? 0.5}"></label>
+              <label><span><input type="checkbox" data-a2="fout" ${a2.fout ? "checked" : ""}> پایان آرام</span><input type="number" min="0.2" max="10" step="0.2" data-a2="foutD" value="${a2.foutD ?? 1}"></label>
+            </div><p class="small muted" style="margin:4px 0 0">از آغاز تا پایان همین بخش (${num((+tl.d2).toFixed(1))} ثانیه) پخش می‌شود؛ اگر کوتاه‌تر باشد از اول تکرار می‌شود.</p>`
+              : `<p class="small muted" style="margin:4px 0 0">مثلاً وقتی جای ویدیو عکس گذاشته‌اید یا صدای ویدیو را نمی‌خواهید: گزارش صوتی، مصاحبه یا موسیقی فقط برای این بخش.</p>`}</div>`;
+        })()}
+      </div>`;
   } else if (RL.tab === 3) {
     const o = s.s3;
     h = `<div class="card"><h3>🔖 پایان: مُهر کرمان راوی</h3>
@@ -711,8 +763,20 @@ function rlBind(box) {
   on("#rl-sz2", "input", (ev) => { s.s2.scale = +Number(ev.target.value).toFixed(3); $("#rl-szv").textContent = `${num(Math.round(s.s2.scale * 100))}٪`; reelDraw(); clearTimeout(RL.szT); RL.szT = setTimeout(reelSave, 300); });
   if ($("#rl-trim", box)) rlBindTrim(box);
   on("#rl-fit", "change", (ev) => { s.fit = ev.target.value; upd(); });
-  on("#rl-mode", "change", (ev) => { s.audio1.mode = ev.target.value; upd(); rlPanel(); });
-  on("#rl-duck", "input", (ev) => { s.audio1.duckF = Number(ev.target.value); ev.target.parentElement.querySelector("small").textContent = `${num(Math.round(s.audio1.duckF * 100))}٪`; upd(); });
+  on("#rl-vs", "change", (ev) => { s.s2.sound = ev.target.checked; upd(); rlPanel(); });
+  on("#rl-a1c", "change", (ev) => { const snd = rlSound(); s.audio1.s2vol = snd.level; s.audio1.s2on = ev.target.checked; upd(); rlPanel(); });
+  on("#rl-a1v", "input", (ev) => { s.audio1.s2vol = Number(ev.target.value); ev.target.parentElement.querySelector("small").textContent = `${num(Math.round(s.audio1.s2vol * 100))}٪`; upd(); });
+  const setA2 = (id) => { s.audio2 = { ...reelDefaults().audio2, ...(s.audio2 || {}), media_id: id, src: id === s.audio2?.media_id ? s.audio2.src : 0 }; upd(); rlPanel(); };
+  on("#rl-a2", "click", () => rlUpload("audio/*,video/*", (m) => setA2(m.id)));
+  on("#rl-a2-lib", "change", (ev) => setA2(Number(ev.target.value) || null));
+  on("#rl-a2-x", "click", () => setA2(null));
+  $$("[data-a2]", box).forEach((el) => el.addEventListener(el.type === "checkbox" ? "change" : "input", () => {
+    const k = el.dataset.a2;
+    s.audio2[k] = el.type === "checkbox" ? el.checked : Number(enDigits(el.value)) || 0;
+    const sm = el.parentElement.querySelector("small");
+    if (sm && k === "vol") sm.textContent = `${num(Math.round(s.audio2.vol * 100))}٪`;
+    upd();
+  }));
   on("#rl-caps", "input", (ev) => { s.caps.text = ev.target.value; upd(); rlTimes(); });
   on("#rl-split", "click", () => { const p = splitLead(s.caps.text, 10); if (!p.length) return toast("اول متن را بنویسید یا بچسبانید"); s.caps.text = p.join("\n"); s.caps.manual = []; upd(); rlPanel(); toast(`${num(p.length)} زیرنویس ساخته شد ✔`); });
   on("#rl-retime", "click", () => { s.caps.manual = []; upd(); rlPanel(); });
@@ -787,6 +851,10 @@ function rlBindLead(box) {
         if (!s.audio1.media_id) return toast("اول در مرحله‌ی ۱ فایل صوتی بگذارید");
         busy("در حال شنیدن فایل صوتی…");
         text = (await api("/api/teasers/transcript", { method: "POST", body: { media_id: s.audio1.media_id, start: s.audio1.src || 0 } })).text;
+      } else if (how === "audio2") {
+        if (!s.audio2?.media_id) return toast("اول «صدای جداگانه برای این بخش» را بگذارید (پایین همین زبانه)");
+        busy("در حال شنیدن فایل صوتی…");
+        text = (await api("/api/teasers/transcript", { method: "POST", body: { media_id: s.audio2.media_id, start: s.audio2.src || 0, duration: s.s2.dur } })).text;
       } else if (how === "story") {
         if (!sel.value) return toast("یک سوژه انتخاب کنید");
         busy("در حال خواندن متن سوژه…");
