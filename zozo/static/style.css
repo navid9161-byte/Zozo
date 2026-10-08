@@ -648,3 +648,4 @@ dialog.designer:not([open]) { display: none; }
 .bale-code { display: flex; align-items: center; gap: 6px; margin: 6px 0 2px; }
 .bale-code b { font-size: 26px; letter-spacing: 4px; background: var(--bg); border: 1px dashed var(--line); border-radius: 10px; padding: 2px 14px; }
 .tip { background: var(--warn-soft); border-radius: 10px; padding: 10px 12px; font-size: 14px; line-height: 1.9; }
+.dz-selhint { margin-top: 6px; padding: 6px 10px; border-radius: 8px; background: #e8f1ff; color: #17406b; font-size: 13px; line-height: 1.9; }

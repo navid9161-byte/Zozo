@@ -316,7 +316,7 @@ function openDesigner(opts) {
 
   const bindPanel = () => {
     const p = $(".dz-panel", wrap);
-    let typing = null;
+    let typing = null, rich = null;
     $$("[data-p]", p).forEach((el) => el.addEventListener(el.type === "checkbox" || el.tagName === "SELECT" ? "change" : "input", () => {
       const L = cur();
       if (!L) return;
@@ -325,6 +325,11 @@ function openDesigner(opts) {
       const k = el.dataset.p;
       let v = el.type === "checkbox" ? el.checked : el.value;
       if (["size", "lh", "pad", "radius", "opacity", "strokeW", "weight", "start", "end"].includes(k)) v = Number(enDigits(v)) || 0;
+      if (L.type === "text" && rich?.hasSel() && ["size", "font", "color", "weight"].includes(k)) {
+        rich.style(k, v);
+        const sm = el.parentElement.querySelector("small"); if (sm && el.type === "range") sm.textContent = num(+Number(v).toFixed(2));
+        return;
+      }
       if (el.type === "color") { const none = $(`[data-none="${k}"]`, p); if (none) none.checked = false; }
       L[k] = v;
       if (L.type === "text" && unifyRuns(L, k)) { const ed = $(".dz-rich", p); if (ed) ed.innerHTML = runsToHTML(L); }
@@ -338,7 +343,8 @@ function openDesigner(opts) {
     $$("[data-hide]", p).forEach((b) => (b.onclick = () => { const L = layers.find((l) => l.id === b.dataset.hide); snap(); L.hidden = !L.hidden; draw(); panel(); }));
     $$("[data-bgz]", p).forEach((b) => (b.onclick = () => { opts.bg.zoom(Number(b.dataset.bgz), t); draw(); }));
     if ($("[data-bgr]", p)) $("[data-bgr]", p).onclick = () => { opts.bg.reset(t); draw(); };
-    bindRich(p);
+    rich = bindRich(p);
+    if (rich) rich.onClear = () => panel();
     const af = $("[data-addfont]", p);
     if (af) af.onclick = () => pickFontFile((fam) => { const L = cur(); if (L) { snap(); L.font = fam; draw(); panel(); } });
     const rep = $("[data-replace]", p);
@@ -518,14 +524,15 @@ function richToolbarHTML() {
   return `<div class="dz-rtb"><select data-rf title="فونت بخش انتخاب‌شده"><option value="">فونت انتخاب…</option>${fontOptions("")}</select>
     <label class="btn sm" title="رنگ بخش انتخاب‌شده">🎨 رنگ<input type="color" data-rc value="#9d1819"></label>
     <button type="button" class="btn sm" data-rs="1.15" title="بزرگ‌تر">A+</button><button type="button" class="btn sm" data-rs="0.87" title="کوچک‌تر">A−</button>
-    <button type="button" class="btn sm" data-rb title="پررنگ / معمولی"><b>B</b></button><button type="button" class="btn sm ghost" data-rclear title="برگرداندن بخش انتخاب‌شده به حالت عادی">✕ قالب‌بندی</button></div>`;
+    <button type="button" class="btn sm" data-rb title="پررنگ / معمولی"><b>B</b></button><button type="button" class="btn sm ghost" data-rclear title="برگرداندن بخش انتخاب‌شده به حالت عادی">✕ قالب‌بندی</button></div>
+    <div class="dz-selhint" data-selhint hidden></div>`;
 }
 function richBoxHTML(L) {
   return `<div class="dz-rich" contenteditable="true" dir="rtl" style="color:${esc(L.color)};font-weight:${L.weight || 700};font-family:${esc(fontStack(L.font))}">${runsToHTML(L)}</div>`;
 }
 function mountRichEditor(p, getL, onChange, onFirst) {
   const ed = $(".dz-rich", p);
-  if (!ed) return;
+  if (!ed) return null;
   let typing = null;
   const sync = () => {
     const L = getL();
@@ -555,15 +562,41 @@ function mountRichEditor(p, getL, onChange, onFirst) {
   ed.addEventListener("keyup", () => { const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode)) saved = s0.getRangeAt(0).cloneRange(); });
   ed.addEventListener("mouseup", () => { const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode)) saved = s0.getRangeAt(0).cloneRange(); });
   // انتخاب آخر نگه داشته می‌شود تا با زدن دکمه‌ها از دست نرود (شنونده با حذف ویرایشگر خودش پاک می‌شود)
+  // «انتخاب فعال»: تا وقتی بخشی از متن انتخاب شده، اندازه/فونت/رنگ/ضخامتِ پایین کادر فقط روی همان بخش اعمال می‌شود
+  let active = false;
+  const hint = $("[data-selhint]", p);
+  const showHint = () => {
+    if (!hint) return;
+    const on = ctrl.hasSel();
+    hint.hidden = !on;
+    if (on) {
+      const t = saved.toString().replace(/\s+/g, " ").trim();
+      hint.innerHTML = `✏️ «${esc(t.length > 40 ? t.slice(0, 40) + "…" : t)}» انتخاب شده؛ <b>اندازه، فونت، رنگ متن و ضخامت</b> فقط روی همین بخش اعمال می‌شود. <button type="button" class="btn sm ghost" data-selclear>لغو انتخاب</button>`;
+      $("[data-selclear]", hint).onclick = () => { ctrl.clear(); };
+    }
+  };
   const onSel = () => {
     if (!ed.isConnected) { document.removeEventListener("selectionchange", onSel); return; }
-    const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode) && !s0.isCollapsed) saved = s0.getRangeAt(0).cloneRange();
+    const s0 = window.getSelection();
+    if (s0.rangeCount && ed.contains(s0.anchorNode)) {
+      if (!s0.isCollapsed && s0.toString().trim()) { saved = s0.getRangeAt(0).cloneRange(); active = true; }
+      else if (document.activeElement === ed) active = false;  // داخل متن کلیک شد: انتخاب تمام
+    } else if (!s0.isCollapsed && s0.toString().trim()) active = false;  // جای دیگری انتخاب شد
+    showHint();
   };
   document.addEventListener("selectionchange", onSel);
   const apply = (fn) => {
     let r = selRange();
     if (!r && saved && !saved.collapsed) { r = saved; const s0 = window.getSelection(); s0.removeAllRanges(); s0.addRange(r); }
     if (!r) return;
+    const anc0 = r.commonAncestorContainer.nodeType === 1 ? r.commonAncestorContainer : r.commonAncestorContainer.parentElement;
+    if (anc0 !== ed && anc0.tagName === "SPAN" && ed.contains(anc0) && anc0.textContent === r.toString()) {
+      fn(anc0, anc0, getComputedStyle(anc0), parseFloat(getComputedStyle(anc0.parentElement).fontSize));
+      const s1 = window.getSelection(); s1.removeAllRanges();
+      const nr1 = document.createRange(); nr1.selectNodeContents(anc0); s1.addRange(nr1); saved = nr1.cloneRange(); active = true;
+      sync(); showHint();
+      return;
+    }
     const host = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentElement;
     const cs = getComputedStyle(host);
     const anc = r.commonAncestorContainer.nodeType === 1 ? r.commonAncestorContainer : r.commonAncestorContainer.parentElement;
@@ -574,8 +607,34 @@ function mountRichEditor(p, getL, onChange, onFirst) {
     span.appendChild(frag);
     r.insertNode(span);
     const s0 = window.getSelection(); s0.removeAllRanges();
-    const nr = document.createRange(); nr.selectNodeContents(span); s0.addRange(nr); saved = nr.cloneRange();
-    sync();
+    const nr = document.createRange(); nr.selectNodeContents(span); s0.addRange(nr); saved = nr.cloneRange(); active = true;
+    sync(); showHint();
+  };
+  const ctrl = {
+    hasSel: () => !!(active && saved && !saved.collapsed && ed.isConnected && ed.contains(saved.startContainer) && saved.toString().trim()),
+    // مقدار تنظیم «کلی» را فقط روی بخش انتخاب‌شده می‌گذارد
+    style(prop, v) {
+      if (!ctrl.hasSel()) return false;
+      if (prop === "color") apply((span, frag) => { strip(frag, "color"); span.style.color = v; });
+      else if (prop === "font") apply((span, frag) => { strip(frag, "fontFamily"); span.style.fontFamily = fontStack(v); });
+      else if (prop === "weight") apply((span, frag) => { strip(frag, "fontWeight"); span.style.fontWeight = String(v); });
+      else if (prop === "size") apply((span, frag, cs, parentPx) => {
+        strip(frag, "fontSize");
+        const L = getL(), basePx = parseFloat(getComputedStyle(ed).fontSize);
+        span.style.fontSize = `${((basePx * Number(v)) / (Number(L?.size) || 48) / parentPx).toFixed(3)}em`;
+      });
+      else return false;
+      return true;
+    },
+    // اندازه/فونت/رنگ/ضخامتِ بخش انتخاب‌شده (برای نشان دادن روی کنترل‌ها)
+    current() {
+      if (!ctrl.hasSel()) return null;
+      const n = saved.startContainer.nodeType === 1 ? saved.startContainer : saved.startContainer.parentElement;
+      const cs = getComputedStyle(n), L = getL(), basePx = parseFloat(getComputedStyle(ed).fontSize);
+      return { size: Math.round((parseFloat(cs.fontSize) / basePx) * (Number(L?.size) || 48)), color: cssHex(cs.color), weight: Number(cs.fontWeight) };
+    },
+    clear() { active = false; const s0 = window.getSelection(); if (s0.rangeCount && ed.contains(s0.anchorNode)) s0.removeAllRanges(); showHint(); ctrl.onClear?.(); },
+    onClear: null,
   };
   const strip = (frag, prop) => frag.querySelectorAll?.("*").forEach((el) => { el.style[prop] = ""; if (prop === "color") el.removeAttribute("color"); });
   $("[data-rc]", p).addEventListener("input", (ev) => apply((span, frag) => { strip(frag, "color"); span.style.color = ev.target.value; }));
@@ -594,6 +653,7 @@ function mountRichEditor(p, getL, onChange, onFirst) {
   $("[data-rb]", p).onclick = () => apply((span, frag, cs) => { strip(frag, "fontWeight"); span.style.fontWeight = Number(cs.fontWeight) >= 800 ? "400" : "900"; });
   $("[data-rclear]", p).addEventListener("pointerdown", (ev) => ev.preventDefault());
   $("[data-rclear]", p).onclick = () => apply((span, frag) => { ["color", "fontSize", "fontWeight", "fontFamily"].forEach((k) => strip(frag, k)); });
+  return ctrl;
 }
 
 // تغییر «کلی» رنگ/فونت/ضخامت/اندازه باید روی همه‌ی متن بنشیند: اگر همه‌ی تکه‌ها مقدار خودشان را دارند

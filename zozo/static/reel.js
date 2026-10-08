@@ -387,13 +387,29 @@ function rlBindTextBoxes(root) {
   $$(".rl-tx", root).forEach((box) => {
     const key = box.dataset.tx, L = () => rlTextByKey(key);
     const jump = () => { const tl = reelTL(); if (!rlTextVisible(key, RL.t)) { RL.t = ["kick", "head", "sub"].includes(key) ? Math.min(1, tl.d1 / 2) : tl.d1 + 0.5; } RL.sel = key; };
-    if ($(".dz-rich", box)) mountRichEditor(box, L, () => { reelSave(); reelDraw(); }, () => { jump(); });
+    const rich = $(".dz-rich", box) ? mountRichEditor(box, L, () => { reelSave(); reelDraw(); }, () => { jump(); }) : null;
+    // پس از لغو انتخاب، کنترل‌ها دوباره مقدارِ کل متن را نشان دهند
+    const showWhole = () => {
+      const T = L();
+      for (const [k, v] of [["size", T.size], ["color", T.color], ["weight", T.weight], ["font", T.font || "Vazirmatn"]]) {
+        const el = $(`[data-tk=${k}]`, box); if (el) el.value = v;
+      }
+      const sm = $("[data-tk=size]", box)?.parentElement.querySelector("small"); if (sm) sm.textContent = num(Math.round(T.size));
+    };
+    if (rich) rich.onClear = showWhole;
     box.addEventListener("focusin", () => { jump(); reelDraw(); });
     $$("[data-tk]", box).forEach((el) => el.addEventListener(el.type === "checkbox" || el.tagName === "SELECT" ? "change" : "input", () => {
       const k = el.dataset.tk;
       let v = el.type === "checkbox" ? el.checked : el.value;
       if (k === "hidden") v = !el.checked;
       if (["size", "bgA", "w", "weight"].includes(k)) v = Number(v);
+      // بخشی از متن انتخاب شده: فقط همان بخش تغییر کند
+      if (rich?.hasSel() && ["size", "font", "color", "weight"].includes(k)) {
+        rich.style(k, v);
+        const sm0 = el.parentElement.querySelector("small"); if (sm0 && k === "size") sm0.textContent = num(Math.round(v));
+        jump(); reelDraw();
+        return;
+      }
       L()[k] = v;
       if (unifyRuns(L(), k) && $(".dz-rich", box)) $(".dz-rich", box).innerHTML = runsToHTML(L());
       const sm = el.parentElement.querySelector("small");
