@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest, fonts
+from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest, fonts, push
 from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -161,6 +161,60 @@ def logout():
 
 
 # ───────────────────────── عمومی ─────────────────────────
+
+
+# ───── ربات بله (تنظیم از داخل برنامه) ─────
+@app.get("/api/bale")
+def bale_get():
+    return notify.bale_info()
+
+
+@app.post("/api/bale/token")
+def bale_token(data: dict[str, Any]):
+    return notify.set_token(str(data.get("token") or ""))
+
+
+@app.post("/api/bale/code")
+def bale_code():
+    return {"code": notify.link_code(renew=True)}
+
+
+@app.delete("/api/bale/chats/{cid}")
+def bale_chat_delete(cid: str):
+    notify.remove_chat(cid)
+    return notify.bale_info()
+
+
+@app.post("/api/bale/test")
+def bale_test():
+    return {"sent": notify.test_bale()}
+
+
+# ───── اعلان روی گوشی (Web Push) ─────
+@app.get("/api/push/key")
+def push_key():
+    return {"key": push.public_key(), "count": push.count()}
+
+
+@app.post("/api/push/subscribe")
+def push_subscribe(data: dict[str, Any], request: Request):
+    origin = request.headers.get("origin") or str(request.base_url).rstrip("/")
+    return {"count": push.subscribe(data.get("subscription") or {}, origin, str(data.get("device") or ""))}
+
+
+@app.post("/api/push/unsubscribe")
+def push_unsubscribe(data: dict[str, Any]):
+    push.unsubscribe(str(data.get("endpoint") or ""))
+    return {"count": push.count()}
+
+
+@app.post("/api/push/test")
+def push_test(data: dict[str, Any]):
+    r = push.send_all({"id": 0, "title": "🔔 اعلان آزمایشی زوزو", "body": "اعلان روی گوشی درست کار می‌کند ✅", "link": "#settings"},
+                      only=str(data.get("endpoint") or "") or None)
+    if not (r["ok"] or r["failed"] or r["removed"]):
+        raise db.ValidationError("این دستگاه هنوز برای اعلان ثبت نشده است")
+    return r
 
 
 @app.get("/api/fonts")

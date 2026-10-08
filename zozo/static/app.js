@@ -1249,19 +1249,11 @@ VIEWS.search = async (view, params) => {
 
 // ═════════════════════════ تنظیمات ═════════════════════════
 VIEWS.settings = async (view) => {
-  const perm = "Notification" in window ? Notification.permission : "unsupported";
-  const n = META.notify;
   view.innerHTML = `
     <div class="page-title"><h2>⚙️ تنظیمات</h2></div>
     <div class="grid">
-      <div class="card"><h3>🔔 اعلان‌ها</h3>
-        <div class="row"><span>اعلان داخل برنامه</span><span class="badge green">فعال</span></div>
-        <div class="row"><span>اعلان مرورگر روی همین دستگاه</span>
-          ${perm === "granted" ? `<span class="badge green">فعال</span>` : perm === "denied" ? `<span class="badge red">مسدود (از تنظیمات مرورگر باز کنید)</span>` : perm === "unsupported" ? `<span class="badge gray">پشتیبانی نمی‌شود</span>` : `<button class="btn sm primary" id="s-perm">فعال‌سازی</button>`}</div>
-        <div class="row"><span>ربات بله</span>${n.bale ? (n.bale_chats ? `<span class="badge green">فعال (${num(n.bale_chats)} گفتگو)</span>` : `<span class="badge amber">توکن هست؛ شناسه‌ی گفتگو تنظیم نشده</span>`) : `<span class="badge gray">تنظیم نشده</span>`}</div>
-        <p class="small muted">اعلان مرورگر فقط وقتی برنامه (یا زبانه‌اش) باز است نشان داده می‌شود؛ در آیفون باید برنامه را به صفحه‌ی اصلی اضافه کنید. برای یادآوری مطمئن حتی وقتی گوشی قفل است، ربات بله را طبق راهنمای README راه بیندازید.</p>
-        <button class="btn sm" id="s-test">ارسال اعلان آزمایشی</button>
-      </div>
+      <div class="card" id="s-push"><h3>📲 اعلان روی همین گوشی</h3><div class="small muted">در حال بررسی…</div></div>
+      <div class="card" id="s-bale"><h3>🤖 ربات بله</h3><div class="small muted">در حال بررسی…</div></div>
       <div class="card"><h3>💾 پشتیبان‌گیری</h3>
         <p class="small muted">هر چند وقت یک بار یک نسخه از اطلاعات را روی گوشی یا کامپیوتر ذخیره کنید.</p>
         <div class="btn-row"><a class="btn" href="/api/backup.db">⬇️ پایگاه داده‌ی کامل (.db)</a><a class="btn" href="/api/export">⬇️ خروجی خوانا (JSON)</a></div>
@@ -1282,10 +1274,116 @@ VIEWS.settings = async (view) => {
         <button class="btn danger" id="s-logout">خروج از حساب</button>
       </div>
     </div>`;
-  if ($("#s-perm")) $("#s-perm").onclick = async () => { await Notification.requestPermission(); refresh(); };
-  $("#s-test").onclick = () => { showBrowserNotification({ id: 0, title: "🔔 اعلان آزمایشی", body: "اعلان‌ها درست کار می‌کنند.", link: "#settings" }); toast("اگر اعلان مرورگر فعال باشد، باید الان دیده شود"); };
+  drawPushCard();
+  drawBaleCard();
   $("#s-logout").onclick = async () => { await fetch("/api/logout", { method: "POST" }); location.reload(); };
 };
+
+// ───── اعلان روی گوشی (Web Push) ─────
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isStandalone = () => window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+function b64uToBytes(s) { const raw = atob((s + "=".repeat((4 - (s.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(raw, (c) => c.charCodeAt(0)); }
+async function pushSub() { const reg = await navigator.serviceWorker?.getRegistration(); return reg ? reg.pushManager.getSubscription() : null; }
+
+async function drawPushCard() {
+  const box = $("#s-push");
+  if (!box) return;
+  const head = `<h3>📲 اعلان روی همین گوشی</h3><p class="small muted">یادآوری‌ها و مهلت‌ها مثل پیام‌های برنامه‌های دیگر روی گوشی می‌آیند، حتی وقتی زوزو بسته است.</p>`;
+  const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  let srv = { count: 0 };
+  try { srv = await api("/api/push/key"); } catch { /* */ }
+  const devs = srv.count ? `<p class="small muted">${num(srv.count)} دستگاه برای اعلان ثبت شده است.</p>` : "";
+  if (!supported) {
+    box.innerHTML = head + (isIOS() && !isStandalone()
+      ? `<div class="tip">در آیفون اول برنامه را به صفحه‌ی اصلی اضافه کنید:<br>در سافاری دکمه‌ی اشتراک‌گذاری <b>⎋</b> ← «Add to Home Screen» ← سپس زوزو را از همان آیکن باز کنید و دوباره به همین‌جا بیایید.<br><small>(آیفون با iOS نسخه‌ی ۱۶٫۴ یا بالاتر)</small></div>`
+      : `<div class="tip">این مرورگر اعلان پشتیبانی نمی‌کند. در اندروید از <b>Chrome</b> استفاده کنید.</div>`) + devs;
+    return;
+  }
+  const sub = await pushSub().catch(() => null);
+  if (Notification.permission === "denied") {
+    box.innerHTML = head + `<div class="tip">⛔ اجازه‌ی اعلان برای این سایت بسته است.<br>در کروم: روی 🔒 کنار نشانی سایت بزنید ← «Permissions / مجوزها» ← «Notifications / اعلان‌ها» ← «Allow».<br>بعد این صفحه را دوباره باز کنید.</div>` + devs;
+    return;
+  }
+  if (sub && Notification.permission === "granted") {
+    box.innerHTML = head + `<div class="row"><span>این گوشی</span><span class="badge green">✅ روشن</span></div>${devs}
+      <div class="btn-row"><button class="btn sm primary" id="p-test">🔔 اعلان آزمایشی</button><button class="btn sm ghost" id="p-off">خاموش کردن روی این گوشی</button></div>
+      <p class="small muted">اگر اعلان دیر رسید (اندروید): تنظیمات گوشی ← برنامه‌ها ← Chrome ← باتری ← «بدون محدودیت».</p>`;
+    $("#p-test").onclick = async () => {
+      try { const r = await api("/api/push/test", { method: "POST", body: { endpoint: sub.endpoint } }); toast(r.ok ? "فرستاده شد؛ چند ثانیه‌ی دیگر روی گوشی می‌آید ✔ (می‌توانید برنامه را ببندید و امتحان کنید)" : "ارسال ناموفق بود؛ دوباره روشن کنید", 6000); }
+      catch (e) { toast(e.message); }
+      drawPushCard();
+    };
+    $("#p-off").onclick = async () => { await api("/api/push/unsubscribe", { method: "POST", body: { endpoint: sub.endpoint } }).catch(() => {}); await sub.unsubscribe().catch(() => {}); drawPushCard(); };
+    return;
+  }
+  box.innerHTML = head + `<button class="btn primary" id="p-on">🔔 روشن کردن اعلان روی این گوشی</button>${devs}
+    <p class="small muted">بعد از زدن دکمه، گوشی می‌پرسد «اجازه‌ی اعلان؟»؛ گزینه‌ی <b>Allow / اجازه</b> را بزنید.${isIOS() ? "" : " بهتر است اول زوزو را به صفحه‌ی اصلی گوشی اضافه کنید (پایین همین صفحه)."}</p>`;
+  $("#p-on").onclick = async () => {
+    const btn = $("#p-on"); btn.disabled = true; btn.textContent = "در حال روشن کردن…";
+    try {
+      if ((await Notification.requestPermission()) !== "granted") { toast("اجازه‌ی اعلان داده نشد"); return drawPushCard(); }
+      const reg = (await navigator.serviceWorker.getRegistration()) || (await navigator.serviceWorker.register("/sw.js"));
+      await navigator.serviceWorker.ready;
+      let s0 = await reg.pushManager.getSubscription();
+      if (!s0) s0 = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(srv.key) });
+      await api("/api/push/subscribe", { method: "POST", body: { subscription: s0.toJSON(), device: navigator.userAgent } });
+      await api("/api/push/test", { method: "POST", body: { endpoint: s0.endpoint } }).catch(() => {});
+      toast("اعلان روی این گوشی روشن شد ✔ یک اعلان آزمایشی فرستادم.", 6000);
+    } catch (e) {
+      const msg = String(e.message || e);
+      toast(/registration|permission|push service/i.test(msg)
+        ? `مرورگر اجازه‌ی ثبت اعلان نداد. در اندروید از Chrome استفاده کنید و اعلان این سایت را مجاز کنید؛ در آیفون زوزو را از آیکن صفحه‌ی اصلی باز کنید. (${msg})`
+        : `روشن نشد: ${msg}`, 9000);
+    }
+    drawPushCard();
+  };
+}
+
+// ───── ربات بله ─────
+async function drawBaleCard(editToken = false) {
+  const box = $("#s-bale");
+  if (!box) return;
+  let b;
+  try { b = await api("/api/bale"); } catch (e) { box.innerHTML = `<h3>🤖 ربات بله</h3><div class="error">${esc(e.message)}</div>`; return; }
+  const head = `<h3>🤖 ربات بله</h3><p class="small muted">یادآوری‌ها، مهلت‌ها و خلاصه‌ی صبح به صورت پیام در «بله» می‌رسد؛ متن و ویس هم می‌شود برای ربات فرستاد.</p>`;
+  const step = (n, done, html) => `<div class="bale-step ${done ? "done" : ""}"><span class="n">${done ? "✓" : num(n)}</span><div>${html}</div></div>`;
+  const tokenForm = `<div class="btn-row" style="margin-top:6px"><input id="b-token" class="ltr" placeholder="123456789:AbCdEf..." style="flex:1;min-width:220px" autocomplete="off">
+      <button class="btn primary" id="b-save">ذخیره و اتصال</button>${editToken ? `<button class="btn ghost" id="b-cancel">انصراف</button>` : ""}</div>`;
+  const s1 = step(1, b.token_set && !editToken, b.token_set && !editToken
+    ? `ربات ساخته و وصل شد${b.bot?.username ? `: <b class="ltr">@${esc(b.bot.username)}</b>` : ""} ${b.from_env ? `<small class="muted">(از تنظیمات لیارا)</small>` : `<button class="btn sm ghost" id="b-edit">تغییر توکن</button>`}`
+    : `<b>ساختن ربات:</b> در بله، <a href="https://ble.ir/botfather" target="_blank" rel="noopener" class="ltr">@botfather</a> را باز کنید و <code>/newbot</code> بفرستید؛ یک نام (مثلاً «دستیار زوزو») و یک شناسه‌ی ختم‌شده به <code>bot</code> بدهید. بات‌فادر یک <b>توکن</b> می‌دهد؛ آن را کپی و این‌جا بچسبانید:${tokenForm}`);
+  let h = head + s1;
+  if (b.token_set && !editToken) {
+    const linked = b.chats.length + b.env_chats > 0;
+    const botLink = b.bot?.username ? `https://ble.ir/${encodeURIComponent(b.bot.username)}` : "";
+    h += step(2, linked, `<b>وصل کردن گفتگو:</b> ${botLink ? `ربات را در بله باز کنید (<a href="${botLink}" target="_blank" rel="noopener">باز کردن ربات در بله</a>)، دکمه‌ی «شروع» را بزنید و` : "در بله ربات خودتان را باز کنید و"} این کد را برایش بفرستید:
+      <div class="bale-code"><b class="ltr">${esc(b.code || "")}</b><button class="btn sm ghost" id="b-copy">کپی</button><button class="btn sm ghost" id="b-newcode" title="کد تازه">↻</button></div>
+      <small class="muted">کد تا ۳۰ دقیقه معتبر است و یک بار مصرف می‌شود. برای وصل کردن گوشی دیگر هم همین کار را بکنید.</small>
+      ${b.chats.length ? `<div class="list mini" style="margin-top:6px">${b.chats.map((c) => `<div class="row"><span>💬 ${esc(c.name)}</span><button class="btn sm ghost" data-unlink="${esc(c.id)}" title="قطع اتصال">✕</button></div>`).join("")}</div>` : ""}
+      ${b.env_chats ? `<small class="muted">${num(b.env_chats)} گفتگو هم از تنظیمات لیارا وصل است.</small>` : ""}`);
+    if (linked) h += step(3, false, `<b>امتحان:</b> <button class="btn sm primary" id="b-test">📨 فرستادن پیام آزمایشی به بله</button>`);
+  }
+  box.innerHTML = h;
+  const on = (id, fn) => { const el = $(id, box); if (el) el.onclick = fn; };
+  on("#b-save", async () => {
+    const t = $("#b-token").value.trim();
+    if (!t) return toast("توکن را بچسبانید");
+    const btn = $("#b-save"); btn.disabled = true; btn.textContent = "در حال بررسی…";
+    try { await api("/api/bale/token", { method: "POST", body: { token: t } }); toast("ربات وصل شد ✔ حالا مرحله‌ی ۲", 5000); drawBaleCard(); }
+    catch (e) { toast(e.message, 7000); btn.disabled = false; btn.textContent = "ذخیره و اتصال"; }
+  });
+  on("#b-edit", () => drawBaleCard(true));
+  on("#b-cancel", () => drawBaleCard());
+  on("#b-copy", async () => { try { await navigator.clipboard.writeText(b.code); toast("کد کپی شد"); } catch { toast(b.code); } });
+  on("#b-newcode", async () => { await api("/api/bale/code", { method: "POST" }); drawBaleCard(); });
+  on("#b-test", async () => { try { await api("/api/bale/test", { method: "POST" }); toast("پیام آزمایشی به بله فرستاده شد ✔", 5000); } catch (e) { toast(e.message, 6000); } });
+  $$("[data-unlink]", box).forEach((el) => (el.onclick = async () => { if (!confirm("اتصال این گفتگو قطع شود؟")) return; await api(`/api/bale/chats/${encodeURIComponent(el.dataset.unlink)}`, { method: "DELETE" }); drawBaleCard(); }));
+  // تا وقتی گفتگو وصل نشده، هر چند ثانیه بررسی شود تا «وصل شد» خودکار دیده شود
+  clearTimeout(drawBaleCard.t);
+  if (b.token_set && !editToken && !(b.chats.length + b.env_chats)) {
+    drawBaleCard.t = setTimeout(() => { if (currentPage === "settings" && !$("#b-token")) drawBaleCard(); }, 5000);
+  }
+}
 
 // ═════════════════════════ اعلان‌ها ═════════════════════════
 const notif = { last: Number(lsGet("notifLast", "0")), items: [], unread: 0 };
@@ -1308,7 +1406,7 @@ async function pollNotifications(first = false) {
 
 async function showBrowserNotification(n) {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
-  const opts = { body: n.body || "", tag: `zozo-${n.id}`, data: { link: n.link || "#home" }, icon: "/static/icon.svg", badge: "/static/icon.svg", lang: "fa", dir: "rtl" };
+  const opts = { body: n.body || "", tag: `zozo-${n.id}`, data: { link: n.link || "#home" }, icon: "/static/icon-192.png", badge: "/static/badge-96.png", lang: "fa", dir: "rtl" };
   try {
     const reg = await navigator.serviceWorker?.getRegistration();
     if (reg) return reg.showNotification(n.title, opts);

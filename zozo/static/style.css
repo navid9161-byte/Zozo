@@ -639,3 +639,12 @@ dialog.designer:not([open]) { display: none; }
 .rl-h::after { content: ""; position: absolute; left: 6px; top: 35%; bottom: 35%; width: 4px; border-left: 2px solid #fff; border-right: 2px solid #fff; box-sizing: border-box; }
 .rl-ph { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ffd23f; box-shadow: 0 0 3px rgba(0,0,0,.6); pointer-events: none; }
 .rl-trim-info { font-size: 13.5px; }
+
+/* تنظیمات: مراحل راه‌اندازی ربات بله */
+.bale-step { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--line); }
+.bale-step .n { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--primary-soft); color: var(--primary); display: grid; place-items: center; font-weight: 700; font-size: 13px; }
+.bale-step.done .n { background: var(--ok-soft); color: var(--ok); }
+.bale-step > div { flex: 1; min-width: 0; line-height: 1.9; }
+.bale-code { display: flex; align-items: center; gap: 6px; margin: 6px 0 2px; }
+.bale-code b { font-size: 26px; letter-spacing: 4px; background: var(--bg); border: 1px dashed var(--line); border-radius: 10px; padding: 2px 14px; }
+.tip { background: var(--warn-soft); border-radius: 10px; padding: 10px 12px; font-size: 14px; line-height: 1.9; }
