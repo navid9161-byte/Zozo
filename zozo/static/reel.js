@@ -528,7 +528,7 @@ function rlPanel() {
         <p class="small muted">👆 عکس را روی پیش‌نمایش با انگشت بکشید تا جابه‌جا شود؛ با دو انگشت یا چرخ موس بزرگ و کوچک کنید.</p></div>
       ${rlTextBox("kick", "روتیتر")}${rlTextBox("head", "تیتر", "هر Enter یک سطر تازه")}${rlTextBox("sub", "زیرتیتر")}
       <div class="card"><h3>🎵 صدا</h3>
-        <div class="btn-row"><button class="btn" id="rl-aud">🎵 بارگذاری فایل صوتی</button>${rlMediaSelect(["audio", "video"], a.media_id, 'id="rl-aud-lib"')}
+        <div class="btn-row"><button class="btn" id="rl-aud">🎵 بارگذاری فایل صوتی</button><button class="btn" id="rl-aud-tts" title="خواندن یک متن با صدای زن یا مرد">🗣️ ساخت صدا از متن</button>${rlMediaSelect(["audio", "video"], a.media_id, 'id="rl-aud-lib"')}
           ${a.media_id ? `<button class="btn sm" data-listen="a1">🎧 گوش دادن</button><button class="btn sm danger" id="rl-aud-x">حذف صدا</button>` : ""}</div>
         ${a.media_id ? `<div class="rl-grid" style="margin-top:8px">
           <label>بلندی <small>${num(Math.round(a.vol * 100))}٪</small><input type="range" min="0" max="2" step="0.05" data-a="vol" value="${a.vol}"></label>
@@ -590,7 +590,7 @@ function rlPanel() {
             ${a.media_id ? (snd.cont ? `<label>بلندی در این بخش <small>${num(Math.round(snd.level * 100))}٪</small><input type="range" min="0.05" max="1" step="0.05" id="rl-a1v" value="${snd.level}"></label>` : `<small class="muted">صدای مرحله‌ی ۱ اول این بخش قطع می‌شود</small>`)
               : `<small class="muted">(در مرحله‌ی ۱ صدایی نگذاشته‌اید)</small>`}</div>
           <div class="snd-row"><b>🎧 صدای جداگانه برای این بخش</b>
-            <div class="btn-row"><button class="btn sm" id="rl-a2">🎵 بارگذاری فایل صوتی</button>${rlMediaSelect(["audio", "video"], a2.media_id, 'id="rl-a2-lib"')}
+            <div class="btn-row"><button class="btn sm" id="rl-a2">🎵 بارگذاری فایل صوتی</button><button class="btn sm" id="rl-a2-tts" title="مثلاً خواندن لید با صدای زن یا مرد">🗣️ ساخت صدا از متن</button>${rlMediaSelect(["audio", "video"], a2.media_id, 'id="rl-a2-lib"')}
               ${a2.media_id ? `<button class="btn sm" data-listen="a2">🎧 گوش دادن</button><button class="btn sm danger" id="rl-a2-x">حذف</button>` : ""}</div>
             ${a2.media_id ? `<div class="rl-grid" style="margin-top:6px">
               <label>بلندی <small>${num(Math.round((a2.vol ?? 1) * 100))}٪</small><input type="range" min="0" max="2" step="0.05" data-a2="vol" value="${a2.vol ?? 1}"></label>
@@ -775,6 +775,11 @@ function rlBind(box) {
   $$("[data-sz]", box).forEach((b) => (b.onclick = () => { const [k, f] = b.dataset.sz.split(":"); s[k].scale = +Math.min(4, Math.max(0.3, (s[k].scale || 1) * Number(f))).toFixed(3); upd(); rlPanel(); }));
   $$("[data-szr]", box).forEach((b) => (b.onclick = () => { Object.assign(s[b.dataset.szr], { scale: 1, ox: 0, oy: 0 }); upd(); rlPanel(); }));
   on("#rl-aud", "click", () => rlUpload("audio/*,video/*", (m) => { s.audio1.media_id = m.id; upd(); rlPanel(); }));
+  const addMedia = (m) => { if (!RL.media.some((x) => x.id === m.id)) RL.media.unshift(m); };
+  on("#rl-aud-tts", "click", () => openTtsDialog([s.texts.kick, s.texts.head, s.texts.sub].map((L) => L.text.trim()).filter(Boolean).join("\n"),
+    (m) => { addMedia(m); s.audio1 = { ...s.audio1, media_id: m.id, src: 0 }; upd(); rlPanel(); }));
+  on("#rl-a2-tts", "click", () => openTtsDialog(String(s.caps.text || "").replace(/\*/g, "").replace(/\n/g, " "),
+    (m) => { addMedia(m); s.audio2 = { ...reelDefaults().audio2, ...(s.audio2 || {}), media_id: m.id, src: 0 }; upd(); rlPanel(); }));
   on("#rl-aud-lib", "change", (ev) => { s.audio1.media_id = Number(ev.target.value) || null; upd(); rlPanel(); });
   on("#rl-aud-x", "click", () => { s.audio1.media_id = null; upd(); rlPanel(); });
   $$("[data-a]", box).forEach((el) => el.addEventListener(el.type === "checkbox" ? "change" : "input", () => {

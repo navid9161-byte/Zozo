@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest, fonts, push
+from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest, fonts, push, tts
 from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -161,6 +161,17 @@ def logout():
 
 
 # ───────────────────────── عمومی ─────────────────────────
+
+
+# ───── متن به صدا ─────
+@app.get("/api/tts/voices")
+def tts_voices():
+    return {"voices": tts.VOICES, "offline": tts.offline_status(), "max_chars": tts.MAX_CHARS}
+
+
+@app.post("/api/tts")
+def tts_make(data: dict[str, Any]):
+    return tts.synthesize(str(data.get("text") or ""), str(data.get("voice") or "female"), int(data.get("rate") or 0))
 
 
 # ───── ربات بله (تنظیم از داخل برنامه) ─────
