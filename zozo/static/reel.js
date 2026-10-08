@@ -211,6 +211,7 @@ function reelDraw() {
   if (range) { range.max = tl.total; range.value = t; }
   const lbl = $("#rl-time");
   if (lbl) lbl.textContent = `${num(t.toFixed(1))} / ${num(tl.total.toFixed(1))} ث · ${t < tl.d1 ? "شروع" : t < tl.outro ? "بدنه" : "پایان"}`;
+  if (!RL.playing) rlSoundInd();
 }
 
 const rlTextByKey = (k) => (["kick", "head", "sub"].includes(k) ? RL.s.texts[k] : k === "caps" ? RL.s.caps.style : RL.s[k]);
@@ -230,9 +231,48 @@ function rlStop() {
   RL.audio2?.pause(); RL.audio2 = null;
   RL.stampAudio?.pause(); RL.stampAudio = null;
   const b = $("#rl-play"); if (b) b.textContent = "▶";
+  rlSoundInd();
+}
+
+// یک عنصر صدا که همین حالا (داخل کلیک کاربر) یک بار بی‌صدا پخش و متوقف می‌شود تا بعداً مجاز به پخش باشد
+function rlAudioEl(id, label) {
+  const a = new Audio(`/api/media/${id}/file`);
+  a.preload = "auto"; a.dataset.label = label;
+  a.addEventListener("error", () => toast(`«${label}» در مرورگر پخش نشد (فایل باز نمی‌شود یا قالبش پشتیبانی نمی‌شود). در ویدیوی ساخته‌شده معمولاً مشکلی ندارد؛ برای اطمینان فایل را mp3 کنید.`, 8000), { once: true });
+  a.muted = true;
+  a.play().then(() => { if (a.dataset.live !== "1") a.pause(); a.muted = false; }).catch(() => { a.muted = false; });
+  return a;
+}
+function rlPlayEl(el) {
+  el.dataset.live = "1"; el.muted = el.tagName === "VIDEO" ? el.muted : false;
+  const p = el.play();
+  if (p) p.catch((e) => {
+    if (e.name === "AbortError") return;
+    if (e.name === "NotAllowedError") toast("مرورگر اجازه‌ی پخش صدا را نداد؛ یک بار روی صفحه بزنید و دوباره ▶ را بزنید.", 7000);
+    else toast(`«${el.dataset.label || "صدا"}» پخش نشد: ${e.message || e.name}`, 7000);
+  });
+}
+
+// زیر پیش‌نمایش: کدام صداها همین لحظه پخش می‌شوند (و با چه بلندی)
+function rlSoundInd() {
+  const box = $("#rl-snd-ind");
+  if (!box || !RL.s) return;
+  const s = RL.s, tl = reelTL(), t = RL.t, snd = rlSound(), out = [];
+  const pct = (v) => `${num(Math.round(v * 100))}٪`;
+  const t1 = rlTrack1();
+  if (t1 && t >= t1.at && t < t1.at + t1.dur) {
+    let v = t1.vol; for (const [a, b, f] of t1.duck) if (t >= a && t < b) v *= f;
+    out.push(`🎵 مرحله‌ی ۱ ${pct(v)}`);
+  }
+  const t2 = rlTrack2();
+  if (t2 && t >= t2.at && t < t2.at + t2.dur) out.push(`🎧 صدای جداگانه ${pct(t2.vol)}`);
+  if (t >= tl.d1 && t < tl.outro && snd.video) out.push(`🎞 صدای ویدیو ${pct(s.s2.vol ?? 1)}`);
+  if (s.s3.stamp_id && t >= tl.outro + OUT_LAND - 0.1 && t < tl.outro + OUT_LAND + 1) out.push("🔨 مُهر");
+  box.textContent = out.length ? `${RL.playing ? "🔊 در حال پخش: " : "🔈 در این لحظه: "}${out.join(" · ")}` : "🔇 در این لحظه صدایی نیست";
 }
 function rlPlay() {
   if (RL.playing) return rlStop();
+  if (RL.listen) { RL.listen.pause(); if (RL.listen.btn) RL.listen.btn.textContent = "🎧 گوش دادن"; RL.listen = null; }
   const s = RL.s, tl = reelTL();
   if (RL.t >= tl.total - 0.05) RL.t = 0;
   RL.playing = true;
@@ -240,8 +280,12 @@ function rlPlay() {
   const t0 = performance.now(), from = RL.t;
   const a1 = s.audio1;
   let stamped = from > tl.outro + OUT_LAND;
-  if (a1.media_id) { RL.audio = new Audio(`/api/media/${a1.media_id}/file`); RL.audio.preload = "auto"; }
-  if (s.audio2?.media_id && tl.d2) { RL.audio2 = new Audio(`/api/media/${s.audio2.media_id}/file`); RL.audio2.preload = "auto"; }
+  // همه‌ی صداها همین لحظه (داخل کلیک) آماده و «باز» می‌شوند تا مرورگر بعداً جلوی پخششان را نگیرد
+  if (a1.media_id) RL.audio = rlAudioEl(a1.media_id, "صدای مرحله‌ی ۱");
+  if (s.audio2?.media_id && tl.d2) RL.audio2 = rlAudioEl(s.audio2.media_id, "صدای جداگانه‌ی مرحله‌ی ۲");
+  if (s.s3.stamp_id && !stamped) RL.stampAudio = rlAudioEl(s.s3.stamp_id, "صدای مُهر");
+  const vEl = s.s2.kind === "video" && s.s2.media_id ? rlEl(s.s2.media_id, "video") : null;
+  if (vEl) { vEl.muted = true; vEl.play().then(() => { if (!vStarted) vEl.pause(); }).catch(() => {}); }
   let vStarted = false;
   const step = () => {
     if (!RL.playing) return;
@@ -252,7 +296,7 @@ function rlPlay() {
     const c = s.s2, el = c.kind === "video" ? rlEl(c.media_id, "video") : null;
     if (el) {
       if (t >= tl.d1 && t < tl.outro) {
-        if (!vStarted) { el.currentTime = (Number(c.start) || 0) + (t - tl.d1); el.muted = !rlSound().video; el.volume = Math.min(1, c.vol ?? 1); el.play().catch(() => {}); vStarted = true; }
+        if (!vStarted) { el.currentTime = (Number(c.start) || 0) + (t - tl.d1); el.muted = !rlSound().video; el.volume = Math.min(1, c.vol ?? 1); rlPlayEl(el); vStarted = true; }
       } else if (vStarted) { el.pause(); vStarted = false; }
     }
     // صدای مرحله‌ی ۱ (با محو شدن و کم شدن هنگام ویدیو)
@@ -265,7 +309,7 @@ function rlPlay() {
         if (tr.fout) v *= Math.min(1, (tr.dur - lt) / tr.fout);
         for (const [a, b, f] of tr.duck) if (t >= a && t < b) v *= f;
         RL.audio.volume = Math.max(0, Math.min(1, v));
-        if (RL.audio.paused) { RL.audio.currentTime = tr.src + lt; RL.audio.play().catch(() => {}); }
+        if (RL.audio.paused) { RL.audio.currentTime = tr.src + lt; rlPlayEl(RL.audio); }
       } else if (!RL.audio.paused) RL.audio.pause();
     }
     // صدای جداگانه‌ی مرحله‌ی ۲
@@ -277,17 +321,18 @@ function rlPlay() {
         if (tr.fin) v *= Math.min(1, lt / tr.fin);
         if (tr.fout) v *= Math.min(1, (tr.dur - lt) / tr.fout);
         RL.audio2.volume = Math.max(0, Math.min(1, v));
-        if (RL.audio2.paused) { RL.audio2.currentTime = tr.src + lt; RL.audio2.play().catch(() => {}); }
+        if (RL.audio2.paused) { RL.audio2.currentTime = tr.src + lt; rlPlayEl(RL.audio2); }
       } else if (!RL.audio2.paused) RL.audio2.pause();
     }
     // صدای مُهر
-    if (!stamped && s.s3.stamp_id && t >= tl.outro + OUT_LAND + (Number(s.s3.stamp_off) || 0)) {
+    if (!stamped && RL.stampAudio && t >= tl.outro + OUT_LAND + (Number(s.s3.stamp_off) || 0)) {
       stamped = true;
-      RL.stampAudio = new Audio(`/api/media/${s.s3.stamp_id}/file`);
+      RL.stampAudio.currentTime = 0;
       RL.stampAudio.volume = Math.min(1, Number(s.s3.stamp_vol) || 1);
-      RL.stampAudio.play().catch(() => {});
+      rlPlayEl(RL.stampAudio);
     }
     reelDraw();
+    rlSoundInd();
     RL.raf = requestAnimationFrame(step);
   };
   step();
@@ -482,7 +527,7 @@ function rlPanel() {
       ${rlTextBox("kick", "روتیتر")}${rlTextBox("head", "تیتر", "هر Enter یک سطر تازه")}${rlTextBox("sub", "زیرتیتر")}
       <div class="card"><h3>🎵 صدا</h3>
         <div class="btn-row"><button class="btn" id="rl-aud">🎵 بارگذاری فایل صوتی</button>${rlMediaSelect(["audio", "video"], a.media_id, 'id="rl-aud-lib"')}
-          ${a.media_id ? `<button class="btn sm danger" id="rl-aud-x">حذف صدا</button>` : ""}</div>
+          ${a.media_id ? `<button class="btn sm" data-listen="a1">🎧 گوش دادن</button><button class="btn sm danger" id="rl-aud-x">حذف صدا</button>` : ""}</div>
         ${a.media_id ? `<div class="rl-grid" style="margin-top:8px">
           <label>بلندی <small>${num(Math.round(a.vol * 100))}٪</small><input type="range" min="0" max="2" step="0.05" data-a="vol" value="${a.vol}"></label>
           <label>از ثانیه‌ی چندمِ فایل صوتی<input type="number" min="0" step="0.5" data-a="src" value="${a.src}"></label>
@@ -544,7 +589,7 @@ function rlPanel() {
               : `<small class="muted">(در مرحله‌ی ۱ صدایی نگذاشته‌اید)</small>`}</div>
           <div class="snd-row"><b>🎧 صدای جداگانه برای این بخش</b>
             <div class="btn-row"><button class="btn sm" id="rl-a2">🎵 بارگذاری فایل صوتی</button>${rlMediaSelect(["audio", "video"], a2.media_id, 'id="rl-a2-lib"')}
-              ${a2.media_id ? `<button class="btn sm danger" id="rl-a2-x">حذف</button>` : ""}</div>
+              ${a2.media_id ? `<button class="btn sm" data-listen="a2">🎧 گوش دادن</button><button class="btn sm danger" id="rl-a2-x">حذف</button>` : ""}</div>
             ${a2.media_id ? `<div class="rl-grid" style="margin-top:6px">
               <label>بلندی <small>${num(Math.round((a2.vol ?? 1) * 100))}٪</small><input type="range" min="0" max="2" step="0.05" data-a2="vol" value="${a2.vol ?? 1}"></label>
               <label>از ثانیه‌ی چندمِ فایل<input type="number" min="0" step="0.5" data-a2="src" value="${a2.src || 0}"></label>
@@ -763,6 +808,17 @@ function rlBind(box) {
   on("#rl-sz2", "input", (ev) => { s.s2.scale = +Number(ev.target.value).toFixed(3); $("#rl-szv").textContent = `${num(Math.round(s.s2.scale * 100))}٪`; reelDraw(); clearTimeout(RL.szT); RL.szT = setTimeout(reelSave, 300); });
   if ($("#rl-trim", box)) rlBindTrim(box);
   on("#rl-fit", "change", (ev) => { s.fit = ev.target.value; upd(); });
+  // گوش دادن جداگانه به هر صدا (از همان ثانیه‌ی شروع، با همان بلندی؛ حداکثر ۱۵ ثانیه)
+  $$("[data-listen]", box).forEach((b) => (b.onclick = () => {
+    if (RL.listen) { RL.listen.pause(); const was = RL.listen.btn; RL.listen = null; if (was) was.textContent = "🎧 گوش دادن"; if (was === b) return; }
+    rlStop();
+    const a = b.dataset.listen === "a1" ? s.audio1 : s.audio2;
+    const el = rlAudioEl(a.media_id, b.dataset.listen === "a1" ? "صدای مرحله‌ی ۱" : "صدای جداگانه‌ی مرحله‌ی ۲");
+    el.currentTime = Number(a.src) || 0; el.volume = Math.min(1, Number(a.vol ?? 1)); el.btn = b;
+    rlPlayEl(el); RL.listen = el; b.textContent = "⏹ توقف";
+    const stop = () => { if (RL.listen === el) { el.pause(); RL.listen = null; b.textContent = "🎧 گوش دادن"; } };
+    el.addEventListener("ended", stop); setTimeout(stop, 15000);
+  }));
   on("#rl-vs", "change", (ev) => { s.s2.sound = ev.target.checked; upd(); rlPanel(); });
   on("#rl-a1c", "change", (ev) => { const snd = rlSound(); s.audio1.s2vol = snd.level; s.audio1.s2on = ev.target.checked; upd(); rlPanel(); });
   on("#rl-a1v", "input", (ev) => { s.audio1.s2vol = Number(ev.target.value); ev.target.parentElement.querySelector("small").textContent = `${num(Math.round(s.audio1.s2vol * 100))}٪`; upd(); });
@@ -1071,6 +1127,7 @@ async function reelView(view, params) {
         <div class="card"><h3>پیش‌نمایش</h3>
           <canvas id="rl-canvas" style="width:100%;height:auto;border-radius:10px;background:#000"></canvas>
           <div class="pv-controls"><button class="btn sm" id="rl-play">▶</button><input type="range" id="rl-range" min="0" step="0.05" value="0"><span class="small muted" id="rl-time"></span></div>
+          <div class="small muted" id="rl-snd-ind" style="margin-top:4px"></div>
           <div class="btn-row" style="margin-top:6px"><button class="btn sm" data-go2="1">⏮ شروع</button><button class="btn sm" data-go2="2">بدنه</button><button class="btn sm" data-go2="3">پایان ⏭</button>
             <button class="btn sm ghost" id="rl-pin" title="پیش‌نمایش با اسکرول همراه بیاید یا سر جایش بماند"></button></div>
         </div>
