@@ -624,3 +624,18 @@ def auto_captions(clips: list[dict[str, Any]], offset: float = 0, lines: list[st
     clean = [x.strip() for x in (lines or []) if x.strip()]
     caps = align_lines(clean, words) if clean else group_words(words)
     return {"captions": caps, "words": len(words), "aligned": bool(clean)}
+
+
+def media_text(media_id: int, start: float = 0, duration: float | None = None) -> dict[str, Any]:
+    """متن گفتار یک فایل صوتی یا ویدیویی (برای ساختن لید از صدای خود ویدیو یا فایل صوتی)."""
+    from . import teaser
+
+    if model_path() is None:
+        raise db.ValidationError("مدل تبدیل گفتار به متن هنوز آماده نیست؛ از بخش «صوت به متن» وضعیتش را ببینید.")
+    m = teaser.get_media(int(media_id))
+    if m["kind"] not in ("audio", "video") or (m["kind"] == "video" and not m.get("has_audio")):
+        raise db.ValidationError("این فایل صدا ندارد")
+    dur = float(duration) if duration else None
+    with documents.HEAVY:
+        words = words_in(m["path"], float(start or 0), dur)
+    return {"text": " ".join(w["word"] for w in words).strip(), "words": len(words)}

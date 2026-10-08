@@ -461,6 +461,17 @@ function rlPanel() {
           <button class="btn" id="rl-tap">👆 زمان‌بندی با ضربه</button>
           ${s.caps.manual.length ? `<button class="btn sm ghost" id="rl-retime">↺ زمان خودکار</button>` : ""}
         </div>
+        <div class="tz-lead">
+          <b class="small">📰 لید (متن بلند) به‌جای زیرنویس جمله‌به‌جمله</b>
+          <div class="btn-row">
+            <select id="rl-lsrc">${[["video", "🎞 از صدای ویدیوی همین مرحله"], ["audio", "🎵 از فایل صوتی مرحله‌ی ۱"], ["story", "📝 از متن یک سوژه"], ["text", "📋 از متنی که در کادر زیر چسبانده‌ام"]]
+              .map(([v, l]) => `<option value="${v}" ${(RL.leadSrc || "video") === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+            <select id="rl-lstory" ${RL.leadSrc === "story" ? "" : "hidden"}><option value="">— انتخاب سوژه —</option></select>
+            <label class="small">حدود <select id="rl-ln">${[100, 150, 200, 250, 300, 400].map((n) => `<option value="${n}" ${(RL.leadN || 200) === n ? "selected" : ""}>${num(n)}</option>`).join("")}</select> کلمه</label>
+            <button class="btn sm primary" id="rl-lead">✍️ ساخت لید و تقسیم به زیرنویس</button>
+          </div>
+          <p class="small muted" style="margin:4px 0 0">${META.ai ? "متن با هوش مصنوعی به یک لید روان خلاصه می‌شود" : "جمله‌های مهم متن انتخاب می‌شوند"}؛ بعد به زیرنویس‌های کوتاه تقسیم و در کادر زیر گذاشته می‌شود تا اگر لازم بود اصلاحش کنید.</p>
+        </div>
         <label class="wide" style="display:block;margin-top:8px">هر خط یک زیرنویس <small>— واژه‌های بین دو ستاره رنگ دوم می‌گیرند: حدود *۱۴۰ مگاوات*</small>
           <textarea id="rl-caps" rows="5" style="width:100%">${esc(s.caps.text)}</textarea></label>
         <div id="rl-tapbox" class="captions" hidden></div>
@@ -688,6 +699,7 @@ function rlBind(box) {
   on("#rl-split", "click", () => { const p = splitLead(s.caps.text, 10); if (!p.length) return toast("اول متن را بنویسید یا بچسبانید"); s.caps.text = p.join("\n"); s.caps.manual = []; upd(); rlPanel(); toast(`${num(p.length)} زیرنویس ساخته شد ✔`); });
   on("#rl-retime", "click", () => { s.caps.manual = []; upd(); rlPanel(); });
   on("#rl-asr", "click", rlAsr);
+  if ($("#rl-lead", box)) rlBindLead(box);
   on("#rl-tap", "click", rlTap);
   if ($("#rl-times", box)) rlTimes();
   // مرحله‌ی ۳
@@ -727,6 +739,55 @@ function rlTimes() {
     reelSave(); rlTimes(); RL.t = reelTL().d1 + m[0] + 0.05; reelDraw();
   }));
   $$("[data-cp]", box).forEach((b) => (b.onclick = () => { rlStop(); RL.t = reelTL().d1 + caps[Number(b.dataset.cp)].start; rlPlay(); }));
+}
+
+// ساختن لید (حدود N کلمه) از صدای ویدیو، فایل صوتی، متن سوژه یا متن چسبانده؛ سپس تقسیم به زیرنویس
+function rlBindLead(box) {
+  const s = RL.s, src = $("#rl-lsrc", box), sel = $("#rl-lstory", box);
+  const loadStories = async () => {
+    if (sel.options.length > 1) return;
+    const list = await api("/api/stories?limit=300").catch(() => []);
+    sel.innerHTML = `<option value="">— انتخاب سوژه —</option>` + list.filter((x) => x.body).map((x) => `<option value="${x.id}">${esc(x.title)}</option>`).join("");
+    if (!list.some((x) => x.body)) sel.innerHTML = `<option value="">سوژه‌ای با متن پیدا نشد</option>`;
+    if (RL.leadStory) sel.value = String(RL.leadStory);
+  };
+  sel.onchange = () => { RL.leadStory = sel.value; };
+  if (RL.leadSrc === "story") loadStories();
+  src.onchange = () => { RL.leadSrc = src.value; sel.hidden = src.value !== "story"; if (!sel.hidden) loadStories(); };
+  $("#rl-ln", box).onchange = (ev) => { RL.leadN = Number(ev.target.value); };
+  $("#rl-lead", box).onclick = async () => {
+    const btn = $("#rl-lead", box), n = Number($("#rl-ln", box).value) || 200, how = src.value;
+    const busy = (t) => { btn.disabled = !!t; btn.textContent = t || "✍️ ساخت لید و تقسیم به زیرنویس"; };
+    try {
+      let text = "";
+      if (how === "video") {
+        if (s.s2.kind !== "video" || !s.s2.media_id) return toast("اول ویدیوی این مرحله را بگذارید");
+        if (!s.s2.has_audio) return toast("این ویدیو صدا ندارد");
+        busy("در حال شنیدن ویدیو…");
+        text = (await api("/api/teasers/transcript", { method: "POST", body: { media_id: s.s2.media_id, start: s.s2.start || 0, duration: s.s2.dur } })).text;
+      } else if (how === "audio") {
+        if (!s.audio1.media_id) return toast("اول در مرحله‌ی ۱ فایل صوتی بگذارید");
+        busy("در حال شنیدن فایل صوتی…");
+        text = (await api("/api/teasers/transcript", { method: "POST", body: { media_id: s.audio1.media_id, start: s.audio1.src || 0 } })).text;
+      } else if (how === "story") {
+        if (!sel.value) return toast("یک سوژه انتخاب کنید");
+        busy("در حال خواندن متن سوژه…");
+        text = (await api(`/api/stories/${sel.value}`)).body || "";
+      } else {
+        text = ($("#rl-caps", box)?.value || s.caps.text || "").replace(/\*/g, "");
+      }
+      if (!text.trim()) { busy(); return toast(how === "video" || how === "audio" ? "گفتاری شنیده نشد" : "متنی برای ساختن لید نیست", 5000); }
+      busy("در حال ساختن لید…");
+      const r = await api("/api/ai/lead", { method: "POST", body: { text, n } });
+      let lead = (r.lines || []).join(" ").trim() || text.trim();
+      const words = lead.split(/\s+/);
+      if (words.length > n * 1.25) lead = words.slice(0, n).join(" ") + " …";
+      const parts = splitLead(lead, 10);
+      s.caps.text = parts.join("\n"); s.caps.manual = [];
+      reelSave(); busy(); rlPanel(); reelDraw();
+      toast(`لید حدود ${num(lead.split(/\s+/).length)} کلمه ساخته و به ${num(parts.length)} زیرنویس تقسیم شد ✔${r.error ? " (" + r.error + ")" : ""}`, 6000);
+    } catch (e) { busy(); if (!(e instanceof LoginRequired)) toast(e.message, 7000); }
+  };
 }
 
 async function rlAsr() {

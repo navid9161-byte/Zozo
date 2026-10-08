@@ -282,3 +282,8 @@ def test_custom_font_upload_twice_is_not_duplicated(client):
     b = client.post("/api/fonts", files={"files": ("Dup.ttf", data, "font/ttf")}).json()
     assert a["id"] == b["id"]
     assert sum(1 for f in client.get("/api/fonts").json()["items"] if f["id"] == a["id"]) == 1
+
+
+def test_teaser_transcript_validation(client):
+    login(client)
+    assert client.post("/api/teasers/transcript", json={}).status_code == 400

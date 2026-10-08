@@ -561,6 +561,14 @@ def teasers_autocaption(data: dict[str, Any]):
     return transcribe.auto_captions(clips, float(data.get("offset") or 0), data.get("lines"))
 
 
+@app.post("/api/teasers/transcript")
+def teasers_transcript(data: dict[str, Any]):
+    """متن گفتارِ ویدیو یا فایل صوتی (برای ساختن لید)."""
+    if not data.get("media_id"):
+        raise HTTPException(400, "اول فایل را بگذارید")
+    return transcribe.media_text(int(data["media_id"]), float(data.get("start") or 0), data.get("duration"))
+
+
 @app.get("/api/teasers")
 def teasers_list():
     return teaser.list_teasers()
