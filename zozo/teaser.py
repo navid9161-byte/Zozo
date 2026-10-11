@@ -265,13 +265,17 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
         m = get_media(int(c["media_id"]))
         if m["kind"] not in ("image", "video"):
             raise db.ValidationError(f"«{m['filename']}» عکس یا ویدیو نیست")
+        speed = 1.0
         if m["kind"] == "image":
             dur = _num(c.get("duration"), 3.0, 0.5, 60)  # هم‌اندازه با ریلزساز (عکس بدنه با زیرنویس‌های لید)
             start = 0.0
         else:
             total = m["duration"] or 0
             start = _num(c.get("start"), 0.0, 0, max(0.0, total - 0.3))
-            dur = _num(c.get("duration") or (total - start), total - start, 0.3, max(0.3, total - start))
+            # سرعت پخش (۰٫۲۵ = چهار برابر کندتر … ۲ = دو برابر تندتر)؛ مدت = طول تکه در خود ریلز
+            speed = _num(c.get("speed"), 1.0, 0.25, 2.0)
+            room = max(0.3, (total - start) / speed)
+            dur = _num(c.get("duration") or room, room, 0.3, room)
         clips.append({"media_id": m["id"], "kind": m["kind"], "path": m["path"], "has_audio": m["has_audio"],
                       "start": round(start, 2), "duration": round(dur, 2), "zoom": bool(c.get("zoom", True)),
                       "gray": bool(c.get("gray", False)),
@@ -280,7 +284,8 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
                       "oy": _num(c.get("oy"), 0.0, -1.0, 1.0),
                       "bright": _num(c.get("bright"), 0.0, -0.8, 0.8),
                       "motion": c.get("motion") if c.get("motion") in ("zoom", "pan", "none") else None,
-                      "mute": bool(c.get("mute", False)), "vol": _num(c.get("vol"), 1.0, 0, 3)})
+                      "mute": bool(c.get("mute", False)), "vol": _num(c.get("vol"), 1.0, 0, 3),
+                      "speed": speed if m["kind"] == "video" else 1.0})
     total = round(sum(c["duration"] for c in clips), 2)
     if total > MAX_TOTAL_SECONDS:
         raise db.ValidationError(f"مدت کل کلیپ ({total:.0f} ثانیه) بیش از {MAX_TOTAL_SECONDS} ثانیه است")
@@ -394,6 +399,18 @@ def outro_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[str]
             *SEG_ENC, "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2", "-threads", str(settings.render_threads), out]
 
 
+def _atempo(speed: float) -> str:
+    """تغییر سرعت صدا بدون تغییر زیر و بمی (هر atempo بین ۰٫۵ و ۲)."""
+    if abs(speed - 1) < 0.001:
+        return ""
+    parts = []
+    while speed < 0.5:
+        parts.append("atempo=0.5")
+        speed /= 0.5
+    parts.append(f"atempo={speed:.4f}")
+    return ",".join(parts) + ","
+
+
 def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[str]:
     if clip["kind"] == "outro":
         return outro_cmd(clip, spec, out)
@@ -404,7 +421,7 @@ def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[st
     if clip["kind"] == "image":
         args += ["-i", clip["path"]]
     else:
-        args += ["-ss", f"{clip['start']:.2f}", "-t", f"{d:.2f}", "-i", clip["path"]]
+        args += ["-ss", f"{clip['start']:.2f}", "-t", f"{d * clip.get('speed', 1.0) + 0.05:.2f}", "-i", clip["path"]]
     use_audio = clip["kind"] == "video" and clip["has_audio"] and spec["keep_audio"] and not clip.get("mute")
     if not use_audio:
         args += ["-f", "lavfi", "-t", f"{d:.2f}", "-i", "anullsrc=r=44100:cl=stereo"]
@@ -426,14 +443,16 @@ def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[st
         else:
             fc.append(f"[pv]loop=loop={frames - 1}:size=1:start=0,setpts=N/{FPS}/TB[mv]")
     else:
-        fc.append(f"[pv]fps={FPS}[mv]")
+        sp = clip.get("speed", 1.0)
+        fc.append(f"[pv]{f'setpts=PTS/{sp:.4f},' if abs(sp - 1) > 0.001 else ''}fps={FPS}[mv]")
     vlast = "[mv]"
     if spec["transition"] == "fade" and d >= 1.2:
         fc.append(f"{vlast}fade=t=in:st=0:d=0.25,fade=t=out:st={d - 0.25:.2f}:d=0.25[fv]")
         vlast = "[fv]"
     fc.append(f"{vlast}{SEG_COLOR}[v]")
     if use_audio:
-        fc.append(f"[0:a]aresample=44100,aformat=channel_layouts=stereo,volume={spec['video_volume'] * clip.get('vol', 1.0):.2f},"
+        fc.append(f"[0:a]aresample=44100,aformat=channel_layouts=stereo,{_atempo(clip.get('speed', 1.0))}"
+                  f"volume={spec['video_volume'] * clip.get('vol', 1.0):.2f},"
                   f"apad,atrim=0:{d:.2f}[a]")
         amap = "[a]"
     else:

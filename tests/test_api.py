@@ -320,3 +320,26 @@ def test_media_keep_and_temp_cleanup(client, monkeypatch):
     # موقت کردن و برگرداندن
     assert client.patch(f"/api/media/{kept['id']}", json={"keep": False}).json()["keep"] == 0
     assert client.patch(f"/api/media/{kept['id']}", json={"keep": True}).json()["keep"] == 1
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg نصب نیست")
+def test_video_speed_slow_motion(client, tmp_path):
+    import subprocess
+    login(client)
+    src = tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x240:r=30:d=4", "-f", "lavfi",
+                    "-i", "sine=f=440:d=4", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(src)], check=True)
+    vid = client.post("/api/media", files={"files": ("v.mp4", src.read_bytes(), "video/mp4")}).json()["added"][0]["id"]
+    # ۲ ثانیه از ویدیو با سرعت ۰٫۵ ← ۴ ثانیه در خروجی
+    v = teaser.validate_spec({"format": "9:16", "clips": [{"media_id": vid, "start": 1, "duration": 4, "speed": 0.5}]})
+    assert v["clips"][0]["speed"] == 0.5 and v["total"] == 4
+    # بیشتر از طول باقی‌مانده‌ی ویدیو (۳ ثانیه ÷ ۰٫۵ = ۶) نمی‌شود
+    v = teaser.validate_spec({"format": "9:16", "clips": [{"media_id": vid, "start": 1, "duration": 20, "speed": 0.5}]})
+    assert v["total"] == 6
+    r = client.post("/api/teasers", json={"format": "9:16", "quality": "720", "fade": False, "transition": "none",
+                                          "clips": [{"media_id": vid, "start": 1, "duration": 4, "speed": 0.5}]})
+    tid = r.json()["id"]
+    teaser.renderer.run_pending()
+    t = client.get(f"/api/teasers/{tid}").json()
+    assert t["status"] == "done", t.get("error")
+    assert abs(teaser.probe(teaser.teaser_file(tid))["duration"] - 4.0) < 0.3

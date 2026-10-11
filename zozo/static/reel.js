@@ -35,10 +35,12 @@ function reelDefaults() {
 const reelSave = () => lsSet("reelDraft", JSON.stringify(RL.s));
 
 // ───── خط زمان ─────
+// سرعت پخش ویدیوی مرحله‌ی ۲ (۱ = عادی، ۰٫۵ = دو برابر کندتر)
+const rlSpeed = () => (RL.s?.s2?.kind === "video" ? Math.min(2, Math.max(0.25, Number(RL.s.s2.speed) || 1)) : 1);
 function reelTL() {
   const s = RL.s;
   const d1 = Math.max(0.5, Number(s.s1.dur) || 4);
-  const d2 = s.s2.media_id ? Math.max(0.5, Number(s.s2.dur) || 1) : 0;
+  const d2 = s.s2.media_id ? Math.max(0.5, (Number(s.s2.dur) || 1) / rlSpeed()) : 0;
   const d3 = OUT_ANIM + Math.max(0, Number(s.s3.hold) || 0);
   return { d1, d2, d3, outro: d1 + d2, total: +(d1 + d2 + d3).toFixed(2) };
 }
@@ -176,7 +178,7 @@ function rlFrame(ctx, t, opt = {}) {
     const lt = t - tl.d1, c = s.s2, el = rlEl(c.media_id, c.kind);
     if (el) {
       if (c.kind === "video") {
-        const want = (Number(c.start) || 0) + lt;
+        const want = (Number(c.start) || 0) + lt * rlSpeed();
         if (!RL.playing && el.readyState >= 1 && Math.abs(el.currentTime - want) > 0.15) el.currentTime = want;
         if (el.readyState >= 2) rlMedia(ctx, el, c, {});
       } else if (el.naturalWidth) {
@@ -298,7 +300,7 @@ function rlPlay() {
     const c = s.s2, el = c.kind === "video" ? rlEl(c.media_id, "video") : null;
     if (el) {
       if (t >= tl.d1 && t < tl.outro) {
-        if (!vStarted) { el.currentTime = (Number(c.start) || 0) + (t - tl.d1); el.muted = !rlSound().video; el.volume = Math.min(1, c.vol ?? 1); rlPlayEl(el); vStarted = true; }
+        if (!vStarted) { el.currentTime = (Number(c.start) || 0) + (t - tl.d1) * rlSpeed(); el.playbackRate = rlSpeed(); el.muted = !rlSound().video; el.volume = Math.min(1, c.vol ?? 1); rlPlayEl(el); vStarted = true; }
       } else if (vStarted) { el.pause(); vStarted = false; }
     }
     // صدای مرحله‌ی ۱ (با محو شدن و کم شدن هنگام ویدیو)
@@ -401,7 +403,7 @@ async function reelRender() {
     }
     const lg = rlOutroLogo();
     const clips = [{ media_id: s.s1.media_id, duration: tl.d1, gray: !!s.s1.gray, bright: Number(s.s1.bright) || 0, scale: s.s1.scale, ox: s.s1.ox, oy: s.s1.oy, motion: "none", zoom: false }];
-    if (tl.d2) clips.push({ media_id: s.s2.media_id, start: s.s2.start || 0, duration: tl.d2, scale: s.s2.scale, ox: s.s2.ox, oy: s.s2.oy,
+    if (tl.d2) clips.push({ media_id: s.s2.media_id, start: s.s2.start || 0, duration: tl.d2, speed: rlSpeed(), scale: s.s2.scale, ox: s.s2.ox, oy: s.s2.oy,
       motion: s.s2.motion, zoom: s.s2.motion === "zoom", mute: !rlSound().video, vol: Number(s.s2.vol ?? 1) });
     clips.push({ outro: { bg: shot((x) => rlOutroBg(x)), logo: lg.toDataURL("image/png"), duration: tl.d3, logo_w: OUT_W, logo_y: OUT_Y, drop: OUT_DROP, land: OUT_LAND } });
     const tracks = [];
@@ -632,6 +634,32 @@ function rlPanel() {
 }
 
 // ───── ویرایش ویدیو در مرحله‌ی ۲: انتخاب شروع و پایان (بریدن) ─────
+const RL_SPEEDS = [[0.25, "۰٫۲۵×"], [0.5, "۰٫۵×"], [0.6, "۰٫۶×"], [0.75, "۰٫۷۵×"], [1, "عادی"], [1.25, "۱٫۲۵×"], [1.5, "۱٫۵×"], [2, "۲×"]];
+
+// زیرنویس‌ها چقدر وقت لازم دارند؟ (حدود ۲٫۵ واژه در ثانیه برای خواندن روی صفحه)
+function rlCapsNeed() {
+  const w = String(RL.s.caps.text || "").replace(/\*/g, "").split(/\s+/).filter(Boolean).length;
+  return w ? w / 2.5 + 0.6 : 0;
+}
+function rlSpeedHint() {
+  const box = $("#rl-spd-hint");
+  if (!box) return;
+  const c = RL.s.s2, need = rlCapsNeed(), have = reelTL().d2;
+  if (!need) { box.textContent = "کندتر کردن ویدیو، زمان بیشتری برای نوشته‌ها و زیرنویس‌ها می‌دهد."; return; }
+  if (need <= have + 0.3) { box.innerHTML = `✅ زیرنویس‌ها حدود ${num(need.toFixed(0))} ثانیه وقت لازم دارند و با همین سرعت (${num(have.toFixed(0))} ثانیه) جا می‌شوند.`; return; }
+  // دقیق‌ترین سرعتی که زیرنویس‌ها جا شوند (گام ۰٫۰۵)
+  const pick = Math.max(0.25, Math.floor(((Number(c.dur) || 1) / need) * 20) / 20);
+  box.innerHTML = `⚠️ زیرنویس‌ها حدود <b>${num(need.toFixed(0))}</b> ثانیه وقت لازم دارند ولی ویدیو ${num(have.toFixed(0))} ثانیه است.
+    <button class="btn sm" data-speed="${pick}">🐢 سرعت ${num(pick)}× بشود</button>`;
+  $$("[data-speed]", box).forEach((b) => (b.onclick = () => rlSetSpeed(Number(b.dataset.speed))));
+}
+function rlSetSpeed(v) {
+  RL.s.s2.speed = v;
+  RL.s.caps.manual = [];  // زمان زیرنویس‌ها با طول تازه از نو پخش شود
+  reelSave(); rlPanel(); reelDraw();
+  toast(v === 1 ? "سرعت ویدیو عادی شد" : `سرعت ویدیو ${num(v)}× شد؛ در ریلز ${num((RL.s.s2.dur / v).toFixed(1))} ثانیه می‌شود`, 4000);
+}
+
 function rlTrimHTML(c) {
   return `<div class="rl-trim" id="rl-trim">
     <video id="rl-tv" src="/api/media/${c.media_id}/file" playsinline preload="auto"></video>
@@ -652,6 +680,10 @@ function rlTrimHTML(c) {
       <label>از ثانیه<input type="number" min="0" step="0.1" data-c="start" value="${(+c.start || 0).toFixed(1)}"></label>
       <label>تا ثانیه<input type="number" min="0.5" step="0.1" id="rl-tend" value="${((+c.start || 0) + (+c.dur || 0)).toFixed(1)}"></label>
     </div>
+    <div class="rl-speed"><b>🐢 سرعت پخش ویدیو</b>
+      <div class="seg">${RL_SPEEDS.map(([v, l]) => `<button data-speed="${v}" class="${(+c.speed || 1) === v ? "active" : ""}">${l}</button>`).join("")}</div>
+      <label class="small" style="display:flex;align-items:center;gap:8px">دقیق‌تر <input type="range" id="rl-spd" min="0.25" max="2" step="0.05" value="${+c.speed || 1}" style="flex:1"><b id="rl-spd-v">${num(+c.speed || 1)}×</b></label>
+      <div class="small muted" id="rl-spd-hint"></div></div>
     <p class="small muted" style="margin:2px 0 0">✂️ دو دستگیره‌ی قرمز را بکشید تا شروع و پایان ویدیو انتخاب شود؛ روی نوار بزنید تا آن لحظه را ببینید.</p>
   </div>`;
 }
@@ -668,7 +700,10 @@ function rlBindTrim(box) {
     $("#rl-dim-l", box).style.cssText = `left:0;width:${a}%`;
     $("#rl-dim-r", box).style.cssText = `left:${b}%;right:0`;
     $("#rl-ph", box).style.left = `${Math.min(100, v.currentTime / T * 100)}%`;
-    $("#rl-ti", box).innerHTML = `از <b>${fmt(c.start || 0)}</b> تا <b>${fmt((c.start || 0) + c.dur)}</b> ثانیه · مدت <b>${fmt(c.dur)}</b> ثانیه <span class="muted">(کل ویدیو ${fmt(T)})</span>`;
+    const sp = rlSpeed();
+    $("#rl-ti", box).innerHTML = `از <b>${fmt(c.start || 0)}</b> تا <b>${fmt((c.start || 0) + c.dur)}</b> ثانیه · مدت <b>${fmt(c.dur)}</b> ثانیه <span class="muted">(کل ویدیو ${fmt(T)})</span>`
+      + (sp !== 1 ? ` · <b style="color:var(--accent)">در ریلز ${fmt(c.dur / sp)} ثانیه (سرعت ${num(sp)}×)</b>` : "");
+    rlSpeedHint();
     const si = $("[data-c=start]", box), ei = $("#rl-tend", box);
     if (si && document.activeElement !== si) si.value = (+c.start || 0).toFixed(1);
     if (ei && document.activeElement !== ei) ei.value = ((+c.start || 0) + c.dur).toFixed(1);
@@ -681,7 +716,7 @@ function rlBindTrim(box) {
   };
   const done = () => { reelSave(); rlTimes(); reelDraw(); };
   // پیش‌نمایش اصلی هم همان لحظه را نشان دهد
-  const showMain = (t) => { const tl = reelTL(); RL.t = tl.d1 + Math.max(0, Math.min(c.dur - 0.05, t - (c.start || 0))); reelDraw(); };
+  const showMain = (t) => { const tl = reelTL(); RL.t = tl.d1 + Math.max(0, Math.min(tl.d2 - 0.05, (t - (c.start || 0)) / rlSpeed())); reelDraw(); };
   v.addEventListener("loadedmetadata", () => {
     if (!c.mediaDur && v.duration && isFinite(v.duration)) { c.mediaDur = +v.duration.toFixed(2); set(c.start || 0, (c.start || 0) + Math.min(c.dur, 60)); reelSave(); }
     layout(); rlStrip(c, v);
@@ -713,7 +748,13 @@ function rlBindTrim(box) {
   });
   const up = () => { if (drag && drag !== "seek") done(); drag = null; };
   tt.addEventListener("pointerup", up); tt.addEventListener("pointercancel", up);
-  $("#rl-tplay", box).onclick = () => { rlStop(); v.currentTime = c.start || 0; stopAt = (c.start || 0) + c.dur; v.play(); };
+  $$(".rl-speed [data-speed]", box).forEach((b) => (b.onclick = () => rlSetSpeed(Number(b.dataset.speed))));
+  const spd = $("#rl-spd", box);
+  if (spd) {
+    spd.oninput = () => { $("#rl-spd-v", box).textContent = `${num(+spd.value)}×`; };
+    spd.onchange = () => rlSetSpeed(+(+spd.value).toFixed(2));
+  }
+  $("#rl-tplay", box).onclick = () => { rlStop(); v.currentTime = c.start || 0; stopAt = (c.start || 0) + c.dur; v.playbackRate = rlSpeed(); v.play(); };
   $("#rl-tset-s", box).onclick = () => { set(v.currentTime, (c.start || 0) + c.dur > v.currentTime + 0.5 ? (c.start || 0) + c.dur : v.currentTime + Math.min(5, total() - v.currentTime)); done(); toast("شروع ویدیو تنظیم شد ✔"); };
   $("#rl-tset-e", box).onclick = () => { if (v.currentTime <= (c.start || 0) + 0.4) return toast("پایان باید بعد از شروع باشد"); set(c.start || 0, v.currentTime); done(); toast("پایان ویدیو تنظیم شد ✔"); };
   $("#rl-tall", box).onclick = () => { set(0, total()); done(); };
@@ -841,7 +882,7 @@ function rlBind(box) {
     if (sm && k === "vol") sm.textContent = `${num(Math.round(s.audio2.vol * 100))}٪`;
     upd();
   }));
-  on("#rl-caps", "input", (ev) => { s.caps.text = ev.target.value; upd(); rlTimes(); });
+  on("#rl-caps", "input", (ev) => { s.caps.text = ev.target.value; upd(); rlTimes(); rlSpeedHint(); });
   on("#rl-split", "click", () => { const p = splitLead(s.caps.text, 10); if (!p.length) return toast("اول متن را بنویسید یا بچسبانید"); s.caps.text = p.join("\n"); s.caps.manual = []; upd(); rlPanel(); toast(`${num(p.length)} زیرنویس ساخته شد ✔`); });
   on("#rl-retime", "click", () => { s.caps.manual = []; upd(); rlPanel(); });
   on("#rl-asr", "click", rlAsr);
@@ -918,7 +959,7 @@ function rlBindLead(box) {
       } else if (how === "audio2") {
         if (!s.audio2?.media_id) return toast("اول «صدای جداگانه برای این بخش» را بگذارید (پایین همین زبانه)");
         busy("در حال شنیدن فایل صوتی…");
-        text = (await api("/api/teasers/transcript", { method: "POST", body: { media_id: s.audio2.media_id, start: s.audio2.src || 0, duration: s.s2.dur } })).text;
+        text = (await api("/api/teasers/transcript", { method: "POST", body: { media_id: s.audio2.media_id, start: s.audio2.src || 0, duration: reelTL().d2 } })).text;
       } else if (how === "story") {
         if (!sel.value) return toast("یک سوژه انتخاب کنید");
         busy("در حال خواندن متن سوژه…");
@@ -948,7 +989,9 @@ async function rlAsr() {
   try {
     const lines = capLines();
     const r = await api("/api/teasers/autocaption", { method: "POST", body: { offset: 0, lines,
-      clips: [{ media_id: s.s2.media_id, start: s.s2.start || 0, duration: reelTL().d2 }] } });
+      clips: [{ media_id: s.s2.media_id, start: s.s2.start || 0, duration: s.s2.dur }] } });
+    const sp = rlSpeed();
+    if (sp !== 1) r.captions = r.captions.map((c) => ({ ...c, start: +(c.start / sp).toFixed(2), end: +(c.end / sp).toFixed(2) }));
     if (!r.captions.length) toast("گفتاری در ویدیو شنیده نشد", 5000);
     else {
       if (!r.aligned) s.caps.text = r.captions.map((c) => c.text).join("\n");

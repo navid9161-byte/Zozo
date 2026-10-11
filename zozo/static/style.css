@@ -673,3 +673,7 @@ dialog.designer:not([open]) { display: none; }
 .rl-lib-i img, .rl-lib-i .ph { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; background: var(--bg); display: grid; place-items: center; font-size: 24px; }
 .rl-lib-i .nm { min-width: 0; }
 .rl-lib-i .nm b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.rl-speed { display: grid; gap: 4px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.rl-speed .seg { flex-wrap: wrap; }
+.rl-speed .seg button { padding: 5px 9px; font-size: 13px; }
