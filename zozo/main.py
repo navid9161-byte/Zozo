@@ -528,12 +528,17 @@ def media_list(kind: str | None = None):
     return teaser.list_media(kind)
 
 
+@app.get("/api/media/usage")
+def media_usage():
+    return teaser.media_usage()
+
+
 @app.post("/api/media", status_code=201)
-def media_upload(files: list[UploadFile] = File(...)):
+def media_upload(files: list[UploadFile] = File(...), keep: str = Form("1")):
     added, errors = [], []
     for f in files:
         try:
-            added.append(teaser.add_media(f.file, f.filename or "file"))
+            added.append(teaser.add_media(f.file, f.filename or "file", keep=keep not in ("0", "false")))
         except db.ValidationError as e:
             errors.append(f"{f.filename}: {e}")
         finally:
@@ -541,6 +546,11 @@ def media_upload(files: list[UploadFile] = File(...)):
     if errors and not added:
         raise HTTPException(400, " | ".join(errors))
     return {"added": added, "errors": errors}
+
+
+@app.patch("/api/media/{mid}")
+def media_patch(mid: int, data: dict[str, Any]):
+    return teaser.set_keep(mid, bool(data.get("keep")))
 
 
 @app.delete("/api/media/{mid}")

@@ -430,9 +430,10 @@ async function rlUpload(accept, onDone) {
     const f = inp.files[0];
     if (!f) return;
     toast("در حال بارگذاری…", 60000);
-    const r = await uploadOne("/api/media", f, {}, (p) => toast(`در حال بارگذاری… ${num(Math.round(p * 100))}٪`, 60000));
+    const keep = lsGet("rlKeep", "1") === "1";
+    const r = await uploadOne("/api/media", f, { keep: keep ? "1" : "0" }, (p) => toast(`در حال بارگذاری… ${num(Math.round(p * 100))}٪`, 60000));
     if (!r.ok) return toast(r.error);
-    toast("بارگذاری شد ✔");
+    toast(keep ? "بارگذاری شد ✔ (در کتابخانه ذخیره شد)" : "بارگذاری شد ✔ (موقت؛ دو روز دیگر خودکار پاک می‌شود)", 4000);
     const m = r.data.added[0];
     RL.media.unshift(m);
     onDone(m);
@@ -441,7 +442,7 @@ async function rlUpload(accept, onDone) {
 }
 function rlMediaSelect(kinds, cur, attr) {
   const items = RL.media.filter((m) => kinds.includes(m.kind) && (m.kind !== "video" || kinds.includes("video") || m.has_audio));
-  return `<select ${attr}><option value="">— از فایل‌های قبلی —</option>${items.map((m) => `<option value="${m.id}" ${m.id === cur ? "selected" : ""}>${esc(m.filename)}${m.duration ? ` (${num(Math.round(m.duration))} ث)` : ""}</option>`).join("")}</select>`;
+  return `<select ${attr}><option value="">— از فایل‌های قبلی —</option>${items.map((m) => `<option value="${m.id}" ${m.id === cur ? "selected" : ""}>${m.keep === 0 ? "⏳ " : ""}${esc(m.filename)}${m.duration ? ` (${num(Math.round(m.duration))} ث)` : ""}</option>`).join("")}</select>`;
 }
 
 // کادر ویرایش یک متن (روتیتر، تیتر، …): متن غنی + فونت، اندازه، رنگ، شفافیت کادر، عرض، چینش
@@ -1087,6 +1088,51 @@ async function reelSnapshot(cv, state, t) {
   RL.s = keep; RL.sel = keepSel;
 }
 
+// ───── کتابخانه‌ی فایل‌های ریلز: دیدن، ذخیره/موقت کردن، حذف ─────
+async function rlLibrary(filter = "all") {
+  const [items, u] = await Promise.all([api("/api/media"), api("/api/media/usage")]);
+  RL.media = items;
+  const mb = (b) => (b > 0 && b < 104858 ? "کمتر از ۰٫۱" : num((b / 1048576).toFixed(b > 104857600 ? 0 : 1)));
+  const used = new Set([RL.s?.s1.media_id, RL.s?.s2.media_id, RL.s?.audio1.media_id, RL.s?.audio2?.media_id, RL.s?.s3.stamp_id].filter(Boolean));
+  const kinds = [["all", "همه"], ["image", "🖼 عکس"], ["video", "🎞 ویدیو"], ["audio", "🎵 صدا"], ["temp", "⏳ موقت"]];
+  const list = items.filter((m) => filter === "all" || (filter === "temp" ? m.keep === 0 : m.kind === filter));
+  const icon = (m) => (m.kind === "audio" ? "🎵" : m.kind === "video" ? "🎞" : "🖼");
+  $("#dlg-body").innerHTML = `<h3>🗂 فایل‌های ریلز</h3>
+    <p class="small muted">${num(u.count)} فایل · ${mb(u.bytes)} مگابایت${u.temp_count ? ` (${num(u.temp_count)} فایل موقت، ${mb(u.temp_bytes)} مگابایت)` : ""} · ویدیوهای ساخته‌شده: ${mb(u.video_bytes)} مگابایت<br>
+      فایل‌های «⏳ موقت» ${num(u.temp_days)} روز بعد از بارگذاری خودکار پاک می‌شوند؛ «💾» ها می‌مانند تا خودتان حذف کنید.</p>
+    <div class="seg" style="margin-bottom:8px">${kinds.map(([k, l]) => `<button data-f="${k}" class="${k === filter ? "active" : ""}">${l}</button>`).join("")}</div>
+    <div class="rl-lib">${list.length ? list.map((m) => `<div class="rl-lib-i ${m.keep === 0 ? "temp" : ""}">
+        ${m.thumb ? `<img src="/api/media/${m.id}/thumb" alt="" loading="lazy">` : `<div class="ph">${icon(m)}</div>`}
+        <div class="nm"><b title="${esc(m.filename)}">${esc(m.filename)}</b>
+          <small class="muted">${icon(m)} ${mb(m.size || 0)} MB${m.duration ? ` · ${num(Math.round(m.duration))} ث` : ""} · ${esc(String(m.created_at || "").slice(0, 10))}${used.has(m.id) ? ` · <b style="color:var(--ok)">در همین ریلز</b>` : ""}</small></div>
+        <div class="btn-row">
+          ${m.keep === 0 ? `<button class="btn sm" data-keep1="${m.id}" title="در کتابخانه بماند">💾 نگه‌دار</button>` : `<button class="btn sm ghost" data-keep0="${m.id}" title="موقت شود (بعداً خودکار پاک می‌شود)">⏳ موقت کن</button>`}
+          <button class="btn sm danger" data-del="${m.id}" title="حذف">🗑</button></div></div>`).join("") : `<div class="empty">فایلی نیست.</div>`}</div>
+    <div class="modal-actions"><button class="btn" onclick="this.closest('dialog').close()">بستن</button></div>`;
+  if (!$("#dlg").open) $("#dlg").showModal();
+  const box = $("#dlg-body");
+  $$("[data-f]", box).forEach((b) => (b.onclick = () => rlLibrary(b.dataset.f)));
+  const setKeep = async (id, keep) => { await api(`/api/media/${id}`, { method: "PATCH", body: { keep } }); rlLibrary(filter); };
+  $$("[data-keep1]", box).forEach((b) => (b.onclick = () => setKeep(b.dataset.keep1, true)));
+  $$("[data-keep0]", box).forEach((b) => (b.onclick = () => setKeep(b.dataset.keep0, false)));
+  $$("[data-del]", box).forEach((b) => (b.onclick = async () => {
+    const id = Number(b.dataset.del);
+    if (!confirm(used.has(id) ? "این فایل در همین ریلز استفاده شده؛ با حذفش از ریلز هم برداشته می‌شود. حذف شود؟" : "این فایل برای همیشه حذف شود؟")) return;
+    await api(`/api/media/${id}`, { method: "DELETE" });
+    const s = RL.s;
+    if (s) {
+      if (s.s1.media_id === id) s.s1.media_id = null;
+      if (s.s2.media_id === id) s.s2.media_id = null;
+      if (s.audio1.media_id === id) s.audio1.media_id = null;
+      if (s.audio2?.media_id === id) s.audio2.media_id = null;
+      if (s.s3.stamp_id === id) s.s3.stamp_id = null;
+      reelSave(); rlPanel(); reelDraw();
+    }
+    rlLibrary(filter);
+  }));
+  $("#dlg").addEventListener("close", () => { if (currentPage === "teaser") rlPanel(); }, { once: true });
+}
+
 async function reelView(view, params) {
   rlStop();
   const [media, list] = await Promise.all([api("/api/media"), api("/api/teasers")]);
@@ -1123,6 +1169,8 @@ async function reelView(view, params) {
   if (!META.ffmpeg) { view.innerHTML = `<div class="card error">ffmpeg روی سرور نصب نیست؛ ساخت ویدیو ممکن نیست.</div>`; return; }
   view.innerHTML = `
     <div class="page-title"><h2>🎬 ریلزساز کرمان راوی</h2><div class="btn-row">
+      <span class="seg rl-keep" title="فایل‌هایی که از این به بعد بارگذاری می‌کنید"><button data-keep="1">💾 ذخیره در کتابخانه</button><button data-keep="0">⏳ موقت</button></span>
+      <button class="btn" id="rl-lib">🗂 فایل‌ها</button>
       <button class="btn" id="rl-new">🆕 ریلز تازه</button></div></div>
     <div class="teaser-layout rl-layout">
       <div>
@@ -1146,6 +1194,13 @@ async function reelView(view, params) {
   $("#rl-play").onclick = rlPlay;
   $("#rl-range").oninput = (ev) => { rlStop(); RL.t = Number(ev.target.value); reelDraw(); };
   $$("[data-go2]", view).forEach((b) => (b.onclick = () => { rlStop(); const tl = reelTL(), k = Number(b.dataset.go2); RL.t = k === 1 ? 0 : k === 2 ? tl.d1 : tl.outro; reelDraw(); }));
+  const keepBtns = () => $$(".rl-keep [data-keep]", view).forEach((b) => b.classList.toggle("active", b.dataset.keep === lsGet("rlKeep", "1")));
+  $$(".rl-keep [data-keep]", view).forEach((b) => (b.onclick = () => {
+    lsSet("rlKeep", b.dataset.keep); keepBtns();
+    toast(b.dataset.keep === "1" ? "فایل‌های بعدی در کتابخانه ذخیره می‌شوند" : "فایل‌های بعدی موقت‌اند و دو روز بعد خودکار پاک می‌شوند", 4000);
+  }));
+  keepBtns();
+  $("#rl-lib").onclick = () => rlLibrary();
   $("#rl-new").onclick = () => { if (!confirm("همه‌ی تنظیمات این ریلز پاک شود؟")) return; RL.s = reelDefaults(); reelSave(); RL.tab = 1; refresh(); };
   rlBindDrag($("#rl-canvas"));
   rlPanel();

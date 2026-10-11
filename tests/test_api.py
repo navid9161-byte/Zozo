@@ -295,3 +295,28 @@ def test_teaser_long_still_image_keeps_its_length(client):
     mid = client.post("/api/media", files={"files": ("p.png", _png(400, 300), "image/png")}).json()["added"][0]["id"]
     v = teaser.validate_spec({"format": "9:16", "clips": [{"media_id": mid, "duration": 4}, {"media_id": mid, "duration": 36.4}]})
     assert [c["duration"] for c in v["clips"]] == [4, 36.4] and v["total"] == 40.4
+
+
+def test_media_keep_and_temp_cleanup(client, monkeypatch):
+    import datetime as dt
+    login(client)
+    png = _png(64, 48)
+    kept = client.post("/api/media", files={"files": ("k.png", png, "image/png")}).json()["added"][0]
+    temp = client.post("/api/media", files={"files": ("t.png", png, "image/png")}, data={"keep": "0"}).json()["added"][0]
+    assert kept["keep"] == 1 and temp["keep"] == 0
+    u = client.get("/api/media/usage").json()
+    assert u["temp_count"] >= 1 and u["count"] >= 2
+    # تازه‌اند: پاک نمی‌شوند
+    teaser.cleanup_media()
+    ids = {m["id"] for m in client.get("/api/media").json()}
+    assert {kept["id"], temp["id"]} <= ids
+    # سه روز بعد: موقت پاک، ذخیره‌شده می‌ماند
+    from zozo.config import settings
+    real_now = settings.now
+    monkeypatch.setattr(type(settings), "now", lambda self: real_now() + dt.timedelta(days=3))
+    teaser.cleanup_media()
+    ids = {m["id"] for m in client.get("/api/media").json()}
+    assert kept["id"] in ids and temp["id"] not in ids
+    # موقت کردن و برگرداندن
+    assert client.patch(f"/api/media/{kept['id']}", json={"keep": False}).json()["keep"] == 0
+    assert client.patch(f"/api/media/{kept['id']}", json={"keep": True}).json()["keep"] == 1

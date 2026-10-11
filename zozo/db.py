@@ -514,6 +514,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "template_id" not in {r["name"] for r in conn.execute("PRAGMA table_info(invoices)")}:
         conn.execute("ALTER TABLE invoices ADD COLUMN template_id INTEGER")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tx_invoice ON transactions(invoice_id)")
+    # فایل‌های ریلز: ۱ = در کتابخانه بماند، ۰ = موقت (بعد از چند روز خودکار پاک می‌شود)
+    if "keep" not in {r["name"] for r in conn.execute("PRAGMA table_info(media)")}:
+        conn.execute("ALTER TABLE media ADD COLUMN keep INTEGER DEFAULT 1")
 
 
 def now_str() -> str:

@@ -664,3 +664,12 @@ dialog.designer:not([open]) { display: none; }
 .tts-hist { display: grid; gap: 8px; }
 .tts-h { border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; }
 .tts-h audio { width: 100%; height: 36px; }
+
+/* کتابخانه‌ی فایل‌های ریلز */
+.rl-keep button { font-size: 13px; }
+.rl-lib { display: grid; gap: 6px; max-height: 60vh; overflow-y: auto; }
+.rl-lib-i { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 6px; }
+.rl-lib-i.temp { border-style: dashed; background: var(--warn-soft); }
+.rl-lib-i img, .rl-lib-i .ph { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; background: var(--bg); display: grid; place-items: center; font-size: 24px; }
+.rl-lib-i .nm { min-width: 0; }
+.rl-lib-i .nm b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

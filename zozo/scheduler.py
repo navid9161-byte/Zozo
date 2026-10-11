@@ -151,6 +151,11 @@ def _loop() -> None:
             today = db.today_str()
             if cleaned != today:
                 notify.cleanup()
+                try:
+                    from . import teaser
+                    teaser.cleanup_media()
+                except Exception:
+                    log.exception("پاک کردن فایل‌های موقت ریلز ناموفق بود")
                 cleaned = today
         except Exception:
             log.exception("خطای زمان‌بند")

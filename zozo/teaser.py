@@ -20,7 +20,7 @@ import threading
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from . import db, documents, notify
+from . import db, documents, jalali, notify
 from .config import settings
 
 log = logging.getLogger(__name__)
@@ -107,7 +107,7 @@ def _thumb(src: str, dst: str, kind: str, duration: float | None) -> bool:
         return False
 
 
-def add_media(fileobj: BinaryIO, filename: str) -> dict[str, Any]:
+def add_media(fileobj: BinaryIO, filename: str, keep: bool = True) -> dict[str, Any]:
     if not available():
         raise db.ValidationError("ffmpeg روی سرور نصب نیست")
     kind = media_kind(filename)
@@ -122,9 +122,10 @@ def add_media(fileobj: BinaryIO, filename: str) -> dict[str, Any]:
             info["duration"] = None
         with db.connect() as conn:
             cur = conn.execute(
-                "INSERT INTO media (filename, path, kind, size, width, height, duration, has_audio, created_at) "
-                "VALUES (?, '', ?, ?, ?, ?, ?, ?, ?)",
-                (filename, kind, size, info["width"], info["height"], info["duration"], info["has_audio"], db.now_str()),
+                "INSERT INTO media (filename, path, kind, size, width, height, duration, has_audio, created_at, keep) "
+                "VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?)",
+                (filename, kind, size, info["width"], info["height"], info["duration"], info["has_audio"], db.now_str(),
+                 1 if keep else 0),
             )
             mid = cur.lastrowid
             final = media_dir() / f"{mid}_{documents.safe_name(filename)}"
@@ -166,6 +167,46 @@ def list_media(kind: str | None = None) -> list[dict[str, Any]]:
         else:
             rows = conn.execute("SELECT * FROM media WHERE filename NOT LIKE 'card-%' ORDER BY id DESC LIMIT 300")
         return [dict(r) for r in rows]
+
+
+TEMP_DAYS = 2  # فایل موقت و تصویرهای کمکی ساخت (card-…) پس از این مدت پاک می‌شوند
+
+
+def set_keep(mid: int, keep: bool) -> dict[str, Any]:
+    get_media(mid)
+    with db.connect() as conn:
+        conn.execute("UPDATE media SET keep=? WHERE id=?", (1 if keep else 0, mid))
+        return get_media(mid, conn)
+
+
+def media_usage() -> dict[str, Any]:
+    with db.connect() as conn:
+        r = conn.execute(
+            "SELECT COUNT(*) n, COALESCE(SUM(size),0) b, COALESCE(SUM(CASE WHEN keep=0 THEN 1 END),0) tn, "
+            "COALESCE(SUM(CASE WHEN keep=0 THEN size END),0) tb FROM media WHERE filename NOT LIKE 'card-%'").fetchone()
+        v = conn.execute("SELECT COUNT(*) n, COALESCE(SUM(size),0) b FROM teasers WHERE output IS NOT NULL").fetchone()
+    return {"count": r["n"], "bytes": r["b"], "temp_count": r["tn"], "temp_bytes": r["tb"],
+            "video_count": v["n"], "video_bytes": v["b"], "temp_days": TEMP_DAYS}
+
+
+def cleanup_media() -> int:
+    """پاک کردن فایل‌های موقت قدیمی و تصویرهای کمکی ساخت ویدیو (وقتی ویدیویی در حال ساخت نیست)."""
+    import datetime as dt
+
+    cutoff = jalali.to_jalali(settings.now() - dt.timedelta(days=TEMP_DAYS), with_time=True)
+    with db.connect() as conn:
+        if conn.execute("SELECT 1 FROM teasers WHERE status IN ('queued','rendering') LIMIT 1").fetchone():
+            return 0
+        ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM media WHERE created_at < ? AND (keep=0 OR filename LIKE 'card-%')", (cutoff,))]
+    for mid in ids:
+        try:
+            delete_media(mid)
+        except Exception:  # noqa: BLE001
+            log.exception("پاک کردن فایل موقت %s ناموفق بود", mid)
+    if ids:
+        log.info("%d فایل موقت/کمکی ریلز پاک شد", len(ids))
+    return len(ids)
 
 
 def delete_media(mid: int) -> None:
