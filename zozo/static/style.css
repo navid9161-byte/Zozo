@@ -677,3 +677,4 @@ dialog.designer:not([open]) { display: none; }
 .rl-speed { display: grid; gap: 4px; padding-top: 6px; border-top: 1px dashed var(--line); }
 .rl-speed .seg { flex-wrap: wrap; }
 .rl-speed .seg button { padding: 5px 9px; font-size: 13px; }
+.rl-defaud { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

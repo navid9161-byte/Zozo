@@ -32,6 +32,31 @@ function reelDefaults() {
     s3: { hold: 1.5, stamp_id: null, stamp_vol: 1, stamp_off: 0 },
   };
 }
+// ───── صدای پیش‌فرض مرحله‌ی ۱ (برای همه‌ی ریلزهای تازه، مگر اینکه عوضش کنید) ─────
+const RL_AUDIO_KEYS = ["media_id", "src", "at", "end", "vol", "fin", "finD", "fout", "foutD", "mode", "duckF", "s2on", "s2vol"];
+async function rlLoadDefaultAudio(force = false) {
+  if (RL.defAudio !== undefined && !force) return RL.defAudio;
+  const v = (await api("/api/prefs/reel_audio").catch(() => ({}))).value || null;
+  if (v?.media_id && !RL.media?.length) RL.media = await api("/api/media").catch(() => []);
+  RL.defAudio = v?.media_id && RL.media.some((m) => m.id === v.media_id) ? v : null;
+  return RL.defAudio;
+}
+// ریلز تازه: پیش‌فرض‌ها + صدای پیش‌فرض (اگر تعیین شده)
+function rlNew() {
+  const s = reelDefaults();
+  if (RL.defAudio?.media_id) s.audio1 = { ...s.audio1, ...RL.defAudio };
+  return s;
+}
+const rlIsDefaultAudio = (a) => !!(RL.defAudio?.media_id && a.media_id === RL.defAudio.media_id);
+async function rlSetDefaultAudio(a) {
+  const v = a ? Object.fromEntries(RL_AUDIO_KEYS.filter((k) => a[k] !== undefined).map((k) => [k, a[k]])) : null;
+  await api("/api/prefs/reel_audio", { method: "PUT", body: { value: v } });
+  if (v?.media_id) await api(`/api/media/${v.media_id}`, { method: "PATCH", body: { keep: true } }).catch(() => {});  // پاک نشود
+  RL.defAudio = v;
+  const m = v && RL.media.find((x) => x.id === v.media_id);
+  if (m) m.keep = 1;
+}
+
 const reelSave = () => lsSet("reelDraft", JSON.stringify(RL.s));
 
 // ───── خط زمان ─────
@@ -533,6 +558,11 @@ function rlPanel() {
       <div class="card"><h3>🎵 صدا</h3>
         <div class="btn-row"><button class="btn" id="rl-aud">🎵 بارگذاری فایل صوتی</button><button class="btn" id="rl-aud-tts" title="خواندن یک متن با صدای زن یا مرد">🗣️ ساخت صدا از متن</button>${rlMediaSelect(["audio", "video"], a.media_id, 'id="rl-aud-lib"')}
           ${a.media_id ? `<button class="btn sm" data-listen="a1">🎧 گوش دادن</button><button class="btn sm danger" id="rl-aud-x">حذف صدا</button>` : ""}</div>
+        <div class="rl-defaud">${a.media_id
+          ? (rlIsDefaultAudio(a)
+            ? `<span class="badge green">⭐ صدای پیش‌فرض ریلزهاست</span> <button class="btn sm ghost" id="rl-def-save" title="تنظیم‌های فعلی (بلندی، محو شدن، …) هم پیش‌فرض شوند">ذخیره‌ی تنظیم‌ها</button><button class="btn sm ghost" id="rl-def-off">برداشتن از پیش‌فرض</button>`
+            : `<button class="btn sm" id="rl-def-save">⭐ همین صدا پیش‌فرض همه‌ی ریلزها باشد</button>`)
+          : (RL.defAudio?.media_id ? `<button class="btn sm" id="rl-def-use">⭐ گذاشتن صدای پیش‌فرض (${esc(RL.media.find((m) => m.id === RL.defAudio.media_id)?.filename || "")})</button>` : "")}</div>
         ${a.media_id ? `<div class="rl-grid" style="margin-top:8px">
           <label>بلندی <small>${num(Math.round(a.vol * 100))}٪</small><input type="range" min="0" max="2" step="0.05" data-a="vol" value="${a.vol}"></label>
           <label>از ثانیه‌ی چندمِ فایل صوتی<input type="number" min="0" step="0.5" data-a="src" value="${a.src}"></label>
@@ -823,6 +853,9 @@ function rlBind(box) {
   on("#rl-a2-tts", "click", () => openTtsDialog(String(s.caps.text || "").replace(/\*/g, "").replace(/\n/g, " "),
     (m) => { addMedia(m); s.audio2 = { ...reelDefaults().audio2, ...(s.audio2 || {}), media_id: m.id, src: 0 }; upd(); rlPanel(); }));
   on("#rl-aud-lib", "change", (ev) => { s.audio1.media_id = Number(ev.target.value) || null; upd(); rlPanel(); });
+  on("#rl-def-save", "click", async () => { await rlSetDefaultAudio(s.audio1); toast("⭐ این صدا (با همین بلندی و تنظیم‌ها) از این به بعد خودکار روی ریلزهای تازه گذاشته می‌شود", 5000); rlPanel(); });
+  on("#rl-def-off", "click", async () => { await rlSetDefaultAudio(null); toast("صدای پیش‌فرض برداشته شد؛ ریلزهای تازه بی‌صدا شروع می‌شوند", 4000); rlPanel(); });
+  on("#rl-def-use", "click", () => { s.audio1 = { ...s.audio1, ...RL.defAudio }; upd(); rlPanel(); });
   on("#rl-aud-x", "click", () => { s.audio1.media_id = null; upd(); rlPanel(); });
   $$("[data-a]", box).forEach((el) => el.addEventListener(el.type === "checkbox" ? "change" : "input", () => {
     const k = el.dataset.a;
@@ -1088,7 +1121,8 @@ function rlHasWork() {
 
 // ساختن ریلز آماده از روی یک سوژه: عکس خبر در شروع، تیتر، و لید خبر (حدود n کلمه) به‌صورت زیرنویس روی همان عکس
 async function reelFromStory(storyId, { mediaId = null, title = "", n = 200 } = {}) {
-  const s = reelDefaults();
+  await rlLoadDefaultAudio();
+  const s = rlNew();
   if (!title) title = (await api(`/api/stories/${storyId}`)).title || "";
   s.title = title;
   const head = s.texts.head;
@@ -1147,7 +1181,7 @@ async function rlLibrary(filter = "all") {
     <div class="rl-lib">${list.length ? list.map((m) => `<div class="rl-lib-i ${m.keep === 0 ? "temp" : ""}">
         ${m.thumb ? `<img src="/api/media/${m.id}/thumb" alt="" loading="lazy">` : `<div class="ph">${icon(m)}</div>`}
         <div class="nm"><b title="${esc(m.filename)}">${esc(m.filename)}</b>
-          <small class="muted">${icon(m)} ${mb(m.size || 0)} MB${m.duration ? ` · ${num(Math.round(m.duration))} ث` : ""} · ${esc(String(m.created_at || "").slice(0, 10))}${used.has(m.id) ? ` · <b style="color:var(--ok)">در همین ریلز</b>` : ""}</small></div>
+          <small class="muted">${icon(m)} ${mb(m.size || 0)} MB${m.duration ? ` · ${num(Math.round(m.duration))} ث` : ""} · ${esc(String(m.created_at || "").slice(0, 10))}${used.has(m.id) ? ` · <b style="color:var(--ok)">در همین ریلز</b>` : ""}${RL.defAudio?.media_id === m.id ? " · ⭐ صدای پیش‌فرض" : ""}</small></div>
         <div class="btn-row">
           ${m.keep === 0 ? `<button class="btn sm" data-keep1="${m.id}" title="در کتابخانه بماند">💾 نگه‌دار</button>` : `<button class="btn sm ghost" data-keep0="${m.id}" title="موقت شود (بعداً خودکار پاک می‌شود)">⏳ موقت کن</button>`}
           <button class="btn sm danger" data-del="${m.id}" title="حذف">🗑</button></div></div>`).join("") : `<div class="empty">فایلی نیست.</div>`}</div>
@@ -1161,6 +1195,7 @@ async function rlLibrary(filter = "all") {
   $$("[data-del]", box).forEach((b) => (b.onclick = async () => {
     const id = Number(b.dataset.del);
     if (!confirm(used.has(id) ? "این فایل در همین ریلز استفاده شده؛ با حذفش از ریلز هم برداشته می‌شود. حذف شود؟" : "این فایل برای همیشه حذف شود؟")) return;
+    if (RL.defAudio?.media_id === id) await rlSetDefaultAudio(null);
     await api(`/api/media/${id}`, { method: "DELETE" });
     const s = RL.s;
     if (s) {
@@ -1180,7 +1215,11 @@ async function reelView(view, params) {
   rlStop();
   const [media, list] = await Promise.all([api("/api/media"), api("/api/teasers")]);
   RL.media = media;
-  if (!RL.s) { try { RL.s = { ...reelDefaults(), ...JSON.parse(lsGet("reelDraft", "null") || "{}") }; } catch { RL.s = reelDefaults(); } }
+  await rlLoadDefaultAudio(true);
+  if (!RL.s) {
+    const draft = lsGet("reelDraft", "");
+    try { RL.s = draft ? { ...reelDefaults(), ...JSON.parse(draft) } : rlNew(); } catch { RL.s = rlNew(); }
+  }
   if (params.get("story")) {
     const sid = Number(params.get("story"));
     history.replaceState(null, "", "#teaser");
@@ -1244,7 +1283,7 @@ async function reelView(view, params) {
   }));
   keepBtns();
   $("#rl-lib").onclick = () => rlLibrary();
-  $("#rl-new").onclick = () => { if (!confirm("همه‌ی تنظیمات این ریلز پاک شود؟")) return; RL.s = reelDefaults(); reelSave(); RL.tab = 1; refresh(); };
+  $("#rl-new").onclick = () => { if (!confirm("همه‌ی تنظیمات این ریلز پاک شود؟")) return; RL.s = rlNew(); reelSave(); RL.tab = 1; refresh(); };
   rlBindDrag($("#rl-canvas"));
   rlPanel();
   drawList(list);

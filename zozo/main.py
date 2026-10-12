@@ -921,7 +921,7 @@ def asr_model_upload(file: UploadFile = File(...)):
 
 # ───────────────────────── تنظیمات ذخیره‌شده ─────────────────────────
 
-PREF_KEYS = {"teaser_brand", "teaser_templates", "writing_templates", "ui"}
+PREF_KEYS = {"teaser_brand", "teaser_templates", "writing_templates", "ui", "reel_audio"}
 
 
 @app.get("/api/prefs/{key}")
