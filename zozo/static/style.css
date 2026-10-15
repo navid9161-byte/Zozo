@@ -624,6 +624,8 @@ dialog.designer:not([open]) { display: none; }
   .rl-layout .rl-preview canvas { max-height: 34vh; }
   .rl-layout .rl-preview .pv-controls { margin-top: 4px; }
   .rl-layout .rl-preview .btn-row { margin-top: 4px !important; }
+  .rl-ruler-hint { display: none; }
+  .rl-ruler-bar .btn-row > .small { display: none; }
 }
 
 /* ریلزساز: بریدن ویدیو در مرحله‌ی ۲ */
@@ -678,3 +680,6 @@ dialog.designer:not([open]) { display: none; }
 .rl-speed .seg { flex-wrap: wrap; }
 .rl-speed .seg button { padding: 5px 9px; font-size: 13px; }
 .rl-defaud { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rl-ruler-bar { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line, #ddd); }
+.rl-ruler-bar .btn-row { gap: 4px; flex-wrap: wrap; align-items: center; }
+#rl-ruler.active { background: #1e90ff; color: #fff; }

@@ -114,7 +114,9 @@ function drawTextLayer(ctx, L) {
   }
   const lhOf = (l) => L.size * l.s * (L.lh || 1.35);
   const textH = lines.reduce((a, l) => a + lhOf(l), 0);
-  const boxH = Math.max(L.h, textH + pad * 2);
+  const boxH = Math.max(L.h || 0, textH + pad * 2);
+  // ارتفاع واقعیِ کشیده‌شده و کمترین ارتفاعِ ممکن (برای کنترل ارتفاع و خط‌کش)
+  L._bh = boxH; L._fit = Math.ceil(textH + pad * 2);
   if (L.bg) {
     // شفافیت کادر پشت متن جدا از خود متن (bgA)
     ctx.save();

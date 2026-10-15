@@ -8,7 +8,7 @@ const DW = 1080, DH = 1920;
 const SAFE = { x: 35, y: 220, w: 1010, h: 1250 };   // ناحیه‌ی امن اینستاگرام = قاب قرمز
 const BAR_H = 184;                                   // نوار قرمز پایین
 const OUT_DROP = 0.25, OUT_LAND = 0.85, OUT_ANIM = 1.05;
-const RL = { s: null, t: 0, playing: false, tab: 1, els: {}, media: [], raf: null, audio: null, stampAudio: null, logoBar: null, mark: null, outLogo: null };
+const RL = { snap: [], guides: rlGuidesLoad(), ruler: lsGet("rlRuler", "0") === "1", s: null, t: 0, playing: false, tab: 1, els: {}, media: [], raf: null, audio: null, stampAudio: null, logoBar: null, mark: null, outLogo: null };
 
 function textL(o) {
   return { type: "text", x: 110, y: 300, w: 860, h: 80, text: "", size: 48, weight: 800, color: KR.navy, hi: KR.red, font: "Vazirmatn",
@@ -19,9 +19,9 @@ function reelDefaults() {
     v: 1, title: "", quality: "1080", fit: "fit",
     s1: { media_id: null, dur: 4, gray: true, bright: 0, scale: 1, ox: 0, oy: 0 },
     texts: {
-      kick: textL({ y: 300, h: 70, size: 44, weight: 800 }),
-      head: textL({ y: 390, h: 250, size: 92, weight: 900, color: KR.red, hi: KR.navy, lh: 1.3 }),
-      sub: textL({ y: 660, h: 80, size: 50, weight: 800 }),
+      kick: textL({ y: 300, h: 0, size: 44, weight: 800 }),
+      head: textL({ y: 390, h: 0, size: 92, weight: 900, color: KR.red, hi: KR.navy, lh: 1.3 }),
+      sub: textL({ y: 660, h: 0, size: 50, weight: 800 }),
     },
     audio1: { media_id: null, src: 0, at: 0, end: null, vol: 0.8, fin: true, finD: 1, fout: true, foutD: 1.5, mode: "duck", duckF: 0.25 },
     audio2: { media_id: null, src: 0, vol: 1, fin: false, finD: 0.5, fout: true, foutD: 1 },
@@ -58,6 +58,12 @@ async function rlSetDefaultAudio(a) {
 }
 
 const reelSave = () => lsSet("reelDraft", JSON.stringify(RL.s));
+// ارتفاع واقعیِ کادر متن (کادرِ «اندازه‌ی متن» از روی آخرین رسم خوانده می‌شود)
+const rlBH = (L) => L._bh || Math.max(L.h || 0, 40);
+function rlMeasure(L) { const c = document.createElement("canvas"); c.width = DW; c.height = DH; drawLayer(c.getContext("2d"), L); return rlBH(L); }
+// خط‌های راهنمای خط‌کش برای همه‌ی ریلزها روی همین دستگاه می‌ماند
+function rlGuidesLoad() { try { const g = JSON.parse(lsGet("rlGuides", "") || "null"); if (g && Array.isArray(g.v) && Array.isArray(g.h)) return g; } catch { /* */ } return { v: [], h: [] }; }
+const rlGuidesSave = () => lsSet("rlGuides", JSON.stringify(RL.guides));
 
 // ───── خط زمان ─────
 // سرعت پخش ویدیوی مرحله‌ی ۲ (۱ = عادی، ۰٫۵ = دو برابر کندتر)
@@ -214,7 +220,7 @@ function rlFrame(ctx, t, opt = {}) {
     if (!opt.noText) {
       for (const k of ["b1", "b2"]) if (!s[k].hidden && s[k].text.trim()) drawLayer(ctx, s[k]);
       const cap = capTimes().find((x) => lt >= x.start && lt < x.end);
-      if (cap) drawLayer(ctx, { ...s.caps.style, text: cap.text, runs: null });
+      if (cap) { const cl = { ...s.caps.style, text: cap.text, runs: null }; drawLayer(ctx, cl); s.caps.style._bh = cl._bh; s.caps.style._fit = cl._fit; }
     }
   }
   if (!opt.noChrome) rlChrome(ctx, false);
@@ -230,12 +236,9 @@ function reelDraw() {
   const t = Math.min(RL.t, Math.max(0, tl.total - 0.01));
   ctx.save(); ctx.scale(W / DW, H / DH);
   rlFrame(ctx, t);
-  // کادر انتخاب متنِ در حال جابه‌جایی
-  if (RL.sel && !RL.playing) {
-    const L = rlTextByKey(RL.sel);
-    if (L && rlTextVisible(RL.sel, t)) { ctx.save(); ctx.strokeStyle = "#1e90ff"; ctx.lineWidth = 4; ctx.setLineDash([14, 8]); ctx.strokeRect(L.x, L.y, L.w, Math.max(L.h, 40)); ctx.restore(); }
-  }
+  if (!RL.playing) rlGuidesDraw(ctx, cv, t);
   ctx.restore();
+  rlSyncBoxes();
   const range = $("#rl-range");
   if (range) { range.max = tl.total; range.value = t; }
   const lbl = $("#rl-time");
@@ -243,6 +246,106 @@ function reelDraw() {
   if (!RL.playing) rlSoundInd();
 }
 
+// اندازه‌ی یک پیکسل صفحه در فضای ۱۰۸۰×۱۹۲۰
+const rlPx = (cv) => DW / Math.max(120, cv?.clientWidth || 360);
+const RULER = 16;   // پهنای خط‌کش به پیکسل صفحه
+// خط‌کش بالا و راست، خط‌های راهنما، خط‌های چسبیدن و دستگیره‌های کادر انتخاب‌شده (فقط پیش‌نمایش؛ در ویدیو نیست)
+function rlGuidesDraw(ctx, cv, t) {
+  const k = rlPx(cv), R = RULER * k;
+  ctx.save();
+  ctx.direction = "ltr"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  if (RL.ruler) {
+    ctx.lineWidth = 2.5 * k; ctx.setLineDash([10 * k, 6 * k]);
+    for (const x of RL.guides.v) { ctx.strokeStyle = "rgba(0,200,255,.95)"; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, DH); ctx.stroke(); }
+    for (const y of RL.guides.h) { ctx.strokeStyle = "rgba(0,200,255,.95)"; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(DW, y); ctx.stroke(); }
+    ctx.setLineDash([]);
+    // خط‌کش‌ها
+    ctx.fillStyle = "rgba(255,255,255,.88)"; ctx.fillRect(0, 0, DW, R); ctx.fillRect(DW - R, 0, R, DH);
+    ctx.strokeStyle = "#555"; ctx.fillStyle = "#333"; ctx.lineWidth = 1.2 * k;
+    ctx.font = `600 ${7.5 * k}px ${fontStack("Vazirmatn")}`;
+    ctx.beginPath();
+    for (let x = 0; x <= DW; x += 20) { const big = x % 100 === 0; ctx.moveTo(x, R); ctx.lineTo(x, R - (big ? R * 0.45 : R * 0.2)); }
+    for (let y = 0; y <= DH; y += 20) { const big = y % 100 === 0; ctx.moveTo(DW - R, y); ctx.lineTo(DW - R + (big ? R * 0.45 : R * 0.2), y); }
+    ctx.stroke();
+    const step = 100 / k >= 26 ? 100 : 200;   // روی گوشی عددها روی هم نیفتند
+    for (let x = step; x < DW - R; x += step) ctx.fillText(num(x), x, R * 0.32);
+    ctx.save(); ctx.translate(DW - R * 0.3, 0); ctx.rotate(Math.PI / 2);
+    for (let y = step; y < DH; y += step) ctx.fillText(num(y), y, 0);
+    ctx.restore();
+    // جای کادر انتخاب‌شده روی خط‌کش
+    const L = RL.sel && rlTextVisible(RL.sel, t) ? rlTextByKey(RL.sel) : null;
+    if (L) { ctx.fillStyle = "rgba(30,144,255,.35)"; ctx.fillRect(L.x, 0, L.w, R); ctx.fillRect(DW - R, L.y, R, rlBH(L)); }
+  }
+  // خط چسبیدن هنگام کشیدن
+  ctx.strokeStyle = "#ff2bd6"; ctx.lineWidth = 2.5 * k; ctx.setLineDash([]);
+  for (const g of RL.snap) { ctx.beginPath(); if (g.x != null) { ctx.moveTo(g.x, 0); ctx.lineTo(g.x, DH); } else { ctx.moveTo(0, g.y); ctx.lineTo(DW, g.y); } ctx.stroke(); }
+  // کادر انتخاب و دستگیره‌ها: دو طرف = عرض، پایین = ارتفاع
+  const L = RL.sel && rlTextVisible(RL.sel, t) ? rlTextByKey(RL.sel) : null;
+  if (L) {
+    const bh = rlBH(L);
+    ctx.strokeStyle = "#1e90ff"; ctx.lineWidth = 4; ctx.setLineDash([14, 8]); ctx.strokeRect(L.x, L.y, L.w, bh); ctx.setLineDash([]);
+    ctx.fillStyle = "#1e90ff"; ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5 * k;
+    const hs = 9 * k;
+    for (const [hx, hy, w, h] of [[L.x, L.y + bh / 2, hs, hs * 2.4], [L.x + L.w, L.y + bh / 2, hs, hs * 2.4], [L.x + L.w / 2, L.y + bh, hs * 2.4, hs]]) {
+      rr(ctx, hx - w / 2, hy - h / 2, w, h, hs / 2); ctx.fill(); ctx.stroke();
+    }
+    if (RL.ruler || RL.drag) {
+      ctx.font = `700 ${9 * k}px ${fontStack("Vazirmatn")}`;
+      const lbl = `راست ${num(Math.round(DW - L.x - L.w))} · بالا ${num(Math.round(L.y))} · ${num(Math.round(L.w))}×${num(Math.round(bh))}`;
+      const tw = ctx.measureText(lbl).width + 10 * k, ly = L.y > 30 * k ? L.y - 12 * k : L.y + bh + 12 * k;
+      ctx.fillStyle = "rgba(30,144,255,.95)"; rr(ctx, L.x + L.w - tw, ly - 8 * k, tw, 16 * k, 4 * k); ctx.fill();
+      ctx.fillStyle = "#fff"; ctx.direction = "rtl"; ctx.textAlign = "center"; ctx.fillText(lbl, L.x + L.w - tw / 2, ly);
+    }
+  }
+  ctx.restore();
+}
+// کنترل‌های عرض/ارتفاعِ پنل با اندازه‌ی واقعیِ کادرها هماهنگ بماند
+function rlSyncBoxes() {
+  $$(".rl-tx").forEach((box) => {
+    const L = rlTextByKey(box.dataset.tx); if (!L) return;
+    const hEl = $("[data-tk=h]", box), hv = $("[data-hv]", box), wEl = $("[data-tk=w]", box);
+    if (hEl && document.activeElement !== hEl) hEl.value = Math.round(rlBH(L));
+    if (hv) hv.textContent = !L.h ? "اندازه‌ی متن" : L.h < (L._fit || 0) ? `${num(Math.round(rlBH(L)))} (کمتر از متن نمی‌شود)` : num(Math.round(rlBH(L)));
+    if (wEl && document.activeElement !== wEl) { wEl.value = Math.round(L.w); const sm = wEl.parentElement.querySelector("small"); if (sm) sm.textContent = num(Math.round(L.w)); }
+  });
+}
+// کادرهای متنِ دیده‌شده در همین لحظه
+const rlTextKeysNow = () => ["kick", "head", "sub", "b1", "b2", "caps"].filter((k) => rlTextVisible(k, RL.t) && (k === "caps" || (!rlTextByKey(k).hidden && rlTextByKey(k).text.trim())));
+// هم‌تراز کردن کادرهای همین مرحله نسبت به کادر انتخاب‌شده (یا اولین خط راهنمای عمودی)
+function rlAlign(how) {
+  const keys = rlTextKeysNow().filter((k) => k !== "caps" || capTimes().length);
+  if (keys.length < (how === "dist" ? 3 : 1)) { toast(how === "dist" ? "دست‌کم سه کادر لازم است" : "کادری روی این صحنه نیست"); return; }
+  const Ls = keys.map(rlTextByKey), ref = RL.sel && keys.includes(RL.sel) ? rlTextByKey(RL.sel) : null;
+  const gv = RL.ruler && RL.guides.v.length ? RL.guides.v : null;
+  if (how === "right") { const x = ref ? ref.x + ref.w : gv ? gv[0] : Math.max(...Ls.map((L) => L.x + L.w)); Ls.forEach((L) => (L.x = Math.round(x - L.w))); }
+  else if (how === "left") { const x = ref ? ref.x : gv ? gv[0] : Math.min(...Ls.map((L) => L.x)); Ls.forEach((L) => (L.x = Math.round(x))); }
+  else if (how === "center") { const c = ref ? ref.x + ref.w / 2 : DW / 2; Ls.forEach((L) => (L.x = Math.round(c - L.w / 2))); }
+  else if (how === "width") { const w = ref ? ref.w : Math.max(...Ls.map((L) => L.w)); const r = ref ? ref.x + ref.w : Math.max(...Ls.map((L) => L.x + L.w)); Ls.forEach((L) => { L.w = w; L.x = Math.round(r - w); }); }
+  else if (how === "dist") {
+    const ord = [...Ls].sort((a, b) => a.y - b.y), top = ord[0].y, bot = ord[ord.length - 1].y + rlBH(ord[ord.length - 1]);
+    const gap = (bot - top - ord.reduce((a, L) => a + rlBH(L), 0)) / (ord.length - 1);
+    let y = top; for (const L of ord) { L.y = Math.round(y); y += rlBH(L) + gap; }
+  }
+  reelSave(); reelDraw();
+}
+function rlRulerBar() {
+  const bar = $("#rl-ruler-bar"); if (!bar) return;
+  $("#rl-ruler").classList.toggle("active", RL.ruler);
+  bar.hidden = !RL.ruler;
+  bar.innerHTML = `<div class="btn-row"><button class="btn sm" data-gadd="v">➕ خط عمودی</button><button class="btn sm" data-gadd="h">➕ خط افقی</button>
+      ${RL.guides.v.length + RL.guides.h.length ? `<button class="btn sm ghost" data-gclr>🗑 پاک کردن خط‌ها</button>` : ""}</div>
+    <div class="btn-row" style="margin-top:4px"><span class="small muted">هم‌تراز کردن کادرهای این صحنه:</span>
+      <button class="btn sm" data-al="right" title="شروع (لبه‌ی راست) همه‌ی کادرها روی یک خط">⇥ شروع‌ها یکی</button><button class="btn sm" data-al="left" title="لبه‌ی چپ همه روی یک خط">⇤ پایان‌ها یکی</button>
+      <button class="btn sm" data-al="center">↔ وسط</button><button class="btn sm" data-al="width">⟷ عرض یکسان</button><button class="btn sm" data-al="dist" title="فاصله‌ی عمودیِ برابر بین کادرها">☰ فاصله‌ی برابر</button></div>
+    <p class="small muted rl-ruler-hint" style="margin:4px 0 0">از روی خط‌کش بکشید تا خط راهنما بیاید؛ خط را برگردانید روی خط‌کش تا پاک شود. کادرها هنگام کشیدن به خط‌ها و به لبه‌ی هم می‌چسبند. اگر کادری انتخاب شده باشد، بقیه با آن هم‌تراز می‌شوند.</p>`;
+  $$("[data-gadd]", bar).forEach((b) => (b.onclick = () => {
+    const L = RL.sel && rlTextVisible(RL.sel, RL.t) ? rlTextByKey(RL.sel) : null;
+    if (b.dataset.gadd === "v") RL.guides.v.push(Math.round(L ? L.x + L.w : SAFE.x + SAFE.w - 75)); else RL.guides.h.push(Math.round(L ? L.y : DH / 2));
+    rlGuidesSave(); rlRulerBar(); reelDraw();
+  }));
+  const clr = $("[data-gclr]", bar); if (clr) clr.onclick = () => { RL.guides = { v: [], h: [] }; rlGuidesSave(); rlRulerBar(); reelDraw(); };
+  $$("[data-al]", bar).forEach((b) => (b.onclick = () => rlAlign(b.dataset.al)));
+}
 const rlTextByKey = (k) => (["kick", "head", "sub"].includes(k) ? RL.s.texts[k] : k === "caps" ? RL.s.caps.style : RL.s[k]);
 function rlTextVisible(k, t) {
   const tl = reelTL();
@@ -487,7 +590,9 @@ function rlTextBox(key, label, hint) {
       <label>ضخامت<select data-tk="weight">${[[400, "معمولی"], [700, "پررنگ"], [800, "پررنگ‌تر"], [900, "خیلی پررنگ"]].map(([v, l]) => `<option value="${v}" ${+L.weight === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       <label>شفافیت کادر سفید <small>${num(Math.round((L.bgA ?? 0) * 100))}٪</small><input type="range" min="0" max="1" step="0.05" data-tk="bgA" value="${L.bgA ?? 0}"></label>
       <label>رنگ کادر<input type="color" data-tk="bg" value="${/^#[0-9a-f]{6}$/i.test(L.bg || "") ? L.bg : "#ffffff"}"></label>
-      <label>عرض کادر<input type="range" min="200" max="1010" data-tk="w" value="${Math.round(L.w)}"></label>
+      <label>عرض کادر <small>${num(Math.round(L.w))}</small><input type="range" min="200" max="1010" data-tk="w" value="${Math.round(L.w)}"></label>
+      <label>ارتفاع کادر <small data-hv>${L.h ? num(Math.round(rlBH(L))) : "اندازه‌ی متن"}</small><input type="range" min="40" max="900" data-tk="h" value="${Math.round(rlBH(L))}">
+        <button type="button" class="btn sm" data-hfit title="کادر دقیقاً هم‌اندازه‌ی متن شود">↕ اندازه‌ی متن</button></label>
       <label>چینش<select data-tk="align">${[["right", "راست"], ["center", "وسط"], ["left", "چپ"], ["justify", "تراز"]].map(([v, l]) => `<option value="${v}" ${L.align === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       <label><span><input type="checkbox" data-tk="shadow" ${L.shadow ? "checked" : ""}> سایه‌ی نوشته</span></label>
     </div>
@@ -513,7 +618,7 @@ function rlBindTextBoxes(root) {
       const k = el.dataset.tk;
       let v = el.type === "checkbox" ? el.checked : el.value;
       if (k === "hidden") v = !el.checked;
-      if (["size", "bgA", "w", "weight"].includes(k)) v = Number(v);
+      if (["size", "bgA", "w", "weight", "h"].includes(k)) v = Number(v);
       // بخشی از متن انتخاب شده: فقط همان بخش تغییر کند
       if (rich?.hasSel() && ["size", "font", "color", "weight"].includes(k)) {
         rich.style(k, v);
@@ -526,10 +631,12 @@ function rlBindTextBoxes(root) {
       const sm = el.parentElement.querySelector("small");
       if (sm && k === "size") sm.textContent = num(Math.round(v));
       if (sm && k === "bgA") sm.textContent = `${num(Math.round(v * 100))}٪`;
+      if (sm && k === "w") sm.textContent = num(Math.round(v));
       reelSave(); jump(); reelDraw();
       // رنگ/فونت کلی ← ظاهر کادر ویرایش هم عوض شود
       if (["color", "font", "weight"].includes(k) && $(".dz-rich", box)) { const ed = $(".dz-rich", box); ed.style.color = L().color; ed.style.fontFamily = fontStack(L().font); ed.style.fontWeight = L().weight; }
     }));
+    $("[data-hfit]", box).onclick = () => { L().h = 0; reelSave(); jump(); reelDraw(); };
     const af = $("[data-addfont]", box);
     if (af) af.onclick = () => pickFontFile((fam) => { L().font = fam; reelSave(); rlPanel(); reelDraw(); });
   });
@@ -1063,22 +1170,52 @@ function rlTap() {
   rlStop(); RL.t = tl.d1; show(); rlPlay();
 }
 
-// جابه‌جا کردن متن‌ها و عکس/ویدیو روی پیش‌نمایش
+// جابه‌جا کردن و تغییر اندازه‌ی متن‌ها، خط‌های راهنما و عکس/ویدیو روی پیش‌نمایش
 function rlBindDrag(cv) {
   const pts = new Map();
   let st = null;
   const pos = (ev) => { const r = cv.getBoundingClientRect(); return { x: (ev.clientX - r.left) * DW / r.width, y: (ev.clientY - r.top) * DH / r.height }; };
-  const textKeys = () => ["kick", "head", "sub", "b1", "b2", "caps"].filter((k) => rlTextVisible(k, RL.t) && (k === "caps" || (!rlTextByKey(k).hidden && rlTextByKey(k).text.trim())));
   const clipNow = () => { const tl = reelTL(); return RL.t < tl.d1 ? (RL.s.s1.media_id ? RL.s.s1 : null) : RL.t < tl.outro ? (RL.s.s2.media_id ? RL.s.s2 : null) : null; };
+  // چسبیدن یک لبه به خط‌های راهنما، لبه‌های کادرهای دیگر، وسط تصویر و قاب قرمز
+  const targets = (axis, self) => {
+    const out = axis === "x" ? [DW / 2, SAFE.x, SAFE.x + SAFE.w] : [SAFE.y, SAFE.y + SAFE.h];
+    if (RL.ruler) out.push(...RL.guides[axis === "x" ? "v" : "h"]);
+    for (const k of rlTextKeysNow()) {
+      const L = rlTextByKey(k); if (L === self) continue;
+      if (axis === "x") out.push(L.x, L.x + L.w, L.x + L.w / 2); else out.push(L.y, L.y + rlBH(L));
+    }
+    return out;
+  };
+  const snapTo = (axis, edges, self) => {   // edges: جای لبه‌ها نسبت به مقدار پایه؛ خروجی: جابه‌جاییِ لازم
+    const tol = 9 * rlPx(cv); let best = null;
+    for (const t of targets(axis, self)) for (const e of edges) { const d = t - e; if (Math.abs(d) <= tol && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, t }; }
+    if (best) RL.snap.push(axis === "x" ? { x: best.t } : { y: best.t });
+    return best ? best.d : 0;
+  };
   cv.style.touchAction = "none";
   cv.addEventListener("pointerdown", (ev) => {
     if (RL.playing) return;
-    const p = pos(ev);
+    const p = pos(ev), k = rlPx(cv), tol = 12 * k, R = RULER * k;
     cv.setPointerCapture(ev.pointerId);
     pts.set(ev.pointerId, p);
     if (pts.size > 1 && st?.mode === "clip") { const [a, b] = [...pts.values()]; st.dist = Math.hypot(a.x - b.x, a.y - b.y); st.scale = st.c.scale || 1; return; }
-    const hit = [...textKeys()].reverse().find((k) => { const L = rlTextByKey(k); return p.x >= L.x && p.x <= L.x + L.w && p.y >= L.y && p.y <= L.y + Math.max(L.h, 60); });
-    if (hit) { RL.sel = hit; const L = rlTextByKey(hit); st = { mode: "text", L, p, x: L.x, y: L.y }; reelDraw(); return; }
+    // دستگیره‌های کادر انتخاب‌شده
+    const S = RL.sel && rlTextVisible(RL.sel, RL.t) ? rlTextByKey(RL.sel) : null;
+    if (S) {
+      const bh = rlBH(S), inY = p.y >= S.y - tol && p.y <= S.y + bh + tol, inX = p.x >= S.x - tol && p.x <= S.x + S.w + tol;
+      const m = Math.abs(p.y - (S.y + bh)) <= tol && inX ? "rh" : Math.abs(p.x - S.x) <= tol && inY ? "rl" : Math.abs(p.x - (S.x + S.w)) <= tol && inY ? "rr" : null;
+      if (m) { st = { mode: m, L: S, p, x: S.x, w: S.w, h: bh }; RL.drag = true; return; }
+    }
+    if (RL.ruler) {
+      // کشیدن از خط‌کش = خط راهنمای تازه
+      if (p.y <= R) { RL.guides.h.push(Math.round(p.y)); st = { mode: "guide", axis: "h", i: RL.guides.h.length - 1 }; reelDraw(); return; }
+      if (p.x >= DW - R) { RL.guides.v.push(Math.round(p.x)); st = { mode: "guide", axis: "v", i: RL.guides.v.length - 1 }; reelDraw(); return; }
+      const gv = RL.guides.v.findIndex((x) => Math.abs(p.x - x) <= 7 * k), gh = RL.guides.h.findIndex((y) => Math.abs(p.y - y) <= 7 * k);
+      if (gv >= 0) { st = { mode: "guide", axis: "v", i: gv }; return; }
+      if (gh >= 0) { st = { mode: "guide", axis: "h", i: gh }; return; }
+    }
+    const hit = [...rlTextKeysNow()].reverse().find((kk) => { const L = rlTextByKey(kk); return p.x >= L.x && p.x <= L.x + L.w && p.y >= L.y && p.y <= L.y + Math.max(rlBH(L), 60); });
+    if (hit) { RL.sel = hit; const L = rlTextByKey(hit); st = { mode: "text", L, p, x: L.x, y: L.y }; RL.drag = true; reelDraw(); return; }
     const c = clipNow();
     RL.sel = null;
     st = c ? { mode: "clip", c, p, ox: c.ox || 0, oy: c.oy || 0, scale: c.scale || 1, dist: 0 } : null;
@@ -1088,9 +1225,30 @@ function rlBindDrag(cv) {
     if (!st || !pts.has(ev.pointerId)) return;
     const p = pos(ev);
     pts.set(ev.pointerId, p);
+    RL.snap = [];
+    const L = st.L;
     if (st.mode === "text") {
-      st.L.x = Math.round(Math.max(-st.L.w / 2, Math.min(DW - st.L.w / 2, st.x + p.x - st.p.x)));
-      st.L.y = Math.round(Math.max(0, Math.min(DH - 40, st.y + p.y - st.p.y)));
+      let x = st.x + p.x - st.p.x, y = st.y + p.y - st.p.y;
+      if (!ev.altKey) { x += snapTo("x", [x, x + L.w, x + L.w / 2], L); y += snapTo("y", [y, y + rlBH(L)], L); }
+      L.x = Math.round(Math.max(-L.w / 2, Math.min(DW - L.w / 2, x)));
+      L.y = Math.round(Math.max(0, Math.min(DH - 40, y)));
+    } else if (st.mode === "rh") {
+      let b = st.L.y + st.h + p.y - st.p.y;
+      if (!ev.altKey) b += snapTo("y", [b], L);
+      L.h = Math.round(Math.max(40, Math.min(1400, b - L.y)));
+    } else if (st.mode === "rr") {
+      let r = st.x + st.w + p.x - st.p.x;
+      if (!ev.altKey) r += snapTo("x", [r], L);
+      L.w = Math.round(Math.max(150, Math.min(DW, r - L.x)));
+    } else if (st.mode === "rl") {
+      let l = st.x + p.x - st.p.x;
+      if (!ev.altKey) l += snapTo("x", [l], L);
+      l = Math.min(st.x + st.w - 150, l);
+      L.x = Math.round(l); L.w = Math.round(st.x + st.w - l);
+    } else if (st.mode === "guide") {
+      const g = RL.guides[st.axis];
+      g[st.i] = Math.round(st.axis === "v" ? p.x : p.y);
+      st.out = st.axis === "v" ? p.x >= DW - RULER * rlPx(cv) || p.x < 0 : p.y <= RULER * rlPx(cv) || p.y > DH;
     } else if (pts.size > 1 && st.dist) {
       const [a, b] = [...pts.values()];
       st.c.scale = +Math.min(4, Math.max(0.3, st.scale * Math.hypot(a.x - b.x, a.y - b.y) / st.dist)).toFixed(3);
@@ -1100,7 +1258,16 @@ function rlBindDrag(cv) {
     }
     reelDraw();
   });
-  const end = (ev) => { if (!pts.delete(ev.pointerId)) return; if (!pts.size && st) { st = null; reelSave(); } };
+  const end = (ev) => {
+    if (!pts.delete(ev.pointerId)) return;
+    if (pts.size || !st) return;
+    if (st.mode === "guide") {
+      // خطی که به خط‌کش برگردد پاک می‌شود
+      if (st.out || st.out === undefined && (st.axis === "v" ? RL.guides.v[st.i] >= DW - RULER * rlPx(cv) : RL.guides.h[st.i] <= RULER * rlPx(cv))) RL.guides[st.axis].splice(st.i, 1);
+      rlGuidesSave(); rlRulerBar();
+    } else reelSave();
+    st = null; RL.snap = []; RL.drag = false; reelDraw();
+  };
   cv.addEventListener("pointerup", end);
   cv.addEventListener("pointercancel", end);
   cv.addEventListener("wheel", (ev) => {
@@ -1128,8 +1295,8 @@ async function reelFromStory(storyId, { mediaId = null, title = "", n = 200 } = 
   const head = s.texts.head;
   head.text = title;
   head.size = title.length > 90 ? 58 : title.length > 60 ? 70 : title.length > 35 ? 82 : 92;
-  head.h = Math.min(420, Math.ceil(title.length / (head.size > 80 ? 14 : 20)) * head.size * 1.35 + 40);
-  s.texts.sub.y = head.y + head.h + 20;
+  head.h = 0;
+  s.texts.sub.y = Math.round(head.y + Math.min(460, rlMeasure(head)) + 20);
   let lead = "";
   const text = (await api(`/api/stories/${storyId}/text`).catch(() => ({ text: "" }))).text || "";
   if (text.trim()) {
@@ -1266,7 +1433,9 @@ async function reelView(view, params) {
           <div class="pv-controls"><button class="btn sm" id="rl-play">▶</button><input type="range" id="rl-range" min="0" step="0.05" value="0"><span class="small muted" id="rl-time"></span></div>
           <div class="small muted" id="rl-snd-ind" style="margin-top:4px"></div>
           <div class="btn-row" style="margin-top:6px"><button class="btn sm" data-go2="1">⏮ شروع</button><button class="btn sm" data-go2="2">بدنه</button><button class="btn sm" data-go2="3">پایان ⏭</button>
-            <button class="btn sm ghost" id="rl-pin" title="پیش‌نمایش با اسکرول همراه بیاید یا سر جایش بماند"></button></div>
+            <button class="btn sm ghost" id="rl-pin" title="پیش‌نمایش با اسکرول همراه بیاید یا سر جایش بماند"></button>
+            <button class="btn sm ghost" id="rl-ruler" title="خط‌کش، خط‌های راهنما و هم‌تراز کردن کادرها">📏 خط‌کش</button></div>
+          <div id="rl-ruler-bar" class="rl-ruler-bar" hidden></div>
         </div>
       </div>
     </div>`;
@@ -1284,6 +1453,8 @@ async function reelView(view, params) {
   keepBtns();
   $("#rl-lib").onclick = () => rlLibrary();
   $("#rl-new").onclick = () => { if (!confirm("همه‌ی تنظیمات این ریلز پاک شود؟")) return; RL.s = rlNew(); reelSave(); RL.tab = 1; refresh(); };
+  $("#rl-ruler").onclick = () => { RL.ruler = !RL.ruler; lsSet("rlRuler", RL.ruler ? "1" : "0"); rlRulerBar(); reelDraw(); };
+  rlRulerBar();
   rlBindDrag($("#rl-canvas"));
   rlPanel();
   drawList(list);
