@@ -244,6 +244,7 @@ function reelDraw() {
   const lbl = $("#rl-time");
   if (lbl) lbl.textContent = `${num(t.toFixed(1))} / ${num(tl.total.toFixed(1))} ث · ${t < tl.d1 ? "شروع" : t < tl.outro ? "بدنه" : "پایان"}`;
   if (!RL.playing) rlSoundInd();
+  rlCtlHead();
 }
 
 // اندازه‌ی یک پیکسل صفحه در فضای ۱۰۸۰×۱۹۲۰
@@ -716,6 +717,7 @@ function rlPanel() {
         <label class="wide" style="display:block;margin-top:8px">هر خط یک زیرنویس <small>— واژه‌های بین دو ستاره رنگ دوم می‌گیرند: حدود *۱۴۰ مگاوات*</small>
           <textarea id="rl-caps" rows="5" style="width:100%">${esc(s.caps.text)}</textarea></label>
         <div id="rl-tapbox" class="captions" hidden></div>
+        <div id="rl-ctl" class="rl-ctl" hidden></div>
         <div id="rl-times" class="captions"></div>
       </div>
       ${rlTextBox("caps", "ظاهر زیرنویس", "فونت، اندازه، رنگ و شفافیت کادر سفید")}
@@ -1047,25 +1049,168 @@ function rlBind(box) {
   on("#rl-render", "click", reelRender);
 }
 
+// زمان‌های دستی را مرتب نگه می‌دارد: هر زیرنویس دست‌کم ۰٫۳ ثانیه، بی‌هم‌پوشانی، داخل بدنه
+function rlCapFix(i, keep = "start") {
+  const m = RL.s.caps.manual, d2 = reelTL().d2, G = 0.02, MIN = 0.3;
+  const c = m[i];
+  c[0] = Math.max(0, Math.min(d2 - MIN, c[0]));
+  c[1] = Math.max(c[0] + MIN, Math.min(d2, c[1]));
+  if (keep === "end" && c[1] - c[0] < MIN) c[0] = c[1] - MIN;
+  for (let j = i - 1; j >= 0; j--) {   // قبلی‌ها کنار بروند
+    const nx = m[j + 1];
+    if (m[j][1] > nx[0] - G) m[j][1] = nx[0] - G;
+    if (m[j][1] - m[j][0] < MIN) m[j][0] = Math.max(0, m[j][1] - MIN);
+    if (m[j][1] - m[j][0] < MIN) m[j][1] = m[j][0] + MIN;
+  }
+  for (let j = i + 1; j < m.length; j++) {   // بعدی‌ها جلو بروند
+    const pv = m[j - 1];
+    if (m[j][0] < pv[1] + G) { const d = m[j][1] - m[j][0]; m[j][0] = pv[1] + G; m[j][1] = Math.max(m[j][1], m[j][0] + Math.min(d, MIN)); }
+  }
+  for (const x of m) { x[1] = Math.min(d2, x[1]); x[0] = Math.min(x[0], x[1] - 0.1); x[0] = +x[0].toFixed(2); x[1] = +x[1].toFixed(2); }
+}
+const rlCapManual = () => { const caps = capTimes(); if (RL.s.caps.manual.length < caps.length) RL.s.caps.manual = caps.map((c) => [c.start, c.end]); return caps; };
+
 // فهرست زمان زیرنویس‌ها (نسبت به آغاز ویدیو)
 function rlTimes() {
+  rlCtl();
   const box = $("#rl-times");
   if (!box) return;
   const s = RL.s, caps = capTimes();
   if (!caps.length) { box.innerHTML = ""; return; }
-  box.innerHTML = `<div class="small muted">زمان هر زیرنویس از آغاز ویدیو (ثانیه):</div>` + caps.map((c, i) => `<div class="cap2"><button class="btn sm ghost" data-cp="${i}">▶</button>
-    <span class="t">${esc(c.text.replace(/\*/g, ""))}</span>
+  box.innerHTML = `<div class="small muted">زمان هر زیرنویس از آغاز ویدیو (ثانیه) — پیش‌نمایش را روی لحظه‌ی دلخواه ببرید و 📍 را بزنید:</div>` + caps.map((c, i) => `<div class="cap2"><button class="btn sm ghost" data-cp="${i}">▶</button>
+    <span class="t"><b class="rl-cn" style="--cc:${rlCapColor(i)}">${num(i + 1)}</b> ${esc(c.text.replace(/\*/g, ""))}</span>
     <span class="tm"><button class="btn sm ghost" data-nd="${i}:-0.2">−</button><input type="number" step="0.1" value="${c.start}" data-mi="${i}" data-mj="0"><button class="btn sm ghost" data-nd="${i}:0.2">+</button>
-    تا <input type="number" step="0.1" value="${c.end}" data-mi="${i}" data-mj="1"></span></div>`).join("");
-  const toManual = () => { if (s.caps.manual.length < caps.length) s.caps.manual = caps.map((c) => [c.start, c.end]); };
-  $$("[data-mi]", box).forEach((el) => (el.onchange = () => { toManual(); s.caps.manual[Number(el.dataset.mi)][Number(el.dataset.mj)] = Number(enDigits(el.value)) || 0; reelSave(); reelDraw(); }));
+    تا <input type="number" step="0.1" value="${c.end}" data-mi="${i}" data-mj="1">
+    <button class="btn sm" data-here="${i}:0" title="شروع این زیرنویس = همین لحظه‌ی پیش‌نمایش">📍 شروع از همین لحظه</button><button class="btn sm ghost" data-here="${i}:1" title="پایان این زیرنویس = همین لحظه‌ی پیش‌نمایش">📍 پایان</button></span></div>`).join("");
+  $$("[data-mi]", box).forEach((el) => (el.onchange = () => { rlCapManual(); const i = Number(el.dataset.mi), j = Number(el.dataset.mj); s.caps.manual[i][j] = Number(enDigits(el.value)) || 0; rlCapFix(i, j ? "end" : "start"); reelSave(); rlTimes(); reelDraw(); }));
   $$("[data-nd]", box).forEach((b) => (b.onclick = () => {
-    const [i, d] = b.dataset.nd.split(":").map(Number); toManual();
+    const [i, d] = b.dataset.nd.split(":").map(Number); rlCapManual();
     const m = s.caps.manual[i]; m[0] = +Math.max(0, m[0] + d).toFixed(2); m[1] = +Math.max(m[0] + 0.3, m[1]).toFixed(2);
-    if (i > 0) s.caps.manual[i - 1][1] = Math.min(s.caps.manual[i - 1][1], +(m[0] - 0.02).toFixed(2));
+    rlCapFix(i);
     reelSave(); rlTimes(); RL.t = reelTL().d1 + m[0] + 0.05; reelDraw();
   }));
+  $$("[data-here]", box).forEach((b) => (b.onclick = () => {
+    const [i, j] = b.dataset.here.split(":").map(Number), tl = reelTL(), t = +(RL.t - tl.d1).toFixed(2);
+    if (t < 0 || t > tl.d2) return toast("اول پیش‌نمایش را روی بدنه (مرحله‌ی ۲) و لحظه‌ی دلخواه ببرید");
+    rlStop(); rlCapManual();
+    const m = s.caps.manual[i];
+    if (j === 0) { const d = m[1] - m[0]; m[0] = t; if (m[1] < t + 0.3) m[1] = t + Math.max(0.3, d); rlCapFix(i, "start"); }
+    else { m[1] = t; rlCapFix(i, "end"); }
+    reelSave(); rlTimes(); reelDraw();
+    toast(`${j ? "پایان" : "شروع"} زیرنویس ${num(i + 1)} = ${num(t.toFixed(1))} ثانیه ✔`);
+  }));
   $$("[data-cp]", box).forEach((b) => (b.onclick = () => { rlStop(); RL.t = reelTL().d1 + caps[Number(b.dataset.cp)].start; rlPlay(); }));
+}
+
+// ───── نوار زمانی تصویری زیرنویس‌ها: تکه‌های رنگی روی تصاویر ویدیو ─────
+const RL_CC = ["#e63946", "#2a9d8f", "#f4a261", "#457b9d", "#9b5de5", "#e9c46a", "#06d6a0", "#ef476f", "#118ab2", "#8d6e63"];
+const rlCapColor = (i) => RL_CC[i % RL_CC.length];
+function rlCtl() {
+  const box = $("#rl-ctl");
+  if (!box) return;
+  const s = RL.s, tl = reelTL(), caps = capTimes();
+  if (!caps.length || !tl.d2 || !s.s2.media_id) { box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
+  const d2 = tl.d2, pc = (t) => `${(t / d2) * 100}%`;
+  const step = d2 > 40 ? 5 : d2 > 16 ? 2 : 1;
+  let ticks = "";
+  for (let t = 0; t <= d2 + 1e-6; t += step) ticks += `<span style="left:${pc(t)}">${num(t)}</span>`;
+  box.innerHTML = `<div class="small muted">🎞 نوار زمانی زیرنویس‌ها — تکه‌ها را بکشید یا لبه‌هایشان را جابه‌جا کنید؛ پیش‌نمایش همان لحظه را نشان می‌دهد. روی نوار بزنید تا پیش‌نمایش به آن‌جا برود.</div>
+    <div class="rl-ctl-tr"><canvas class="rl-ctl-strip"></canvas>
+      ${caps.map((c, i) => `<div class="rl-cb" data-ci="${i}" style="left:${pc(c.start)};width:${pc(c.end - c.start)};--cc:${rlCapColor(i)}" title="${esc(c.text.replace(/\*/g, ""))}"><i data-e="s"></i><b>${num(i + 1)}</b><i data-e="e"></i></div>`).join("")}
+      <div class="rl-ctl-ph"></div></div>
+    <div class="rl-ctl-ticks">${ticks}</div>
+    <div class="btn-row" style="margin-top:4px"><button class="btn sm" data-fs="-1">⏪ ۰٫۱ ثانیه</button><button class="btn sm" data-fs="1">۰٫۱ ثانیه ⏩</button><span class="small muted" id="rl-ctl-t"></span></div>`;
+  rlCtlStrip($(".rl-ctl-strip", box));
+  rlCtlBind(box);
+  rlCtlHead();
+}
+function rlCtlHead() {
+  const box = $("#rl-ctl");
+  if (!box || box.hidden) return;
+  const tl = reelTL(), lt = RL.t - tl.d1, ph = $(".rl-ctl-ph", box), lb = $("#rl-ctl-t", box);
+  const inB = lt >= 0 && lt <= tl.d2;
+  if (ph) { ph.style.display = inB ? "" : "none"; ph.style.left = `${(Math.max(0, lt) / tl.d2) * 100}%`; }
+  if (lb) lb.textContent = inB ? `لحظه‌ی ${num(lt.toFixed(1))} ثانیه از بدنه` : "پیش‌نمایش روی بدنه نیست";
+  $$(".rl-cb", box).forEach((b) => { const c = capTimes()[Number(b.dataset.ci)]; b.classList.toggle("on", !!c && lt >= c.start && lt < c.end); });
+}
+// تصاویر همان تکه‌ی بریده‌شده‌ی ویدیو (با سرعت)، یا خود عکس
+function rlCtlStrip(cv) {
+  const c = RL.s.s2, tl = reelTL(), W = 800, H = 56;
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#222"; ctx.fillRect(0, 0, W, H);
+  const n = 12, cw = W / n;
+  const put = (src, i, vw, vh) => { const sc = Math.max(cw / vw, H / vh), dw = vw * sc, dh = vh * sc; ctx.save(); ctx.beginPath(); ctx.rect(i * cw, 0, cw - 1, H); ctx.clip(); ctx.drawImage(src, i * cw + (cw - dw) / 2, (H - dh) / 2, dw, dh); ctx.restore(); };
+  if (c.kind !== "video") {
+    const im = rlEl(c.media_id, "image");
+    const go = () => { for (let i = 0; i < n; i++) put(im, i, im.naturalWidth, im.naturalHeight); };
+    if (im.naturalWidth) go(); else im.addEventListener("load", go, { once: true });
+    return;
+  }
+  // یک بار برای هر برش ساخته می‌شود؛ ساختن نیمه‌کاره با رسم دوباره‌ی نوار از نو شروع نمی‌شود
+  const key = `${c.media_id}:${c.start || 0}:${tl.d2}:${rlSpeed()}`;
+  RL.ctlStrips = RL.ctlStrips || {};
+  const show = (off) => { const cur = $("#rl-ctl .rl-ctl-strip"); if (cur) cur.getContext("2d").drawImage(off, 0, 0, W, H); };
+  if (RL.ctlStrips[key]) { show(RL.ctlStrips[key]); return; }
+  const off = document.createElement("canvas"); off.width = W; off.height = H;
+  const octx = off.getContext("2d");
+  octx.fillStyle = "#222"; octx.fillRect(0, 0, W, H);
+  RL.ctlStrips[key] = off;
+  const tv = document.createElement("video");
+  tv.muted = true; tv.playsInline = true; tv.preload = "auto"; tv.src = `/api/media/${c.media_id}/file`;
+  let i = 0;
+  const next = () => {
+    if (i >= n) { tv.removeAttribute("src"); tv.load(); return; }
+    tv.currentTime = Math.min((tv.duration || 1) - 0.05, (Number(c.start) || 0) + ((i + 0.5) / n) * tl.d2 * rlSpeed());
+  };
+  tv.addEventListener("seeked", () => {
+    if (tv.videoWidth) { const vw = tv.videoWidth, vh = tv.videoHeight, sc = Math.max(cw / vw, H / vh), dw = vw * sc, dh = vh * sc; octx.save(); octx.beginPath(); octx.rect(i * cw, 0, cw - 1, H); octx.clip(); octx.drawImage(tv, i * cw + (cw - dw) / 2, (H - dh) / 2, dw, dh); octx.restore(); }
+    show(off); i++; next();
+  });
+  tv.addEventListener("loadedmetadata", next, { once: true });
+  tv.addEventListener("error", () => { delete RL.ctlStrips[key]; }, { once: true });
+}
+function rlCtlBind(box) {
+  const tr = $(".rl-ctl-tr", box), s = RL.s;
+  let st = null;
+  const tAt = (ev) => { const r = tr.getBoundingClientRect(); return Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * reelTL().d2; };
+  const seek = (t) => { rlStop(); RL.t = reelTL().d1 + Math.min(t, reelTL().d2 - 0.01); reelDraw(); };
+  tr.style.touchAction = "none";
+  tr.addEventListener("pointerdown", (ev) => {
+    tr.setPointerCapture(ev.pointerId);
+    const b = ev.target.closest(".rl-cb"), t = tAt(ev);
+    if (!b) { st = { mode: "seek" }; seek(t); return; }
+    rlCapManual();
+    const i = Number(b.dataset.ci), m = s.caps.manual[i];
+    st = { mode: ev.target.dataset.e || "move", i, t0: t, a: m[0], b: m[1], el: b, moved: false };
+    b.classList.add("drag");
+  });
+  tr.addEventListener("pointermove", (ev) => {
+    if (!st) return;
+    const t = tAt(ev);
+    if (st.mode === "seek") return seek(t);
+    const m = s.caps.manual[st.i], d = t - st.t0;
+    if (Math.abs(d) > 0.02) st.moved = true;
+    if (st.mode === "move") { m[0] = st.a + d; m[1] = st.b + d; if (m[0] < 0) { m[1] -= m[0]; m[0] = 0; } const d2 = reelTL().d2; if (m[1] > d2) { m[0] -= m[1] - d2; m[1] = d2; } rlCapFix(st.i, "start"); }
+    else if (st.mode === "s") { m[0] = Math.min(st.a + d, m[1] - 0.3); rlCapFix(st.i, "start"); }
+    else { m[1] = Math.max(st.b + d, m[0] + 0.3); rlCapFix(st.i, "end"); }
+    // همه‌ی تکه‌ها سر جای تازه
+    const d2 = reelTL().d2;
+    $$(".rl-cb", box).forEach((el) => { const x = s.caps.manual[Number(el.dataset.ci)]; if (x) { el.style.left = `${(x[0] / d2) * 100}%`; el.style.width = `${((x[1] - x[0]) / d2) * 100}%`; } });
+    seek(st.mode === "e" ? m[1] - 0.05 : m[0] + 0.02);
+  });
+  const end = () => {
+    if (!st) return;
+    const was = st; st = null;
+    if (was.mode === "seek") return;
+    was.el.classList.remove("drag");
+    if (!was.moved) { seek(s.caps.manual[was.i][0] + 0.02); return; }
+    reelSave(); rlTimes();
+  };
+  tr.addEventListener("pointerup", end);
+  tr.addEventListener("pointercancel", end);
+  $$("[data-fs]", box).forEach((b) => (b.onclick = () => { const tl = reelTL(); rlStop(); RL.t = Math.max(tl.d1, Math.min(tl.outro - 0.01, RL.t + Number(b.dataset.fs) * 0.1)); reelDraw(); }));
 }
 
 // ساختن لید (حدود N کلمه) از صدای ویدیو، فایل صوتی، متن سوژه یا متن چسبانده؛ سپس تقسیم به زیرنویس
