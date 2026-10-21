@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest, fonts, push, tts
+from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest, fonts, push, tts, imgfit
 from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -172,6 +172,21 @@ def tts_voices():
 @app.post("/api/tts")
 def tts_make(data: dict[str, Any]):
     return tts.synthesize(str(data.get("text") or ""), str(data.get("voice") or "female"), int(data.get("rate") or 0))
+
+
+# ───── تنظیم سایز عکس (خروجی WebP) ─────
+@app.post("/api/imgfit")
+def imgfit_make(data: dict[str, Any]):
+    from urllib.parse import quote
+
+    data_, name, info = imgfit.make(int(data.get("media_id") or 0), data)
+    if data.get("save"):
+        import io
+
+        return {"media": teaser.add_media(io.BytesIO(data_), name), **info}
+    return Response(data_, media_type="image/webp", headers={
+        "Content-Disposition": f"attachment; filename=\"photo.webp\"; filename*=UTF-8''{quote(name)}",
+        "X-Quality": str(info["quality"]), "X-Size-KB": str(info["kb"]), "X-Filename": quote(name), "Cache-Control": "no-store"})
 
 
 # ───── ربات بله (تنظیم از داخل برنامه) ─────
@@ -921,7 +936,7 @@ def asr_model_upload(file: UploadFile = File(...)):
 
 # ───────────────────────── تنظیمات ذخیره‌شده ─────────────────────────
 
-PREF_KEYS = {"teaser_brand", "teaser_templates", "writing_templates", "ui", "reel_audio"}
+PREF_KEYS = {"teaser_brand", "teaser_templates", "writing_templates", "ui", "reel_audio", "imgfit"}
 
 
 @app.get("/api/prefs/{key}")
