@@ -715,3 +715,16 @@ dialog.designer:not([open]) { display: none; }
 .if-dims input { width: 100px; text-align: center; direction: ltr; }
 .if-result { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: center; margin-top: 10px; }
 .if-result img { width: 120px; border-radius: 8px; border: 1px solid var(--line); }
+.if-layout .chk { font-weight: 700; display: flex; align-items: center; gap: 6px; }
+/* حذف نویز */
+.dn-src video, .dn-cmp video { width: 100%; max-height: 320px; background: #000; border-radius: 8px; }
+.dn-src audio, .dn-cmp audio { width: 100%; }
+.dn-levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.dn-lv { border: 1.5px solid var(--line); border-radius: 10px; padding: 8px; display: grid; gap: 2px; cursor: pointer; text-align: center; }
+.dn-lv input { display: none; }
+.dn-lv.on { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.dn-cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 560px) { .dn-cmp { grid-template-columns: 1fr; } }
+.dn-bar { height: 10px; border-radius: 6px; background: var(--line); overflow: hidden; margin-top: 10px; }
+.dn-bar i { display: block; height: 100%; background: var(--primary); transition: width .4s; }
+.card > .chk, .card .chk { font-weight: 600; display: flex; align-items: center; gap: 6px; }

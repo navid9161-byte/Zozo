@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest, fonts, push, tts, imgfit
+from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest, fonts, push, tts, imgfit, denoise
 from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -187,6 +187,17 @@ def imgfit_make(data: dict[str, Any]):
     return Response(data_, media_type="image/webp", headers={
         "Content-Disposition": f"attachment; filename=\"photo.webp\"; filename*=UTF-8''{quote(name)}",
         "X-Quality": str(info["quality"]), "X-Size-KB": str(info["kb"]), "X-Filename": quote(name), "Cache-Control": "no-store"})
+
+
+# ───── حذف نویز صدای فیلم/فایل صوتی ─────
+@app.post("/api/denoise")
+def denoise_start(data: dict[str, Any]):
+    return denoise.start(int(data.get("media_id") or 0), str(data.get("level") or "normal"), bool(data.get("normalize", True)))
+
+
+@app.get("/api/denoise/{jid}")
+def denoise_status(jid: str):
+    return denoise.status(jid)
 
 
 # ───── ربات بله (تنظیم از داخل برنامه) ─────

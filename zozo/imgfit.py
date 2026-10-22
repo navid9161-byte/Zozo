@@ -14,7 +14,11 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from . import db, teaser
 
 DEFAULT_PRESET = {"id": "site", "name": "عکس سایت کرمان راوی", "w": 1007, "h": 719, "mode": "fill", "bg": "blur",
-                  "sharpen": 0, "bright": 0, "contrast": 0, "color": 0, "quality": 85, "max_kb": 0}
+                  "sharpen": 0, "bright": 0, "contrast": 0, "color": 0, "quality": 85, "max_kb": 0,
+                  "wm": True, "wm_logo": "bar", "wm_pos": "br", "wm_size": 0.18, "wm_opacity": 0.9}
+# واترمارک: لوگوی کرمان راوی (نسخه‌ی با حاشیه‌ی سفید روی هر عکسی خوانده می‌شود)
+BRAND = Path(__file__).parent / "static" / "brand"
+WM_LOGOS = {"bar": "logo-bar.png", "mark": "logo-mark.png", "full": "logo-transparent.png"}
 MAX_SIDE = 5000
 Image.MAX_IMAGE_PIXELS = 120_000_000  # عکس‌های خیلی بزرگ دوربین هم باز شوند، نه بیشتر
 
@@ -38,7 +42,11 @@ def params(p: dict[str, Any]) -> dict[str, Any]:
             "fx": _num(p, "fx", 0, 1, 0.5), "fy": _num(p, "fy", 0, 1, 0.5), "zoom": _num(p, "zoom", 1, 6, 1),
             "sharpen": _num(p, "sharpen", 0, 2, 0), "bright": _num(p, "bright", -0.5, 0.5, 0),
             "contrast": _num(p, "contrast", -0.5, 0.5, 0), "color": _num(p, "color", -1, 1, 0),
-            "quality": int(_num(p, "quality", 30, 100, 85)), "max_kb": int(_num(p, "max_kb", 0, 20000, 0))}
+            "quality": int(_num(p, "quality", 30, 100, 85)), "max_kb": int(_num(p, "max_kb", 0, 20000, 0)),
+            "wm": p.get("wm", True) not in (False, 0, "0", "false"),
+            "wm_logo": p.get("wm_logo") if p.get("wm_logo") in WM_LOGOS else "bar",
+            "wm_pos": p.get("wm_pos") if p.get("wm_pos") in ("br", "bl", "tr", "tl") else "br",
+            "wm_size": _num(p, "wm_size", 0.05, 0.5, 0.18), "wm_opacity": _num(p, "wm_opacity", 0.1, 1, 0.9)}
 
 
 def _open(path: str) -> Image.Image:
@@ -86,7 +94,32 @@ def render(src: Image.Image, p: dict[str, Any]) -> Image.Image:
         out = ImageEnhance.Color(out).enhance(1 + p["color"])
     if p["sharpen"]:
         out = out.filter(ImageFilter.UnsharpMask(radius=1.6, percent=int(80 * p["sharpen"]), threshold=2))
+    if p["wm"]:
+        out = watermark(out, p)
     return out
+
+
+def watermark(im: Image.Image, p: dict[str, Any]) -> Image.Image:
+    """لوگو در گوشه (پیش‌فرض پایین راست) با سایه‌ی نرم تا روی عکس روشن و تیره دیده شود."""
+    logo = Image.open(BRAND / WM_LOGOS[p["wm_logo"]]).convert("RGBA")
+    W, H = im.size
+    lw = max(24, round(W * p["wm_size"]))
+    lh = max(1, round(logo.height * lw / logo.width))
+    logo = logo.resize((lw, lh), Image.LANCZOS)
+    m = round(min(W, H) * 0.035)
+    x = W - lw - m if p["wm_pos"] in ("br", "tr") else m
+    y = H - lh - m if p["wm_pos"] in ("br", "bl") else m
+    a = logo.getchannel("A")
+    sh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    blur = max(2, lw // 40)
+    shadow_a = a.point(lambda v: v * 0.45 * p["wm_opacity"])
+    sh.paste((0, 0, 0, 255), (x, y + max(1, lw // 120)), shadow_a)
+    sh = sh.filter(ImageFilter.GaussianBlur(blur))
+    logo.putalpha(a.point(lambda v: v * p["wm_opacity"]))
+    sh.alpha_composite(logo, (x, y))
+    base = im.convert("RGBA")
+    base.alpha_composite(sh)
+    return base.convert("RGB")
 
 
 def encode_webp(im: Image.Image, quality: int, max_kb: int = 0) -> tuple[bytes, int]:

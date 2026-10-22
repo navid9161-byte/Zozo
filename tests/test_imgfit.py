@@ -35,6 +35,8 @@ def test_params_are_clamped():
     p = imgfit.params({"w": 99999, "h": "x", "mode": "?", "bg": "red", "fx": 7, "quality": 5})
     assert p["w"] == imgfit.MAX_SIDE and p["h"] == 719 and p["mode"] == "fill" and p["bg"] == "blur"
     assert p["fx"] == 1 and p["quality"] == 30
+    assert p["wm"] and p["wm_pos"] == "br" and p["wm_logo"] == "bar"
+    assert not imgfit.params({"wm": False})["wm"] and imgfit.params({"wm_size": 9})["wm_size"] == 0.5
 
 
 def test_imgfit_api():
@@ -54,6 +56,11 @@ def test_imgfit_api():
         # کل عکس با پس‌زمینه‌ی سفید: بالا و پایین سفید
         whole = Image.open(io.BytesIO(c.post("/api/imgfit", json={"media_id": m["id"], "w": 600, "h": 900, "mode": "whole", "bg": "#ffffff"}).content)).convert("RGB")
         assert whole.size == (600, 900) and min(whole.getpixel((300, 5))) > 240
+        # واترمارک: پیش‌فرض پایین راست؛ بالا چپ تمیز می‌ماند، و می‌شود خاموشش کرد
+        plain = Image.open(io.BytesIO(c.post("/api/imgfit", json={"media_id": m["id"], "w": 1007, "h": 719, "wm": False}).content)).convert("RGB")
+        marked = Image.open(io.BytesIO(c.post("/api/imgfit", json={"media_id": m["id"], "w": 1007, "h": 719}).content)).convert("RGB")
+        diff = lambda box: sum(abs(a - b) for a, b in zip(plain.crop(box).tobytes(), marked.crop(box).tobytes()))
+        assert diff((800, 600, 990, 700)) > 100000 and diff((0, 0, 200, 120)) < 2000
         # سقف حجم
         noisy = Image.merge("RGB", [Image.effect_noise((900, 600), 80)] * 3)
         b = io.BytesIO(); noisy.save(b, "JPEG", quality=95)

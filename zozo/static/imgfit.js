@@ -3,8 +3,13 @@
 // عکس ← اندازه‌ی دقیق (پیش‌فرض: عکس سایت کرمان راوی ۱۰۰۷×۷۱۹، پر کردن کادر) ← خروجی WebP.
 // پیش‌نمایش در مرورگر کشیده می‌شود؛ خروجی نهایی روی سرور با همان حساب ساخته می‌شود.
 
-const IF_DEFAULT = { id: "site", name: "عکس سایت کرمان راوی", w: 1007, h: 719, mode: "fill", bg: "blur", sharpen: 0, bright: 0, contrast: 0, color: 0, quality: 85, max_kb: 0 };
-const IF_KEYS = ["w", "h", "mode", "bg", "sharpen", "bright", "contrast", "color", "quality", "max_kb"];
+const IF_DEFAULT = { id: "site", name: "عکس سایت کرمان راوی", w: 1007, h: 719, mode: "fill", bg: "blur", sharpen: 0, bright: 0, contrast: 0, color: 0, quality: 85, max_kb: 0,
+  wm: true, wm_logo: "bar", wm_pos: "br", wm_size: 0.18, wm_opacity: 0.9 };
+const IF_KEYS = ["w", "h", "mode", "bg", "sharpen", "bright", "contrast", "color", "quality", "max_kb", "wm", "wm_logo", "wm_pos", "wm_size", "wm_opacity"];
+// واترمارک: همان فایل‌های لوگو که سرور روی خروجی می‌گذارد
+const IF_LOGOS = { bar: ["logo-bar.png", "لوگوی کامل"], mark: ["logo-mark.png", "فقط نشان"], full: ["logo-transparent.png", "لوگوی کامل بی‌حاشیه"] };
+const IF_POS = [["tl", "↖ بالا چپ"], ["tr", "↗ بالا راست"], ["bl", "↙ پایین چپ"], ["br", "↘ پایین راست"]];
+const ifLogoImg = (k) => { IF.logos = IF.logos || {}; if (!IF.logos[k]) { const im = new Image(); im.onload = () => ifDraw(); im.src = `/static/brand/${IF_LOGOS[k][0]}`; IF.logos[k] = im; } return IF.logos[k]; };
 const IF_SIZES = [[1007, 719, "سایت"], [1080, 1080, "مربع"], [1080, 1350, "پست ۴:۵"], [1080, 1920, "استوری"], [1200, 630, "لینک"]];
 const IF = { cfg: null, preset: "site", p: null, m: null, img: null, out: null };
 
@@ -37,6 +42,7 @@ VIEWS.imgfit = async (view) => {
       <div>
         <div class="card"><h3>قالب</h3><div id="if-presets"></div></div>
         <div class="card"><h3>اندازه و خروجی</h3><div id="if-size"></div></div>
+        <div class="card"><h3>🏷 واترمارک (لوگوی کرمان راوی)</h3><div id="if-wm"></div></div>
         <div class="card"><details id="if-adj-d"><summary><b>🎨 رنگ و وضوح</b> <small class="muted">(پیش‌فرض: بدون تغییر)</small></summary><div id="if-adj"></div></details></div>
         <div class="card"><button class="btn primary big" id="if-go" style="width:100%">⬇️ ساخت و دانلود WebP</button><div id="if-out"></div></div>
       </div>
@@ -123,6 +129,15 @@ function ifDraw() {
     const s = Math.min(p.w / im.naturalWidth, p.h / im.naturalHeight), fw = im.naturalWidth * s, fh = im.naturalHeight * s;
     ctx.drawImage(im, (p.w - fw) / 2, (p.h - fh) / 2, fw, fh);
   }
+  if (p.wm) {
+    const lg = ifLogoImg(p.wm_logo);
+    if (lg.naturalWidth) {
+      const lw = Math.max(24, Math.round(p.w * p.wm_size)), lh = lg.naturalHeight * lw / lg.naturalWidth, m = Math.round(Math.min(p.w, p.h) * 0.035);
+      const x = p.wm_pos[1] === "r" ? p.w - lw - m : m, y = p.wm_pos[0] === "b" ? p.h - lh - m : m;
+      ctx.save(); ctx.globalAlpha = p.wm_opacity; ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = Math.max(2, lw / 40) * 2; ctx.shadowOffsetY = Math.max(1, lw / 120);
+      ctx.drawImage(lg, x, y, lw, lh); ctx.restore();
+    }
+  }
   ctx.restore();
 }
 function ifBindCanvas(cv) {
@@ -191,6 +206,19 @@ function ifPanels() {
   $$("[data-adj]").forEach((el) => (el.oninput = () => { p[el.dataset.adj] = Number(el.value); $(`[data-av=${el.dataset.adj}]`).textContent = pct(el.dataset.adj); ifDraw(); ifPresetsUI(); }));
   $("#if-adj0").onclick = () => { Object.assign(p, { sharpen: 0, bright: 0, contrast: 0, color: 0 }); ifPanels(); ifDraw(); };
   if (["sharpen", "bright", "contrast", "color"].some((k) => p[k])) $("#if-adj-d").open = true;
+  // واترمارک
+  $("#if-wm").innerHTML = `<label class="chk"><input type="checkbox" id="if-wm-on" ${p.wm ? "checked" : ""}> لوگو روی عکس گذاشته شود</label>
+    <div ${p.wm ? "" : "hidden"}>
+      <div class="btn-row" style="margin-top:6px"><div class="seg">${Object.entries(IF_LOGOS).map(([k, [, l]]) => `<button data-wl="${k}" class="${p.wm_logo === k ? "active" : ""}">${l}</button>`).join("")}</div></div>
+      <div class="btn-row" style="margin-top:6px"><span class="small muted">جا:</span><div class="seg">${IF_POS.map(([k, l]) => `<button data-wp="${k}" class="${p.wm_pos === k ? "active" : ""}">${l}</button>`).join("")}</div></div>
+      <div class="rl-grid" style="margin-top:6px"><label>اندازه <small id="if-wsv">${num(Math.round(p.wm_size * 100))}٪ عرض عکس</small><input type="range" id="if-ws" min="0.06" max="0.4" step="0.01" value="${p.wm_size}"></label>
+        <label>پررنگی <small id="if-wov">${num(Math.round(p.wm_opacity * 100))}٪</small><input type="range" id="if-wo" min="0.2" max="1" step="0.05" value="${p.wm_opacity}"></label></div></div>`;
+  const wmCh = () => { ifDraw(); ifPresetsUI(); };
+  $("#if-wm-on").onchange = (ev) => { p.wm = ev.target.checked; ifPanels(); ifDraw(); };
+  $$("[data-wl]").forEach((b) => (b.onclick = () => { p.wm_logo = b.dataset.wl; ifPanels(); ifDraw(); }));
+  $$("[data-wp]").forEach((b) => (b.onclick = () => { p.wm_pos = b.dataset.wp; ifPanels(); ifDraw(); }));
+  $("#if-ws").oninput = (ev) => { p.wm_size = Number(ev.target.value); $("#if-wsv").textContent = `${num(Math.round(p.wm_size * 100))}٪ عرض عکس`; wmCh(); };
+  $("#if-wo").oninput = (ev) => { p.wm_opacity = Number(ev.target.value); $("#if-wov").textContent = `${num(Math.round(p.wm_opacity * 100))}٪`; wmCh(); };
   ifPresetsUI();
 }
 function ifPresetsUI() {
