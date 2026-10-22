@@ -59,3 +59,12 @@ def _png():
     b = io.BytesIO()
     Image.new("RGB", (40, 30), "red").save(b, "PNG")
     return b.getvalue()
+
+
+def test_builtin_outro_is_hidden_media():
+    with TestClient(app) as c:
+        c.post("/api/login", json={"password": "secret-pass"})
+        a = c.get("/api/reel/outro").json()
+        assert a["kind"] == "video" and a["has_audio"] and 5.5 < a["duration"] < 6.5 and a["keep"] == 1
+        assert c.get("/api/reel/outro").json()["id"] == a["id"]          # فقط یک بار ثبت می‌شود
+        assert not any(m["id"] == a["id"] for m in c.get("/api/media").json())  # در کتابخانه دیده نمی‌شود

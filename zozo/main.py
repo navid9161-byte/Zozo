@@ -554,6 +554,11 @@ def media_list(kind: str | None = None):
     return teaser.list_media(kind)
 
 
+@app.get("/api/reel/outro")
+def reel_outro():
+    return teaser.builtin_outro()
+
+
 @app.get("/api/media/usage")
 def media_usage():
     return teaser.media_usage()

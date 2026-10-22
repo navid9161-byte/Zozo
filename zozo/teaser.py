@@ -149,6 +149,23 @@ def add_media_dataurl(data_url: str, name: str = "card.png") -> dict[str, Any]:
     return add_media(io.BytesIO(raw), name)
 
 
+# ویدیوی پایانی کرمان راوی (داخل برنامه) — یک بار به‌عنوان فایل پنهان در کتابخانه ثبت می‌شود
+BUILTIN_OUTRO = Path(__file__).parent / "static" / "brand" / "outro.mp4"
+BUILTIN_OUTRO_NAME = "builtin-outro-kermanravi-v1.mp4"
+
+
+def builtin_outro() -> dict[str, Any]:
+    with db.connect() as conn:
+        row = conn.execute("SELECT * FROM media WHERE filename=? ORDER BY id DESC LIMIT 1", (BUILTIN_OUTRO_NAME,)).fetchone()
+    if row and os.path.exists(row["path"]):
+        return dict(row)
+    if row:  # فایلش گم شده؛ دوباره ثبت شود
+        with db.connect() as conn:
+            conn.execute("DELETE FROM media WHERE id=?", (row["id"],))
+    with open(BUILTIN_OUTRO, "rb") as f:
+        return add_media(f, BUILTIN_OUTRO_NAME, keep=True)
+
+
 def get_media(mid: int, conn=None) -> dict[str, Any]:
     if conn is None:
         with db.connect() as c:
@@ -162,10 +179,10 @@ def get_media(mid: int, conn=None) -> dict[str, Any]:
 def list_media(kind: str | None = None) -> list[dict[str, Any]]:
     with db.connect() as conn:
         if kind:
-            rows = conn.execute("SELECT * FROM media WHERE kind=? AND filename NOT LIKE 'card-%' ORDER BY id DESC LIMIT 300",
+            rows = conn.execute("SELECT * FROM media WHERE kind=? AND filename NOT LIKE 'card-%' AND filename NOT LIKE 'builtin-%' ORDER BY id DESC LIMIT 300",
                                 (kind,))
         else:
-            rows = conn.execute("SELECT * FROM media WHERE filename NOT LIKE 'card-%' ORDER BY id DESC LIMIT 300")
+            rows = conn.execute("SELECT * FROM media WHERE filename NOT LIKE 'card-%' AND filename NOT LIKE 'builtin-%' ORDER BY id DESC LIMIT 300")
         return [dict(r) for r in rows]
 
 
@@ -183,7 +200,7 @@ def media_usage() -> dict[str, Any]:
     with db.connect() as conn:
         r = conn.execute(
             "SELECT COUNT(*) n, COALESCE(SUM(size),0) b, COALESCE(SUM(CASE WHEN keep=0 THEN 1 END),0) tn, "
-            "COALESCE(SUM(CASE WHEN keep=0 THEN size END),0) tb FROM media WHERE filename NOT LIKE 'card-%'").fetchone()
+            "COALESCE(SUM(CASE WHEN keep=0 THEN size END),0) tb FROM media WHERE filename NOT LIKE 'card-%' AND filename NOT LIKE 'builtin-%'").fetchone()
         v = conn.execute("SELECT COUNT(*) n, COALESCE(SUM(size),0) b FROM teasers WHERE output IS NOT NULL").fetchone()
     return {"count": r["n"], "bytes": r["b"], "temp_count": r["tn"], "temp_bytes": r["tb"],
             "video_count": v["n"], "video_bytes": v["b"], "temp_days": TEMP_DAYS}

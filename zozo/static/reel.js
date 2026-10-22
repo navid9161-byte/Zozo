@@ -29,7 +29,8 @@ function reelDefaults() {
     b1: textL({ x: 60, y: 1492, w: 960, h: 84, size: 60, color: "#ffffff", hi: "#ffd23f", bg: "#000000", bgA: 0, pad: 10, shadow: true, align: "center" }),
     b2: textL({ x: 60, y: 1600, w: 960, h: 70, size: 46, weight: 700, color: "#ffffff", hi: "#ffd23f", bg: "#000000", bgA: 0, pad: 10, shadow: true, align: "center" }),
     caps: { text: "", manual: [], style: textL({ x: 80, y: 1230, w: 920, h: 150, size: 46, weight: 800, align: "center", bgA: 0.82, pad: 18, radius: 20 }) },
-    s3: { hold: 1.5, stamp_id: null, stamp_vol: 1, stamp_off: 0 },
+    // پایان: ویدیوی پایانی (پیش‌فرض: ویدیوی کرمان راوی داخل برنامه، یا ویدیوی بارگذاری‌شده) یا انیمیشن مُهر
+    s3: { mode: "video", video_id: null, vvol: 1, hold: 1.5, stamp_id: null, stamp_vol: 1, stamp_off: 0 },
   };
 }
 // ───── صدای پیش‌فرض مرحله‌ی ۱ (برای همه‌ی ریلزهای تازه، مگر اینکه عوضش کنید) ─────
@@ -72,8 +73,22 @@ function reelTL() {
   const s = RL.s;
   const d1 = Math.max(0.5, Number(s.s1.dur) || 4);
   const d2 = s.s2.media_id ? Math.max(0.5, (Number(s.s2.dur) || 1) / rlSpeed()) : 0;
-  const d3 = OUT_ANIM + Math.max(0, Number(s.s3.hold) || 0);
+  const ov = rlOutroVid();
+  const d3 = ov ? ov.dur : OUT_ANIM + Math.max(0, Number(s.s3.hold) || 0);
   return { d1, d2, d3, outro: d1 + d2, total: +(d1 + d2 + d3).toFixed(2) };
+}
+// ویدیوی پایانی: {id, dur} یا null (= انیمیشن مُهر)
+function rlOutroVid(s3 = RL.s.s3) {
+  if ((s3.mode ?? "video") !== "video") return null;
+  if (s3.video_id) {
+    const m = RL.media.find((x) => x.id === s3.video_id);
+    return { id: s3.video_id, dur: Math.max(0.5, Number(m?.duration || s3.video_dur) || 6) };
+  }
+  return { id: RL.builtinOutro?.id || null, dur: Number(RL.builtinOutro?.duration) || 6.04 };
+}
+async function rlOutroLoad() {
+  if (!RL.builtinOutro) RL.builtinOutro = await api("/api/reel/outro").catch(() => null);
+  return RL.builtinOutro;
 }
 function capLines() { return splitLead(RL.s.caps.text || "", 14); }
 function capTimes() {
@@ -200,7 +215,17 @@ function rlOutro(ctx, lt) {
 function rlFrame(ctx, t, opt = {}) {
   const s = RL.s, tl = reelTL();
   ctx.fillStyle = "#000"; ctx.fillRect(0, 0, DW, DH);
-  if (t >= tl.outro) { rlOutro(ctx, t - tl.outro); return; }
+  if (t >= tl.outro) {
+    const ov = rlOutroVid();
+    if (!ov) { rlOutro(ctx, t - tl.outro); return; }
+    // ویدیوی پایانی تمام‌صفحه (بدون قاب و REC)
+    const el = ov.id && rlEl(ov.id, "video"), lt = Math.min(t - tl.outro, ov.dur - 0.04);
+    if (el) {
+      if (!RL.playing && el.readyState >= 1 && Math.abs(el.currentTime - lt) > 0.15) el.currentTime = lt;
+      if (el.readyState >= 2) { const sw = el.videoWidth, sh = el.videoHeight, sc = Math.max(DW / sw, DH / sh); ctx.drawImage(el, (DW - sw * sc) / 2, (DH - sh * sc) / 2, sw * sc, sh * sc); }
+    }
+    return;
+  }
   if (t < tl.d1) {
     const el = rlEl(s.s1.media_id, "image");
     if (el?.naturalWidth) rlMedia(ctx, el, s.s1, { gray: s.s1.gray, bright: s.s1.bright });
@@ -400,7 +425,8 @@ function rlSoundInd() {
   const t2 = rlTrack2();
   if (t2 && t >= t2.at && t < t2.at + t2.dur) out.push(`🎧 صدای جداگانه ${pct(t2.vol)}`);
   if (t >= tl.d1 && t < tl.outro && snd.video) out.push(`🎞 صدای ویدیو ${pct(s.s2.vol ?? 1)}`);
-  if (s.s3.stamp_id && t >= tl.outro + OUT_LAND - 0.1 && t < tl.outro + OUT_LAND + 1) out.push("🔨 مُهر");
+  if (rlOutroVid() && t >= tl.outro) out.push(`🎬 صدای ویدیوی پایانی ${pct(Number(s.s3.vvol ?? 1))}`);
+  if (s.s3.stamp_id && !rlOutroVid() && t >= tl.outro + OUT_LAND - 0.1 && t < tl.outro + OUT_LAND + 1) out.push("🔨 مُهر");
   box.textContent = out.length ? `${RL.playing ? "🔊 در حال پخش: " : "🔈 در این لحظه: "}${out.join(" · ")}` : "🔇 در این لحظه صدایی نیست";
 }
 function rlPlay() {
@@ -416,10 +442,11 @@ function rlPlay() {
   // همه‌ی صداها همین لحظه (داخل کلیک) آماده و «باز» می‌شوند تا مرورگر بعداً جلوی پخششان را نگیرد
   if (a1.media_id) RL.audio = rlAudioEl(a1.media_id, "صدای مرحله‌ی ۱");
   if (s.audio2?.media_id && tl.d2) RL.audio2 = rlAudioEl(s.audio2.media_id, "صدای جداگانه‌ی مرحله‌ی ۲");
-  if (s.s3.stamp_id && !stamped) RL.stampAudio = rlAudioEl(s.s3.stamp_id, "صدای مُهر");
+  if (s.s3.stamp_id && !stamped && !rlOutroVid()) RL.stampAudio = rlAudioEl(s.s3.stamp_id, "صدای مُهر");
   const vEl = s.s2.kind === "video" && s.s2.media_id ? rlEl(s.s2.media_id, "video") : null;
   if (vEl) { vEl.muted = true; vEl.play().then(() => { if (!vStarted) vEl.pause(); }).catch(() => {}); }
-  let vStarted = false;
+  let vStarted = false, oStarted = false;
+  { const ov = rlOutroVid(), oel = ov?.id ? rlEl(ov.id, "video") : null; if (oel) { oel.muted = true; oel.play().then(() => { if (!oStarted) oel.pause(); }).catch(() => {}); } }
   const step = () => {
     if (!RL.playing) return;
     RL.t = from + (performance.now() - t0) / 1000;
@@ -456,6 +483,13 @@ function rlPlay() {
         RL.audio2.volume = Math.max(0, Math.min(1, v));
         if (RL.audio2.paused) { RL.audio2.currentTime = tr.src + lt; rlPlayEl(RL.audio2); }
       } else if (!RL.audio2.paused) RL.audio2.pause();
+    }
+    // ویدیوی پایانی (با صدای خودش)
+    const ov = rlOutroVid(), oel = ov?.id ? rlEl(ov.id, "video") : null;
+    if (oel) {
+      if (t >= tl.outro) {
+        if (!oStarted) { oel.currentTime = Math.max(0, t - tl.outro); oel.playbackRate = 1; oel.muted = false; oel.volume = Math.min(1, Number(s.s3.vvol ?? 1)); oel.dataset.label = "ویدیوی پایانی"; rlPlayEl(oel); oStarted = true; }
+      } else if (oStarted) { oel.pause(); oStarted = false; }
     }
     // صدای مُهر
     if (!stamped && RL.stampAudio && t >= tl.outro + OUT_LAND + (Number(s.s3.stamp_off) || 0)) {
@@ -516,6 +550,7 @@ async function reelRender() {
     await FONTS_READY;
     await Promise.all([RL.logoBar, RL.mark].map((im) => im?.complete ? 0 : new Promise((r) => { im.onload = r; im.onerror = r; })));
     RL.outLogo = null;
+    await rlOutroLoad();
     const [RW, RH] = s.quality === "1080" ? [1080, 1920] : [720, 1280];
     const shot = (fn) => {
       const c = document.createElement("canvas"); c.width = RW; c.height = RH;
@@ -534,13 +569,16 @@ async function reelRender() {
     const clips = [{ media_id: s.s1.media_id, duration: tl.d1, gray: !!s.s1.gray, bright: Number(s.s1.bright) || 0, scale: s.s1.scale, ox: s.s1.ox, oy: s.s1.oy, motion: "none", zoom: false }];
     if (tl.d2) clips.push({ media_id: s.s2.media_id, start: s.s2.start || 0, duration: tl.d2, speed: rlSpeed(), scale: s.s2.scale, ox: s.s2.ox, oy: s.s2.oy,
       motion: s.s2.motion, zoom: s.s2.motion === "zoom", mute: !rlSound().video, vol: Number(s.s2.vol ?? 1) });
-    clips.push({ outro: { bg: shot((x) => rlOutroBg(x)), logo: lg.toDataURL("image/png"), duration: tl.d3, logo_w: OUT_W, logo_y: OUT_Y, drop: OUT_DROP, land: OUT_LAND } });
+    const ov = rlOutroVid();
+    if (ov && !ov.id) throw new Error("ویدیوی پایانی پیدا نشد؛ صفحه را دوباره باز کنید");
+    if (ov) clips.push({ media_id: ov.id, start: 0, duration: tl.d3, speed: 1, scale: 1, ox: 0, oy: 0, motion: "none", zoom: false, mute: false, vol: Number(s.s3.vvol ?? 1) });
+    else clips.push({ outro: { bg: shot((x) => rlOutroBg(x)), logo: lg.toDataURL("image/png"), duration: tl.d3, logo_w: OUT_W, logo_y: OUT_Y, drop: OUT_DROP, land: OUT_LAND } });
     const tracks = [];
     const t1r = rlTrack1();
     if (t1r) tracks.push(t1r);
     const t2r = rlTrack2();
     if (t2r) tracks.push(t2r);
-    if (s.s3.stamp_id) tracks.push({ media_id: s.s3.stamp_id, src: 0, at: Math.max(0, tl.outro + OUT_LAND + (Number(s.s3.stamp_off) || 0) - 0.02), dur: Math.min(3, tl.d3), vol: Number(s.s3.stamp_vol) || 1, fin: 0, fout: 0.2, loop: false, duck: [] });
+    if (s.s3.stamp_id && !ov) tracks.push({ media_id: s.s3.stamp_id, src: 0, at: Math.max(0, tl.outro + OUT_LAND + (Number(s.s3.stamp_off) || 0) - 0.02), dur: Math.min(3, tl.d3), vol: Number(s.s3.stamp_vol) || 1, fin: 0, fout: 0.2, loop: false, duck: [] });
     btn.textContent = "در حال فرستادن…";
     const head = (s.texts.head.text || "").replace(/\n/g, " ").trim();
     await api("/api/teasers", { method: "POST", body: {
@@ -744,8 +782,16 @@ function rlPanel() {
         })()}
       </div>`;
   } else if (RL.tab === 3) {
-    const o = s.s3;
-    h = `<div class="card"><h3>🔖 پایان: مُهر کرمان راوی</h3>
+    const o = s.s3, ov = rlOutroVid(), om = o.video_id ? RL.media.find((x) => x.id === o.video_id) : null;
+    h = `<div class="card"><h3>🔚 پایان ریلز</h3>
+        <div class="seg" id="rl-omode"><button data-om="video" class="${ov ? "active" : ""}">🎬 ویدیوی پایانی</button><button data-om="stamp" class="${ov ? "" : "active"}">🔖 مُهر کرمان راوی</button></div></div>`;
+    if (ov) h += `<div class="card"><h3>🎬 ویدیوی پایانی</h3>
+        <p class="small">${o.video_id ? `ویدیوی خودتان: <b>${esc(om?.filename || "فایل بارگذاری‌شده")}</b>` : "<b>ویدیوی کرمان راوی</b> (پیش‌فرض)"} · ${num(ov.dur.toFixed(1))} ثانیه، تمام‌صفحه و با صدای خودش</p>
+        <div class="btn-row"><button class="btn primary" id="rl-ovid">📤 بارگذاری ویدیوی پایانی دلخواه</button>${rlMediaSelect(["video"], o.video_id, 'id="rl-ovid-lib"')}
+          ${o.video_id ? `<button class="btn sm ghost" id="rl-ovid-def">↺ برگشت به ویدیوی کرمان راوی</button>` : ""}</div>
+        <div class="rl-grid" style="margin-top:8px"><label>بلندی صدای ویدیوی پایانی <small>${num(Math.round((o.vvol ?? 1) * 100))}٪</small><input type="range" min="0" max="2" step="0.05" data-o="vvol" value="${o.vvol ?? 1}"></label></div>
+        <button class="btn sm" id="rl-stamp-try" style="margin-top:6px">▶ دیدن و شنیدن پایان</button></div>`;
+    else h += `<div class="card"><h3>🔖 مُهر کرمان راوی</h3>
         <p class="small muted">لوگوی کرمان راوی بزرگ و کم‌رنگ می‌آید و مثل مُهر محکم روی صفحه می‌نشیند. صدای مُهر دقیقاً در همان لحظه پخش می‌شود.</p>
         <div class="rl-grid">
           <label>ماندن تصویر آخر (ثانیه)<input type="number" min="0" max="10" step="0.5" id="rl-hold" value="${o.hold}"></label>
@@ -1032,13 +1078,17 @@ function rlBind(box) {
   on("#rl-tap", "click", rlTap);
   if ($("#rl-times", box)) rlTimes();
   // مرحله‌ی ۳
+  $$("#rl-omode [data-om]", box).forEach((b) => (b.onclick = async () => { s.s3.mode = b.dataset.om; if (b.dataset.om === "video") await rlOutroLoad(); upd(); rlPanel(); }));
+  on("#rl-ovid", "click", () => rlUpload("video/*", (m) => { Object.assign(s.s3, { mode: "video", video_id: m.id, video_dur: m.duration }); upd(); rlPanel(); }));
+  on("#rl-ovid-lib", "change", (ev) => { const m = RL.media.find((x) => x.id === Number(ev.target.value)); Object.assign(s.s3, { video_id: m ? m.id : null, video_dur: m?.duration || null }); upd(); rlPanel(); });
+  on("#rl-ovid-def", "click", () => { s.s3.video_id = null; upd(); rlPanel(); });
   on("#rl-hold", "input", (ev) => { s.s3.hold = Math.max(0, Number(enDigits(ev.target.value)) || 0); upd(); });
   on("#rl-stamp", "click", () => rlUpload("audio/*,video/*", (m) => { s.s3.stamp_id = m.id; upd(); rlPanel(); }));
   on("#rl-stamp-lib", "change", (ev) => { s.s3.stamp_id = Number(ev.target.value) || null; upd(); rlPanel(); });
   on("#rl-stamp-x", "click", () => { s.s3.stamp_id = null; upd(); rlPanel(); });
   $$("[data-o]", box).forEach((el) => el.addEventListener("input", () => {
     s.s3[el.dataset.o] = Number(el.value);
-    el.parentElement.querySelector("small").textContent = el.dataset.o === "stamp_vol" ? `${num(Math.round(s.s3.stamp_vol * 100))}٪` : `${num((+s.s3.stamp_off).toFixed(2))} ث`;
+    el.parentElement.querySelector("small").textContent = el.dataset.o === "stamp_off" ? `${num((+s.s3.stamp_off).toFixed(2))} ث` : `${num(Math.round(s.s3[el.dataset.o] * 100))}٪`;
     upd();
   }));
   on("#rl-stamp-try", "click", () => { rlStop(); RL.t = reelTL().outro; rlPlay(); });
@@ -1559,6 +1609,7 @@ async function reelView(view, params) {
   }
   if (!RL.logoBar) RL.logoBar = rlImg("/static/brand/logo-bar.png");
   if (!RL.mark) RL.mark = rlImg("/static/brand/logo-mark.png");
+  await rlOutroLoad();
   window.onFontLoaded = reelDraw;
   if (!META.ffmpeg) { view.innerHTML = `<div class="card error">ffmpeg روی سرور نصب نیست؛ ساخت ویدیو ممکن نیست.</div>`; return; }
   view.innerHTML = `
