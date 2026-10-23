@@ -39,6 +39,58 @@ MAX_TOTAL_SECONDS = 180
 MAX_CLIPS = 40
 MAX_OVERLAYS = 60
 
+# ───── حرکت عکس، چیدمان چندتایی و گذار بین تکه‌ها (همان حساب‌های ریلزساز در مرورگر) ─────
+PAN_AMT = {"low": 0.35, "mid": 0.65, "high": 0.85, "full": 1.0}     # چه بخشی از عکس پیموده شود
+ZOOM_AMT = {"low": 0.06, "mid": 0.15, "high": 0.28, "full": 0.4}    # چقدر زوم شود
+# چیدمان‌ها: مستطیل هر خانه نسبت به ناحیه‌ی چیدمان (x, y, w, h)؛ خانه‌ی اول سمت راست/بالا
+GRID_LAYOUTS = {
+    "2v": [(0, 0, 1, .5), (0, .5, 1, .5)],
+    "2h": [(.5, 0, .5, 1), (0, 0, .5, 1)],
+    "3t": [(0, 0, 1, .5), (.5, .5, .5, .5), (0, .5, .5, .5)],
+    "3b": [(.5, 0, .5, .5), (0, 0, .5, .5), (0, .5, 1, .5)],
+    "3v": [(0, 0, 1, 1 / 3), (0, 1 / 3, 1, 1 / 3), (0, 2 / 3, 1, 1 / 3)],
+    "4": [(.5, 0, .5, .5), (0, 0, .5, .5), (.5, .5, .5, .5), (0, .5, .5, .5)],
+}
+TRANSITIONS = {"none", "fade", "flash", "cross", "slide"}
+XFADE = {"cross": "fade", "slide": "slideright"}
+
+
+def pan_geom(iw: float, ih: float, W: int, H: int, scale: float, ox: float, oy: float, amt: float, rev: bool):
+    """پیمایش آرام روی عکس: اندازه‌ی عکس بزرگ‌شده و جای پنجره در آغاز و پایان (پیکسل)."""
+    c = max(W / iw, H / ih) * max(1.0, scale)
+    rw, rh = iw * c, ih * c
+    if max((rw - W) / W, (rh - H) / H) < 0.15:   # عکس هم‌شکل قاب: کمی بزرگ‌تر تا جای حرکت باشد
+        c *= 1.15 / max(rw / W, rh / H)
+        rw, rh = iw * c, ih * c
+    ovx, ovy = rw - W, rh - H
+    cx = min(max(ovx / 2 - ox * W, 0), ovx)
+    cy = min(max(ovy / 2 - oy * H, 0), ovy)
+    if ovx / W >= ovy / H:
+        tr = amt * ovx
+        a, b = ovx / 2 + tr / 2, ovx / 2 - tr / 2       # از سمت راست عکس به چپ
+        if rev:
+            a, b = b, a
+        return rw, rh, (a, cy), (b, cy)
+    tr = amt * ovy
+    a, b = ovy / 2 - tr / 2, ovy / 2 + tr / 2           # از بالا به پایین
+    if rev:
+        a, b = b, a
+    return rw, rh, (cx, a), (cx, b)
+
+
+def grid_cells(layout: str, region: tuple[float, float, float, float], gap: float) -> list[tuple[int, int, int, int]]:
+    """مستطیل هر خانه به پیکسل (زوج)، با فاصله‌ی «gap» بین خانه‌ها و دور تا دور."""
+    rx, ry, rw, rh = region
+    out = []
+    for fx, fy, fw, fh in GRID_LAYOUTS[layout]:
+        x0 = rx + fx * rw + (gap if fx < 1e-6 else gap / 2)
+        y0 = ry + fy * rh + (gap if fy < 1e-6 else gap / 2)
+        x1 = rx + (fx + fw) * rw - (gap if fx + fw > 1 - 1e-6 else gap / 2)
+        y1 = ry + (fy + fh) * rh - (gap if fy + fh > 1 - 1e-6 else gap / 2)
+        x, y = int(round(x0 / 2) * 2), int(round(y0 / 2) * 2)
+        out.append((x, y, max(2, int(round((x1 - x) / 2) * 2)), max(2, int(round((y1 - y) / 2) * 2))))
+    return out
+
 
 def available() -> bool:
     return shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
@@ -279,6 +331,10 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
                           "drop": _num(c.get("drop"), 0.25, 0, 3), "land": _num(c.get("land"), 0.85, 0.3, 5),
                           "zoom": False, "gray": False, "start": 0.0, "has_audio": 0})
             continue
+        if c.get("grid"):
+            clips.append(_grid_clip(c["grid"]))
+            clips[-1]["tin"] = _tin(c.get("tin"))
+            continue
         m = get_media(int(c["media_id"]))
         if m["kind"] not in ("image", "video"):
             raise db.ValidationError(f"«{m['filename']}» عکس یا ویدیو نیست")
@@ -300,10 +356,27 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
                       "scale": _num(c.get("scale"), 1.0, 0.3, 4.0), "ox": _num(c.get("ox"), 0.0, -1.0, 1.0),
                       "oy": _num(c.get("oy"), 0.0, -1.0, 1.0),
                       "bright": _num(c.get("bright"), 0.0, -0.8, 0.8),
-                      "motion": c.get("motion") if c.get("motion") in ("zoom", "pan", "none") else None,
+                      "motion": c.get("motion") if c.get("motion") in ("zoom", "zoomout", "pan", "none") else None,
+                      "mamt": c.get("mamt") if c.get("mamt") in PAN_AMT else None, "mrev": bool(c.get("mrev")),
+                      "iw": m["width"], "ih": m["height"], "tin": _tin(c.get("tin")),
                       "mute": bool(c.get("mute", False)), "vol": _num(c.get("vol"), 1.0, 0, 3),
                       "speed": speed if m["kind"] == "video" else 1.0})
-    total = round(sum(c["duration"] for c in clips), 2)
+    # گذار بین دو تکه‌ی پشت سر هم: «محو/فلش» داخل خود تکه‌ها، «درهم/کشویی» با هم‌پوشانی
+    for i, c in enumerate(clips):
+        t = c.get("tin")
+        if not t or i == 0 or clips[i - 1]["kind"] == "outro" or c["kind"] == "outro":
+            c["tin"] = None
+            continue
+        prev = clips[i - 1]
+        t["dur"] = round(min(t["dur"], prev["duration"] * 0.45, c["duration"] * 0.45), 2)
+        if t["dur"] < 0.1:
+            c["tin"] = None
+        elif t["type"] in ("fade", "flash"):
+            col = "white" if t["type"] == "flash" else "black"
+            prev["fout"] = [col, round(t["dur"] / 2, 2)]
+            c["fin"] = [col, round(t["dur"] / 2, 2)]
+    overlap = sum(c["tin"]["dur"] for c in clips if c.get("tin") and c["tin"]["type"] in XFADE)
+    total = round(sum(c["duration"] for c in clips) - overlap, 2)
     if total > MAX_TOTAL_SECONDS:
         raise db.ValidationError(f"مدت کل کلیپ ({total:.0f} ثانیه) بیش از {MAX_TOTAL_SECONDS} ثانیه است")
     overlays = []
@@ -348,6 +421,38 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
                       "end": _num(c.get("end"), 0, 0, total)} for c in (spec.get("captions") or [])[:200]],
         "editor": spec.get("editor") if isinstance(spec.get("editor"), dict) else None,
     }
+
+
+def _tin(t: Any) -> dict[str, Any] | None:
+    if not isinstance(t, dict) or t.get("type") not in TRANSITIONS or t.get("type") == "none":
+        return None
+    return {"type": t["type"], "dur": _num(t.get("dur"), 0.5, 0.1, 2.0)}
+
+
+def _grid_clip(g: dict[str, Any]) -> dict[str, Any]:
+    layout = g.get("layout") if g.get("layout") in GRID_LAYOUTS else "2v"
+    n = len(GRID_LAYOUTS[layout])
+    dur = _num(g.get("duration"), 5.0, 0.5, 60)
+    cells: list[dict[str, Any] | None] = []
+    for c in (g.get("cells") or [])[:n]:
+        if not c or not c.get("media_id"):
+            cells.append(None)
+            continue
+        m = get_media(int(c["media_id"]))
+        if m["kind"] not in ("image", "video"):
+            raise db.ValidationError(f"«{m['filename']}» عکس یا ویدیو نیست")
+        cells.append({"path": m["path"], "kind": m["kind"], "has_audio": m["has_audio"],
+                      "start": _num(c.get("start"), 0, 0, max(0.0, (m["duration"] or 0) - 0.3)) if m["kind"] == "video" else 0.0,
+                      "scale": _num(c.get("scale"), 1.0, 1.0, 4.0), "ox": _num(c.get("ox"), 0, -1, 1), "oy": _num(c.get("oy"), 0, -1, 1),
+                      "mute": bool(c.get("mute", False)), "vol": _num(c.get("vol"), 1.0, 0, 3)})
+    if not any(cells):
+        raise db.ValidationError("در چیدمان چندتایی دست‌کم یک عکس یا ویدیو بگذارید")
+    cells += [None] * (n - len(cells))
+    reg = list(g.get("region") or [0, 0, 1, 1]) + [1, 1, 1, 1]
+    region = (_num(reg[0], 0, 0, 1), _num(reg[1], 0, 0, 1), _num(reg[2], 1, 0.05, 1), _num(reg[3], 1, 0.05, 1))
+    col = g.get("gap_color") if re.fullmatch(r"#[0-9a-fA-F]{6}", str(g.get("gap_color") or "")) else "#ffffff"
+    return {"kind": "grid", "layout": layout, "duration": round(dur, 2), "cells": cells, "region": region,
+            "gap": _num(g.get("gap"), 12, 0, 80), "gap_color": col, "zoom": False, "gray": False, "start": 0.0, "has_audio": 0}
 
 
 # ───────────────────────── ساخت فرمان‌های ffmpeg ─────────────────────────
@@ -431,6 +536,8 @@ def _atempo(speed: float) -> str:
 def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[str]:
     if clip["kind"] == "outro":
         return outro_cmd(clip, spec, out)
+    if clip["kind"] == "grid":
+        return grid_cmd(clip, spec, out)
     w, h = spec["size"]
     d = clip["duration"]
     frames = max(1, round(d * FPS))
@@ -449,13 +556,26 @@ def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[st
         fc[0] = fc[0][: -len("[pv]")] + f",eq=brightness={clip['bright']:.3f}[pv]"
     motion = clip.get("motion") or ("zoom" if clip["zoom"] else "none")
     if clip["kind"] == "image":
-        if motion == "pan":
-            # جابه‌جایی آرام افقی روی تصویر کمی بزرگ‌شده
+        if motion == "pan" and clip.get("iw") and clip.get("ih"):
+            # پیمایش روی کل عکس (یا بخشی از آن) دقیقاً در طول همین تکه؛ با دقت نیم‌پیکسل تا لرزش نداشته باشد
+            rw, rh, (x0, y0), (x1, y1) = pan_geom(clip["iw"], clip["ih"], w, h, clip.get("scale", 1.0), clip.get("ox", 0.0),
+                                                  clip.get("oy", 0.0), PAN_AMT[clip.get("mamt") or "mid"], clip.get("mrev", False))
+            R = 2
+            sw, sh = int(round(rw * R / 2) * 2), int(round(rh * R / 2) * 2)
+            n1 = max(1, frames - 1)
+            fx = f"min({sw - w * R},max(0,{x0 * R:.2f}+({(x1 - x0) * R:.2f})*n/{n1}))"
+            fy = f"min({sh - h * R},max(0,{y0 * R:.2f}+({(y1 - y0) * R:.2f})*n/{n1}))"
+            post = (",hue=s=0" if clip.get("gray") else "") + (f",eq=brightness={clip['bright']:.3f}" if abs(clip.get("bright") or 0) > 0.005 else "")
+            fc = [f"[0:v]scale={sw}:{sh},setsar=1,loop=loop={frames - 1}:size=1:start=0,setpts=N/{FPS}/TB,"
+                  f"crop={w * R}:{h * R}:x='{fx}':y='{fy}',scale={w}:{h}{post}[mv]"]
+        elif motion == "pan":
             fc.append(f"[pv]scale={w * 2}:{h * 2},zoompan=z='1.12':d={frames}:"
                       f"x='(iw-iw/zoom)*on/{frames}':y='ih/2-(ih/zoom/2)':s={w}x{h}:fps={FPS}[mv]")
-        elif motion == "zoom":
-            # زوم آرام (افکت کن برنز) روی تصویر ۲ برابر برای حرکت نرم‌تر
-            fc.append(f"[pv]scale={w * 2}:{h * 2},zoompan=z='1+0.08*on/{frames}':d={frames}:"
+        elif motion in ("zoom", "zoomout"):
+            # زوم آرام به داخل یا بیرون (افکت کن برنز) روی تصویر ۲ برابر برای حرکت نرم‌تر
+            za = ZOOM_AMT[clip["mamt"]] if clip.get("mamt") else 0.08
+            z = f"1+{za}*on/{frames}" if motion == "zoom" else f"{1 + za}-{za}*on/{frames}"
+            fc.append(f"[pv]scale={w * 2}:{h * 2},zoompan=z='{z}':d={frames}:"
                       f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={w}x{h}:fps={FPS}[mv]")
         else:
             fc.append(f"[pv]loop=loop={frames - 1}:size=1:start=0,setpts=N/{FPS}/TB[mv]")
@@ -466,6 +586,10 @@ def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[st
     if spec["transition"] == "fade" and d >= 1.2:
         fc.append(f"{vlast}fade=t=in:st=0:d=0.25,fade=t=out:st={d - 0.25:.2f}:d=0.25[fv]")
         vlast = "[fv]"
+    fades = _dip_fades(clip, d)
+    if fades:
+        fc.append(f"{vlast}{fades}[dv]")
+        vlast = "[dv]"
     fc.append(f"{vlast}{SEG_COLOR}[v]")
     if use_audio:
         fc.append(f"[0:a]aresample=44100,aformat=channel_layouts=stereo,{_atempo(clip.get('speed', 1.0))}"
@@ -479,6 +603,81 @@ def segment_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[st
              *SEG_ENC, "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2",
              "-threads", str(settings.render_threads), out]
     return args
+
+
+def _dip_fades(clip: dict[str, Any], d: float) -> str:
+    """محو از/به سیاه یا سفید در آغاز و پایان تکه (گذار «محو» و «فلش»)."""
+    out = []
+    if clip.get("fin"):
+        col, fd = clip["fin"]
+        out.append(f"fade=t=in:st=0:d={fd:.2f}:color={col}")
+    if clip.get("fout"):
+        col, fd = clip["fout"]
+        out.append(f"fade=t=out:st={max(0.0, d - fd):.2f}:d={fd:.2f}:color={col}")
+    return ",".join(out)
+
+
+def grid_cmd(clip: dict[str, Any], spec: dict[str, Any], out: str) -> list[str]:
+    """چند عکس/ویدیو هم‌زمان در خانه‌های یک چیدمان، با فاصله‌ی رنگی بین خانه‌ها."""
+    w, h = spec["size"]
+    d = clip["duration"]
+    frames = max(1, round(d * FPS))
+    rx, ry, rw, rh = clip["region"]
+    region = (rx * w, ry * h, rw * w, rh * h)
+    rects = grid_cells(clip["layout"], region, clip["gap"] * w / 1080)
+    args = ["ffmpeg", "-y", "-v", "error", "-nostdin"]
+    fc = [f"color=c={spec['bg_color']}:s={w}x{h}:r={FPS}:d={d:.2f},format=yuv420p,"
+          f"drawbox=x={int(region[0])}:y={int(region[1])}:w={int(round(region[2]))}:h={int(round(region[3]))}:color={clip['gap_color']}:t=fill[g0]"]
+    cur, k, auds = "[g0]", 0, []
+    for cell, (x, y, cw, ch) in zip(clip["cells"], rects):
+        if not cell:
+            continue
+        if cell["kind"] == "image":
+            args += ["-i", cell["path"]]
+            src = f"[{k}:v]loop=loop={frames - 1}:size=1:start=0,setpts=N/{FPS}/TB"
+        else:
+            args += ["-ss", f"{cell['start']:.2f}", "-t", f"{d + 0.05:.2f}", "-i", cell["path"]]
+            src = f"[{k}:v]setpts=PTS-STARTPTS,fps={FPS},tpad=stop_mode=clone:stop_duration={d:.2f}"
+            if cell["has_audio"] and spec["keep_audio"] and not cell["mute"]:
+                fc.append(f"[{k}:a]aresample=44100,aformat=channel_layouts=stereo,volume={cell['vol']:.2f},apad,atrim=0:{d:.2f}[ga{k}]")
+                auds.append(f"[ga{k}]")
+        sc, ox, oy = cell["scale"], cell["ox"], cell["oy"]
+        fc.append(f"{src},scale={cw}:{ch}:force_original_aspect_ratio=increase,"
+                  f"scale=trunc(iw*{sc:.4f}/2)*2:trunc(ih*{sc:.4f}/2)*2,"
+                  f"crop={cw}:{ch}:'max(0,min(iw-{cw},(iw-{cw})/2-({ox:.4f})*{cw}))':'max(0,min(ih-{ch},(ih-{ch})/2-({oy:.4f})*{ch}))',"
+                  f"setsar=1,format=yuv420p[c{k}]")
+        fc.append(f"{cur}[c{k}]overlay={x}:{y}:eof_action=repeat[g{k + 1}]")
+        cur = f"[g{k + 1}]"
+        k += 1
+    fades = _dip_fades(clip, d)
+    fc.append(f"{cur}trim=duration={d:.2f}{',' + fades if fades else ''},{SEG_COLOR}[v]")
+    if auds:
+        fc.append(f"{''.join(auds)}amix=inputs={len(auds)}:duration=longest:normalize=0,atrim=0:{d:.2f}[a]" if len(auds) > 1
+                  else f"{auds[0]}anull[a]")
+        amap = "[a]"
+    else:
+        args += ["-f", "lavfi", "-t", f"{d:.2f}", "-i", "anullsrc=r=44100:cl=stereo"]
+        amap = f"{k}:a"
+    return [*args, "-filter_complex", ";".join(fc), "-map", "[v]", "-map", amap, "-t", f"{d:.2f}", "-r", str(FPS),
+            *SEG_ENC, "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2", "-threads", str(settings.render_threads), out]
+
+
+def join_cmd(paths: list[str], durs: list[float], tins: list[dict[str, Any] | None], out: str) -> list[str]:
+    """چند تکه‌ی پشت سر هم با گذار هم‌پوشان (محو درهم / کشویی) به یک تکه."""
+    args = ["ffmpeg", "-y", "-v", "error", "-nostdin"]
+    for p in paths:
+        args += ["-i", p]
+    fc, v, a, length = [], "[0:v]", "[0:a]", durs[0]
+    for i in range(1, len(paths)):
+        t = tins[i]
+        off = max(0.0, length - t["dur"])
+        fc.append(f"{v}[{i}:v]xfade=transition={XFADE[t['type']]}:duration={t['dur']:.2f}:offset={off:.3f}[xv{i}]")
+        fc.append(f"{a}[{i}:a]acrossfade=d={t['dur']:.2f}[xa{i}]")
+        v, a = f"[xv{i}]", f"[xa{i}]"
+        length = off + durs[i]
+    fc.append(f"{v}{SEG_COLOR}[v]")
+    return [*args, "-filter_complex", ";".join(fc), "-map", "[v]", "-map", a, "-r", str(FPS),
+            *SEG_ENC, "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2", "-threads", str(settings.render_threads), out]
 
 
 def final_cmd(spec: dict[str, Any], concat_path: str, overlay_paths: list[str], out: str) -> list[str]:
@@ -641,8 +840,29 @@ class Renderer:
                 seg_paths.append(p)
                 done += clip["duration"]
                 self._set(tid, progress=round(0.6 * done / total, 3))
+            # تکه‌هایی که با «محو درهم/کشویی» به هم وصل می‌شوند، اول با هم یکی شوند
+            joined: list[str] = []
+            chain: list[int] = []
+            clips_ = spec["clips"]
+
+            def flush() -> None:
+                if len(chain) == 1:
+                    joined.append(seg_paths[chain[0]])
+                elif chain:
+                    p = str(work / f"join{len(joined):03d}.mp4")
+                    self._exec(tid, join_cmd([seg_paths[j] for j in chain], [clips_[j]["duration"] for j in chain],
+                                             [clips_[j].get("tin") for j in chain], p))
+                    joined.append(p)
+                chain.clear()
+
+            for i, c in enumerate(clips_):
+                t = c.get("tin")
+                if not (t and t["type"] in XFADE and chain):
+                    flush()
+                chain.append(i)
+            flush()
             lst = work / "list.txt"
-            lst.write_text("".join(f"file '{p}'\n" for p in seg_paths))
+            lst.write_text("".join(f"file '{p}'\n" for p in joined))
             concat = str(work / "all.mp4")
             self._exec(tid, ["ffmpeg", "-y", "-v", "error", "-nostdin", "-f", "concat", "-safe", "0",
                              "-i", str(lst), "-c", "copy", concat])

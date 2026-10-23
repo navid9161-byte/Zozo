@@ -97,10 +97,10 @@ function dnShowResult() {
 // فیلم تمیزشده ← مرحله‌ی دوم (بدنه) ریلزساز
 function dnToReel(m) {
   if (!RL.s) { try { RL.s = { ...reelDefaults(), ...JSON.parse(lsGet("reelDraft", "null") || "{}") }; } catch { RL.s = reelDefaults(); } }
-  Object.assign(RL.s.s2, { media_id: m.id, kind: "video", start: 0, mediaDur: m.duration || 0, has_audio: 1, scale: 1, ox: 0, oy: 0, dur: +Math.min(m.duration || 6, 60).toFixed(1) });
+  rlAddBodyMedia({ ...m, kind: "video", has_audio: 1 });
   RL.s.caps.manual = [];
   RL.tab = 2;
   reelSave();
-  toast("فیلم بدون نویز در مرحله‌ی ۲ ریلز گذاشته شد ✔", 4000);
+  toast("فیلم بدون نویز به بدنه‌ی ریلز (مرحله‌ی ۲) اضافه شد ✔", 4000);
   location.hash = "#teaser";
 }

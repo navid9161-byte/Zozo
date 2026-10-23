@@ -68,11 +68,11 @@ const rlGuidesSave = () => lsSet("rlGuides", JSON.stringify(RL.guides));
 
 // ───── خط زمان ─────
 // سرعت پخش ویدیوی مرحله‌ی ۲ (۱ = عادی، ۰٫۵ = دو برابر کندتر)
-const rlSpeed = () => (RL.s?.s2?.kind === "video" ? Math.min(2, Math.max(0.25, Number(RL.s.s2.speed) || 1)) : 1);
+const rlSpeed = (c = RL.s?.s2) => (c?.kind === "video" ? Math.min(2, Math.max(0.25, Number(c.speed) || 1)) : 1);
 function reelTL() {
   const s = RL.s;
   const d1 = Math.max(0.5, Number(s.s1.dur) || 4);
-  const d2 = s.s2.media_id ? Math.max(0.5, (Number(s.s2.dur) || 1) / rlSpeed()) : 0;
+  const d2 = rlPlan(s).d2;
   const ov = rlOutroVid();
   const d3 = ov ? ov.dur : OUT_ANIM + Math.max(0, Number(s.s3.hold) || 0);
   return { d1, d2, d3, outro: d1 + d2, total: +(d1 + d2 + d3).toFixed(2) };
@@ -231,17 +231,8 @@ function rlFrame(ctx, t, opt = {}) {
     if (el?.naturalWidth) rlMedia(ctx, el, s.s1, { gray: s.s1.gray, bright: s.s1.bright });
     if (!opt.noText) for (const k of ["kick", "head", "sub"]) if (!s.texts[k].hidden && s.texts[k].text.trim()) drawLayer(ctx, s.texts[k]);
   } else {
-    const lt = t - tl.d1, c = s.s2, el = rlEl(c.media_id, c.kind);
-    if (el) {
-      if (c.kind === "video") {
-        const want = (Number(c.start) || 0) + lt * rlSpeed();
-        if (!RL.playing && el.readyState >= 1 && Math.abs(el.currentTime - want) > 0.15) el.currentTime = want;
-        if (el.readyState >= 2) rlMedia(ctx, el, c, {});
-      } else if (el.naturalWidth) {
-        const p = lt / tl.d2;
-        rlMedia(ctx, el, c, { zoom: c.motion === "zoom" ? 1 + 0.08 * p : c.motion === "pan" ? 1.12 : 1, pan: c.motion === "pan" ? (p - 0.5) * 2 : 0 });
-      }
-    }
+    const lt = t - tl.d1;
+    rlDrawBody(ctx, lt);
     if (!opt.noText) {
       for (const k of ["b1", "b2"]) if (!s[k].hidden && s[k].text.trim()) drawLayer(ctx, s[k]);
       const cap = capTimes().find((x) => lt >= x.start && lt < x.end);
@@ -424,7 +415,7 @@ function rlSoundInd() {
   }
   const t2 = rlTrack2();
   if (t2 && t >= t2.at && t < t2.at + t2.dur) out.push(`🎧 صدای جداگانه ${pct(t2.vol)}`);
-  if (t >= tl.d1 && t < tl.outro && snd.video) out.push(`🎞 صدای ویدیو ${pct(s.s2.vol ?? 1)}`);
+  if (t >= tl.d1 && t < tl.outro && rlPlayers().some((p) => p.sound && t >= p.at && t < p.at + p.dur)) out.push("🎞 صدای ویدیو");
   if (rlOutroVid() && t >= tl.outro) out.push(`🎬 صدای ویدیوی پایانی ${pct(Number(s.s3.vvol ?? 1))}`);
   if (s.s3.stamp_id && !rlOutroVid() && t >= tl.outro + OUT_LAND - 0.1 && t < tl.outro + OUT_LAND + 1) out.push("🔨 مُهر");
   box.textContent = out.length ? `${RL.playing ? "🔊 در حال پخش: " : "🔈 در این لحظه: "}${out.join(" · ")}` : "🔇 در این لحظه صدایی نیست";
@@ -443,22 +434,17 @@ function rlPlay() {
   if (a1.media_id) RL.audio = rlAudioEl(a1.media_id, "صدای مرحله‌ی ۱");
   if (s.audio2?.media_id && tl.d2) RL.audio2 = rlAudioEl(s.audio2.media_id, "صدای جداگانه‌ی مرحله‌ی ۲");
   if (s.s3.stamp_id && !stamped && !rlOutroVid()) RL.stampAudio = rlAudioEl(s.s3.stamp_id, "صدای مُهر");
-  const vEl = s.s2.kind === "video" && s.s2.media_id ? rlEl(s.s2.media_id, "video") : null;
-  if (vEl) { vEl.muted = true; vEl.play().then(() => { if (!vStarted) vEl.pause(); }).catch(() => {}); }
-  let vStarted = false, oStarted = false;
+  const players = rlPlayers();
+  for (const p of players) { const el = p.el; el.muted = true; el.play().then(() => { if (!players.some((q) => q.el === el && q.on)) el.pause(); }).catch(() => {}); }
+  let oStarted = false;
   { const ov = rlOutroVid(), oel = ov?.id ? rlEl(ov.id, "video") : null; if (oel) { oel.muted = true; oel.play().then(() => { if (!oStarted) oel.pause(); }).catch(() => {}); } }
   const step = () => {
     if (!RL.playing) return;
     RL.t = from + (performance.now() - t0) / 1000;
     if (RL.t >= tl.total) { rlStop(); RL.t = tl.total - 0.01; reelDraw(); return; }
     const t = RL.t;
-    // ویدیو
-    const c = s.s2, el = c.kind === "video" ? rlEl(c.media_id, "video") : null;
-    if (el) {
-      if (t >= tl.d1 && t < tl.outro) {
-        if (!vStarted) { el.currentTime = (Number(c.start) || 0) + (t - tl.d1) * rlSpeed(); el.playbackRate = rlSpeed(); el.muted = !rlSound().video; el.volume = Math.min(1, c.vol ?? 1); rlPlayEl(el); vStarted = true; }
-      } else if (vStarted) { el.pause(); vStarted = false; }
-    }
+    // ویدیوهای بدنه
+    rlPlayersTick(players, t);
     // صدای مرحله‌ی ۱ (با محو شدن و کم شدن هنگام ویدیو)
     if (RL.audio) {
       const tr = rlTrack1(), inR = tr && t >= tr.at && t < tr.at + tr.dur;
@@ -510,7 +496,7 @@ function rlPlay() {
 function rlSound() {
   const s = RL.s, a = s.audio1, c = s.s2, mode = a.mode || "duck";
   return {
-    video: c.kind === "video" && !!c.has_audio && (c.sound ?? mode !== "music_only"),
+    video: rlBody(s).some((it) => (rlIsGrid(it) ? rlCellsWith(it).some(rlClipSound) : rlClipSound(it))),
     cont: !!a.media_id && (a.s2on ?? mode !== "cut"),
     level: Math.max(0, Math.min(1, Number(a.s2vol ?? (mode === "duck" ? a.duckF ?? 0.25 : 1)))),
   };
@@ -567,8 +553,7 @@ async function reelRender() {
     }
     const lg = rlOutroLogo();
     const clips = [{ media_id: s.s1.media_id, duration: tl.d1, gray: !!s.s1.gray, bright: Number(s.s1.bright) || 0, scale: s.s1.scale, ox: s.s1.ox, oy: s.s1.oy, motion: "none", zoom: false }];
-    if (tl.d2) clips.push({ media_id: s.s2.media_id, start: s.s2.start || 0, duration: tl.d2, speed: rlSpeed(), scale: s.s2.scale, ox: s.s2.ox, oy: s.s2.oy,
-      motion: s.s2.motion, zoom: s.s2.motion === "zoom", mute: !rlSound().video, vol: Number(s.s2.vol ?? 1) });
+    if (tl.d2) clips.push(...rlBodyClips());
     const ov = rlOutroVid();
     if (ov && !ov.id) throw new Error("ویدیوی پایانی پیدا نشد؛ صفحه را دوباره باز کنید");
     if (ov) clips.push({ media_id: ov.id, start: 0, duration: tl.d3, speed: 1, scale: 1, ox: 0, oy: 0, motion: "none", zoom: false, mute: false, vol: Number(s.s3.vvol ?? 1) });
@@ -719,20 +704,20 @@ function rlPanel() {
         </div><p class="small muted">تیک «آرام» را بردارید تا صدا یک‌دفعه شروع یا قطع شود. هنگام پایان مُهری، صدا خودش آرام محو می‌شود.</p>` : `<p class="small muted">موسیقی یا هر صدایی که روی تصاویر پخش شود؛ بلندی، شروع، پایان و محو شدنش قابل تنظیم است.</p>`}
       </div>`;
   } else if (RL.tab === 2) {
-    const c = s.s2, a = s.audio1;
-    h = `<div class="card"><h3>🎞 ویدیو یا تصویر متحرک</h3>
+    const c = s.s2, a = s.audio1, multi = rlBody(s).length > 1;
+    h = rlItemsHTML() + (rlIsGrid(c) ? rlGridHTML(c) : `<div class="card"><h3>🎞 ${multi ? `تکه‌ی ${num(s.bi + 1)}: ` : ""}ویدیو یا تصویر متحرک</h3>
         <div class="btn-row"><button class="btn primary" id="rl-vid">⬆️ بارگذاری ویدیو / GIF / عکس</button>${rlMediaSelect(["video", "image"], c.media_id, 'id="rl-vid-lib"')}
           ${c.media_id ? `<button class="btn sm danger" id="rl-vid-x">حذف</button>` : ""}</div>
         ${c.media_id && c.kind === "video" ? rlTrimHTML(c) : ""}
         ${c.media_id ? `<div class="rl-grid" style="margin-top:8px">
           ${c.kind === "video" ? "" : `<label>مدت (ثانیه)<input type="number" min="0.5" max="60" step="0.5" data-c="dur" value="${c.dur}"></label>
-            <label>حرکت آرام<select data-c="motion">${[["none", "بدون حرکت"], ["zoom", "زوم آرام"], ["pan", "جابه‌جایی آرام"]].map(([v, l]) => `<option value="${v}" ${c.motion === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>`}
+            ${rlDurFromAudio(c)}${rlMotionHTML(c)}`}
           <label class="wide">اندازه <small id="rl-szv">${num(Math.round((c.scale || 1) * 100))}٪</small>
             <span class="btn-row" style="flex-wrap:nowrap"><input type="range" id="rl-sz2" min="0.3" max="3" step="0.01" value="${c.scale || 1}" style="flex:1">
             <button class="btn sm ghost" data-szr="s2" title="اندازه و جای اول">↺</button></span></label>
           <label>جای ویدیو در صفحه<select id="rl-fit">${[["fit", "کامل، روی سیاه"], ["blur", "کامل، پس‌زمینه‌ی تار"], ["crop", "پر کردن کل صفحه"]].map(([v, l]) => `<option value="${v}" ${s.fit === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         </div>
-        <p class="small muted" style="margin:4px 0 0">👆 جای ویدیو را روی پیش‌نمایش با انگشت بکشید.</p>        </div>` : ""}</div>
+        <p class="small muted" style="margin:4px 0 0">👆 جای ویدیو را روی پیش‌نمایش با انگشت بکشید.</p>        </div>` : ""}</div>`) + `
       ${rlTextBox("b1", "نوشته‌ی اول زیر قاب")}${rlTextBox("b2", "نوشته‌ی دوم زیر قاب")}
       <div class="card"><h3>💬 زیرنویس (داخل قاب، پایین)</h3>
         <div class="btn-row">
@@ -1028,10 +1013,18 @@ function rlBind(box) {
   };
   on("#rl-vid", "click", () => rlUpload("video/*,image/*", setVid));
   on("#rl-vid-lib", "change", (ev) => { const m = RL.media.find((x) => x.id === Number(ev.target.value)); if (m) setVid(m); });
-  on("#rl-vid-x", "click", () => { s.s2.media_id = null; upd(); rlPanel(); });
+  on("#rl-vid-x", "click", () => {
+    const body = rlBody(s);
+    if (body.length > 1) { body.splice(s.bi, 1); s.bi = Math.min(s.bi, body.length - 1); s.s2 = body[s.bi]; } else s.s2.media_id = null;
+    s.caps.manual = []; upd(); rlPanel();
+  });
+  if ($(".rl-items", box)) rlBindItems(box, upd);
+  rlBindGrid(box, upd);
+  $$("[data-cm]", box).forEach((el) => (el.onchange = () => { s.s2[el.dataset.cm] = el.dataset.cm === "mrev" ? el.value === "1" : el.value; upd(); rlPanel(); }));
+  if (!rlIsGrid(s.s2)) $$("[data-c-durfrom]", box).forEach((b) => (b.onclick = () => { s.s2.dur = Number(b.dataset.cDurfrom); s.caps.manual = []; upd(); rlPanel(); }));
   $$("[data-c]", box).forEach((el) => el.addEventListener(el.tagName === "SELECT" ? "change" : "input", () => {
     const k = el.dataset.c, c = s.s2;
-    if (k === "motion") c.motion = el.value;
+    if (k === "motion") { c.motion = el.value; if (c.motion === "pan" && !c.mamt) c.mamt = "full"; upd(); rlPanel(); return; }
     else {
       let v = Math.max(0, Number(enDigits(el.value)) || 0);
       if (k === "start" && c.kind === "video") { v = Math.min(v, Math.max(0, c.mediaDur - 0.5)); c.start = v; c.dur = Math.min(c.dur, c.mediaDur - v); }
@@ -1159,7 +1152,7 @@ function rlCtl() {
   const box = $("#rl-ctl");
   if (!box) return;
   const s = RL.s, tl = reelTL(), caps = capTimes();
-  if (!caps.length || !tl.d2 || !s.s2.media_id) { box.hidden = true; box.innerHTML = ""; return; }
+  if (!caps.length || !tl.d2) { box.hidden = true; box.innerHTML = ""; return; }
   box.hidden = false;
   const d2 = tl.d2, pc = (t) => `${(t / d2) * 100}%`;
   const step = d2 > 40 ? 5 : d2 > 16 ? 2 : 1;
@@ -1186,7 +1179,9 @@ function rlCtlHead() {
 }
 // تصاویر همان تکه‌ی بریده‌شده‌ی ویدیو (با سرعت)، یا خود عکس
 function rlCtlStrip(cv) {
-  const c = RL.s.s2, tl = reelTL(), W = 800, H = 56;
+  const plan = rlPlan();
+  if (plan.items.length !== 1 || rlIsGrid(plan.items[0].it)) { rlCtlStripMulti(cv, plan); return; }
+  const c = plan.items[0].it, tl = reelTL(), W = 800, H = 56;
   cv.width = W; cv.height = H;
   const ctx = cv.getContext("2d");
   ctx.fillStyle = "#222"; ctx.fillRect(0, 0, W, H);
@@ -1199,7 +1194,7 @@ function rlCtlStrip(cv) {
     return;
   }
   // یک بار برای هر برش ساخته می‌شود؛ ساختن نیمه‌کاره با رسم دوباره‌ی نوار از نو شروع نمی‌شود
-  const key = `${c.media_id}:${c.start || 0}:${tl.d2}:${rlSpeed()}`;
+  const key = `${c.media_id}:${c.start || 0}:${tl.d2}:${rlSpeed(c)}`;
   RL.ctlStrips = RL.ctlStrips || {};
   const show = (off) => { const cur = $("#rl-ctl .rl-ctl-strip"); if (cur) cur.getContext("2d").drawImage(off, 0, 0, W, H); };
   if (RL.ctlStrips[key]) { show(RL.ctlStrips[key]); return; }
@@ -1212,7 +1207,7 @@ function rlCtlStrip(cv) {
   let i = 0;
   const next = () => {
     if (i >= n) { tv.removeAttribute("src"); tv.load(); return; }
-    tv.currentTime = Math.min((tv.duration || 1) - 0.05, (Number(c.start) || 0) + ((i + 0.5) / n) * tl.d2 * rlSpeed());
+    tv.currentTime = Math.min((tv.duration || 1) - 0.05, (Number(c.start) || 0) + ((i + 0.5) / n) * tl.d2 * rlSpeed(c));
   };
   tv.addEventListener("seeked", () => {
     if (tv.videoWidth) { const vw = tv.videoWidth, vh = tv.videoHeight, sc = Math.max(cw / vw, H / vh), dw = vw * sc, dh = vh * sc; octx.save(); octx.beginPath(); octx.rect(i * cw, 0, cw - 1, H); octx.clip(); octx.drawImage(tv, i * cw + (cw - dw) / 2, (H - dh) / 2, dw, dh); octx.restore(); }
@@ -1325,8 +1320,8 @@ async function rlAsr() {
     const lines = capLines();
     const r = await api("/api/teasers/autocaption", { method: "POST", body: { offset: 0, lines,
       clips: [{ media_id: s.s2.media_id, start: s.s2.start || 0, duration: s.s2.dur }] } });
-    const sp = rlSpeed();
-    if (sp !== 1) r.captions = r.captions.map((c) => ({ ...c, start: +(c.start / sp).toFixed(2), end: +(c.end / sp).toFixed(2) }));
+    const sp = rlSpeed(), at0 = rlPlan().items.find((p) => p.it === s.s2)?.at || 0;   // جای همین ویدیو در بدنه‌ی چندتکه
+    if (sp !== 1 || at0) r.captions = r.captions.map((c) => ({ ...c, start: +(at0 + c.start / sp).toFixed(2), end: +(at0 + c.end / sp).toFixed(2) }));
     if (!r.captions.length) toast("گفتاری در ویدیو شنیده نشد", 5000);
     else {
       if (!r.aligned) s.caps.text = r.captions.map((c) => c.text).join("\n");
@@ -1370,7 +1365,7 @@ function rlBindDrag(cv) {
   const pts = new Map();
   let st = null;
   const pos = (ev) => { const r = cv.getBoundingClientRect(); return { x: (ev.clientX - r.left) * DW / r.width, y: (ev.clientY - r.top) * DH / r.height }; };
-  const clipNow = () => { const tl = reelTL(); return RL.t < tl.d1 ? (RL.s.s1.media_id ? RL.s.s1 : null) : RL.t < tl.outro ? (RL.s.s2.media_id ? RL.s.s2 : null) : null; };
+  const clipNow = () => { const tl = reelTL(); return RL.t < tl.d1 ? (RL.s.s1.media_id ? RL.s.s1 : null) : RL.t < tl.outro ? rlClipAtNow() : null; };
   // چسبیدن یک لبه به خط‌های راهنما، لبه‌های کادرهای دیگر، وسط تصویر و قاب قرمز
   const targets = (axis, self) => {
     const out = axis === "x" ? [DW / 2, SAFE.x, SAFE.x + SAFE.w] : [SAFE.y, SAFE.y + SAFE.h];
@@ -1411,8 +1406,11 @@ function rlBindDrag(cv) {
     }
     const hit = [...rlTextKeysNow()].reverse().find((kk) => { const L = rlTextByKey(kk); return p.x >= L.x && p.x <= L.x + L.w && p.y >= L.y && p.y <= L.y + Math.max(rlBH(L), 60); });
     if (hit) { RL.sel = hit; const L = rlTextByKey(hit); st = { mode: "text", L, p, x: L.x, y: L.y }; RL.drag = true; reelDraw(); return; }
-    const c = clipNow();
     RL.sel = null;
+    // چیدمان چندتایی: عکسِ همان خانه جابه‌جا می‌شود
+    const cell = rlCellAt(p);
+    if (cell) { st = cell.c ? { mode: "clip", c: cell.c, p, ox: cell.c.ox || 0, oy: cell.c.oy || 0, scale: cell.c.scale || 1, dist: 0, kx: cell.r.w, ky: cell.r.h, min: 1 } : null; reelDraw(); return; }
+    const c = clipNow();
     st = c ? { mode: "clip", c, p, ox: c.ox || 0, oy: c.oy || 0, scale: c.scale || 1, dist: 0 } : null;
     reelDraw();
   });
@@ -1446,10 +1444,10 @@ function rlBindDrag(cv) {
       st.out = st.axis === "v" ? p.x >= DW - RULER * rlPx(cv) || p.x < 0 : p.y <= RULER * rlPx(cv) || p.y > DH;
     } else if (pts.size > 1 && st.dist) {
       const [a, b] = [...pts.values()];
-      st.c.scale = +Math.min(4, Math.max(0.3, st.scale * Math.hypot(a.x - b.x, a.y - b.y) / st.dist)).toFixed(3);
+      st.c.scale = +Math.min(4, Math.max(st.min || 0.3, st.scale * Math.hypot(a.x - b.x, a.y - b.y) / st.dist)).toFixed(3);
     } else if (pts.size === 1) {
-      st.c.ox = +Math.max(-1, Math.min(1, st.ox + (p.x - st.p.x) / DW)).toFixed(4);
-      st.c.oy = +Math.max(-1, Math.min(1, st.oy + (p.y - st.p.y) / DH)).toFixed(4);
+      st.c.ox = +Math.max(-1, Math.min(1, st.ox + (p.x - st.p.x) / (st.kx || DW))).toFixed(4);
+      st.c.oy = +Math.max(-1, Math.min(1, st.oy + (p.y - st.p.y) / (st.ky || DH))).toFixed(4);
     }
     reelDraw();
   });
@@ -1477,7 +1475,7 @@ function rlBindDrag(cv) {
 function rlHasWork() {
   let s = RL.s;
   if (!s) { try { s = JSON.parse(lsGet("reelDraft", "null") || "null"); } catch { s = null; } }
-  return !!(s && (s.s1?.media_id || s.s2?.media_id || String(s.caps?.text || "").trim()
+  return !!(s && (s.s1?.media_id || s.s2?.media_id || (s.body || []).some((it) => it?.media_id || (it?.cells || []).some((c) => c?.media_id)) || String(s.caps?.text || "").trim()
     || ["kick", "head", "sub"].some((k) => String(s.texts?.[k]?.text || "").trim())));
 }
 
@@ -1532,7 +1530,7 @@ async function rlLibrary(filter = "all") {
   const [items, u] = await Promise.all([api("/api/media"), api("/api/media/usage")]);
   RL.media = items;
   const mb = (b) => (b > 0 && b < 104858 ? "کمتر از ۰٫۱" : num((b / 1048576).toFixed(b > 104857600 ? 0 : 1)));
-  const used = new Set([RL.s?.s1.media_id, RL.s?.s2.media_id, RL.s?.audio1.media_id, RL.s?.audio2?.media_id, RL.s?.s3.stamp_id].filter(Boolean));
+  const used = new Set([RL.s?.s1.media_id, ...(RL.s ? rlBodyMedia() : []), RL.s?.audio1.media_id, RL.s?.audio2?.media_id, RL.s?.s3.stamp_id].filter(Boolean));
   const kinds = [["all", "همه"], ["image", "🖼 عکس"], ["video", "🎞 ویدیو"], ["audio", "🎵 صدا"], ["temp", "⏳ موقت"]];
   const list = items.filter((m) => filter === "all" || (filter === "temp" ? m.keep === 0 : m.kind === filter));
   const icon = (m) => (m.kind === "audio" ? "🎵" : m.kind === "video" ? "🎞" : "🖼");
@@ -1562,7 +1560,10 @@ async function rlLibrary(filter = "all") {
     const s = RL.s;
     if (s) {
       if (s.s1.media_id === id) s.s1.media_id = null;
-      if (s.s2.media_id === id) s.s2.media_id = null;
+      for (const it of rlBody(s)) {
+        if (it.media_id === id) it.media_id = null;
+        if (it.cells) it.cells = it.cells.map((c) => (c?.media_id === id ? null : c));
+      }
       if (s.audio1.media_id === id) s.audio1.media_id = null;
       if (s.audio2?.media_id === id) s.audio2.media_id = null;
       if (s.s3.stamp_id === id) s.s3.stamp_id = null;

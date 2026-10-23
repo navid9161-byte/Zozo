@@ -343,3 +343,47 @@ def test_video_speed_slow_motion(client, tmp_path):
     t = client.get(f"/api/teasers/{tid}").json()
     assert t["status"] == "done", t.get("error")
     assert abs(teaser.probe(teaser.teaser_file(tid))["duration"] - 4.0) < 0.3
+
+
+def test_reel_body_motion_grid_transitions(client, tmp_path):
+    """بدنه‌ی چندتکه: پیمایش کامل عکس، چیدمان دوتایی، و گذار محو درهم / فلش / کشویی."""
+    import subprocess
+
+    from PIL import Image
+
+    login(client)
+    wide = Image.new("RGB", (1600, 400), (30, 60, 220))     # نیمه‌ی راست آبی
+    wide.paste((220, 30, 30), (0, 0, 800, 400))              # نیمه‌ی چپ قرمز
+    b = io.BytesIO(); wide.save(b, "PNG")
+    wid = client.post("/api/media", files={"files": ("wide.png", b.getvalue(), "image/png")}).json()["added"][0]["id"]
+    pid = client.post("/api/media", files={"files": ("p.png", _png(400, 300, (20, 160, 60, 255)), "image/png")}).json()["added"][0]["id"]
+    vid = tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=320x240:d=3:r=25", "-f", "lavfi", "-i",
+                    "sine=f=300:d=3", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(vid)], check=True)
+    vm = client.post("/api/media", files={"files": ("v.mp4", vid.read_bytes(), "video/mp4")}).json()["added"][0]["id"]
+    spec = {"title": "بدنه", "format": "9:16", "quality": "720", "fit": "crop", "transition": "none", "fade": False,
+            "clips": [{"media_id": pid, "duration": 1, "motion": "none"},
+                      {"media_id": wid, "duration": 2, "motion": "pan", "mamt": "full"},
+                      {"grid": {"layout": "2h", "duration": 2, "gap": 20, "gap_color": "#ffffff", "region": [0.1, 0.1, 0.8, 0.6],
+                                "cells": [{"media_id": pid}, {"media_id": vm, "start": 0.5}]}, "tin": {"type": "cross", "dur": 0.5}},
+                      {"media_id": pid, "duration": 1.5, "tin": {"type": "flash", "dur": 0.6}},
+                      {"media_id": wid, "duration": 1.5, "motion": "zoomout", "mamt": "high", "tin": {"type": "slide", "dur": 0.5}}]}
+    r = client.post("/api/teasers", json=spec)
+    assert r.status_code == 201, r.text
+    t = r.json()
+    assert abs(t["duration"] - 7.0) < 0.01
+    teaser.renderer.run_pending()
+    t = client.get(f"/api/teasers/{t['id']}").json()
+    assert t["status"] == "done", t.get("error")
+    f = teaser.teaser_file(t["id"])
+    assert abs(teaser.probe(f)["duration"] - 7.0) < 0.2
+
+    def px(sec, x, y):
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(sec), "-i", f, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                             capture_output=True, check=True).stdout
+        i = (y * 720 + x) * 3
+        return tuple(raw[i:i + 3])
+    # پیمایش: اول سمت راست عکس (آبی)، آخر سمت چپ (قرمز)
+    assert px(1.05, 360, 640)[2] > 150 and px(2.4, 360, 640)[0] > 150
+    # چیدمان: لبه‌ی ناحیه سفید، خانه‌ی راست سبز
+    assert min(px(3.5, 72 + 4, 128 + 40)) > 200 and px(3.5, 72 + 288 + 100, 128 + 300)[1] > 120
