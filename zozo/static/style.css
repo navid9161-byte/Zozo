@@ -748,3 +748,6 @@ dialog.designer:not([open]) { display: none; }
 .rl-cell-m img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; }
 .rl-cell-m span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rl-cell select { max-width: 150px; }
+.rl-clean { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.rl-clean select { width: auto; }
+.rl-clean-ok { color: #15803d; font-weight: 700; }

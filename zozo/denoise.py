@@ -118,7 +118,7 @@ def _run(job: dict[str, Any], m: dict[str, Any], level: str, normalize: bool) ->
             if p.returncode != 0 or not os.path.getsize(out):
                 raise db.ValidationError("پردازش صدا انجام نشد: " + "".join(err[-3:]).strip()[:300])
             with open(out, "rb") as f:
-                res = teaser.add_media(f, name, keep=False)
+                res = teaser.add_media(f, name, keep=bool(m.get("keep", 0)))  # مثل فایل اصلی: ماندگار یا موقت
             job.update(status="done", progress=1.0, result=res)
         except Exception as e:  # noqa: BLE001
             job.update(status="error", error=str(e) or "خطا")

@@ -689,6 +689,7 @@ function rlPanel() {
       <div class="card"><h3>🎵 صدا</h3>
         <div class="btn-row"><button class="btn" id="rl-aud">🎵 بارگذاری فایل صوتی</button><button class="btn" id="rl-aud-tts" title="خواندن یک متن با صدای زن یا مرد">🗣️ ساخت صدا از متن</button>${rlMediaSelect(["audio", "video"], a.media_id, 'id="rl-aud-lib"')}
           ${a.media_id ? `<button class="btn sm" data-listen="a1">🎧 گوش دادن</button><button class="btn sm danger" id="rl-aud-x">حذف صدا</button>` : ""}</div>
+        ${rlCleanHTML("a1")}
         <div class="rl-defaud">${a.media_id
           ? (rlIsDefaultAudio(a)
             ? `<span class="badge green">⭐ صدای پیش‌فرض ریلزهاست</span> <button class="btn sm ghost" id="rl-def-save" title="تنظیم‌های فعلی (بلندی، محو شدن، …) هم پیش‌فرض شوند">ذخیره‌ی تنظیم‌ها</button><button class="btn sm ghost" id="rl-def-off">برداشتن از پیش‌فرض</button>`
@@ -749,7 +750,7 @@ function rlPanel() {
         ${(() => {
           const snd = rlSound(), a2 = s.audio2 || {}, hasVA = c.kind === "video" && c.has_audio;
           return `<div class="snd-row"><label class="chk"><input type="checkbox" id="rl-vs" ${snd.video ? "checked" : ""} ${hasVA ? "" : "disabled"}> 🎞 صدای خود ویدیو</label>
-            ${hasVA ? (snd.video ? `<label>بلندی <small>${num(Math.round((c.vol ?? 1) * 100))}٪</small><input type="range" min="0" max="2" step="0.05" data-c="vol" value="${c.vol ?? 1}"></label>` : "")
+            ${hasVA ? (snd.video ? `<label>بلندی <small>${num(Math.round((c.vol ?? 1) * 100))}٪</small><input type="range" min="0" max="2" step="0.05" data-c="vol" value="${c.vol ?? 1}"></label>${rlCleanHTML("v")}` : "")
               : `<small class="muted">${!c.media_id ? "(هنوز ویدیویی نگذاشته‌اید)" : c.kind === "image" ? "(عکس صدا ندارد)" : "(این ویدیو صدا ندارد)"}</small>`}</div>
           <div class="snd-row"><label class="chk"><input type="checkbox" id="rl-a1c" ${snd.cont ? "checked" : ""} ${a.media_id ? "" : "disabled"}> 🎵 ادامه‌ی صدای مرحله‌ی ۱</label>
             ${a.media_id ? (snd.cont ? `<label>بلندی در این بخش <small>${num(Math.round(snd.level * 100))}٪</small><input type="range" min="0.05" max="1" step="0.05" id="rl-a1v" value="${snd.level}"></label>` : `<small class="muted">صدای مرحله‌ی ۱ اول این بخش قطع می‌شود</small>`)
@@ -757,6 +758,7 @@ function rlPanel() {
           <div class="snd-row"><b>🎧 صدای جداگانه برای این بخش</b>
             <div class="btn-row"><button class="btn sm" id="rl-a2">🎵 بارگذاری فایل صوتی</button><button class="btn sm" id="rl-a2-tts" title="مثلاً خواندن لید با صدای زن یا مرد">🗣️ ساخت صدا از متن</button>${rlMediaSelect(["audio", "video"], a2.media_id, 'id="rl-a2-lib"')}
               ${a2.media_id ? `<button class="btn sm" data-listen="a2">🎧 گوش دادن</button><button class="btn sm danger" id="rl-a2-x">حذف</button>` : ""}</div>
+            ${rlCleanHTML("a2")}
             ${a2.media_id ? `<div class="rl-grid" style="margin-top:6px">
               <label>بلندی <small>${num(Math.round((a2.vol ?? 1) * 100))}٪</small><input type="range" min="0" max="2" step="0.05" data-a2="vol" value="${a2.vol ?? 1}"></label>
               <label>از ثانیه‌ی چندمِ فایل<input type="number" min="0" step="0.5" data-a2="src" value="${a2.src || 0}"></label>
@@ -1019,6 +1021,7 @@ function rlBind(box) {
     s.caps.manual = []; upd(); rlPanel();
   });
   if ($(".rl-items", box)) rlBindItems(box, upd);
+  rlBindClean(box);
   rlBindGrid(box, upd);
   $$("[data-cm]", box).forEach((el) => (el.onchange = () => { s.s2[el.dataset.cm] = el.dataset.cm === "mrev" ? el.value === "1" : el.value; upd(); rlPanel(); }));
   if (!rlIsGrid(s.s2)) $$("[data-c-durfrom]", box).forEach((b) => (b.onclick = () => { s.s2.dur = Number(b.dataset.cDurfrom); s.caps.manual = []; upd(); rlPanel(); }));

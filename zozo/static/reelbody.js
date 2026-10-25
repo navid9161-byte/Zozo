@@ -379,3 +379,55 @@ function rlCtlStripMulti(cv, plan) {
     if (im.complete && im.naturalWidth) draw(im); else im.addEventListener("load", () => draw(im), { once: true });
   }
 }
+
+// ───── «صدای واضح»: حذف نویز همین‌جا در ریلزساز (صدای ویدیو، صدای جداگانه، صدای مرحله‌ی ۱) ─────
+// نتیجه جای فایل اصلی می‌نشیند (برش، بلندی و زمان‌ها دست نمی‌خورد) و با یک ضربه برمی‌گردد.
+const rlCleanTarget = (k) => (k === "v" ? RL.s.s2 : k === "a1" ? RL.s.audio1 : RL.s.audio2);
+function rlCleanHTML(k) {
+  const t = rlCleanTarget(k);
+  if (!t?.media_id) return "";
+  const busy = RL.cleaning?.[k];
+  if (busy) return `<span class="rl-clean"><button class="btn sm" disabled>⏳ در حال تمیز کردن صدا… ${num(Math.round((busy.progress || 0) * 100))}٪</button></span>`;
+  if (t.clean_of) return `<span class="rl-clean"><span class="small rl-clean-ok">✨ صدا تمیز شده</span><button class="btn sm ghost" data-unclean="${k}">↩ صدای اصلی</button></span>`;
+  const lv = lsGet("dnLevel", "normal");
+  return `<span class="rl-clean"><button class="btn sm" data-clean="${k}" title="حذف نویز باد، کولر، همهمه و وزوز برق؛ تصویر دست نمی‌خورد">✨ صدای واضح (حذف نویز)</button>
+    <select data-clean-lv="${k}" title="شدت حذف نویز">${DN_LEVELS.map(([v, l]) => `<option value="${v}" ${v === lv ? "selected" : ""}>${l}</option>`).join("")}</select></span>`;
+}
+function rlBindClean(box) {
+  $$("[data-clean-lv]", box).forEach((el) => (el.onchange = () => lsSet("dnLevel", el.value)));
+  $$("[data-unclean]", box).forEach((b) => (b.onclick = () => {
+    const t = rlCleanTarget(b.dataset.unclean);
+    if (!t?.clean_of) return;
+    t.media_id = t.clean_of; delete t.clean_of;
+    reelSave(); rlPanel(); reelDraw();
+    toast("صدای اصلی برگشت");
+  }));
+  $$("[data-clean]", box).forEach((b) => (b.onclick = async () => {
+    const k = b.dataset.clean, t = rlCleanTarget(k), src = t.media_id;
+    RL.cleaning = RL.cleaning || {};
+    try {
+      let j = await api("/api/denoise", { method: "POST", body: { media_id: src, level: lsGet("dnLevel", "normal"), normalize: lsGet("dnNorm", "1") === "1" } });
+      RL.cleaning[k] = j; rlPanel();
+      while (["queued", "running"].includes(j.status)) {
+        await new Promise((r) => setTimeout(r, 1000));
+        j = await api(`/api/denoise/${j.id}`);
+        RL.cleaning[k] = j;
+        const btn = $(`.rl-clean button[disabled]`);
+        if (btn) btn.textContent = `⏳ در حال تمیز کردن صدا… ${num(Math.round((j.progress || 0) * 100))}٪`;
+      }
+      if (j.status !== "done") throw new Error(j.error || "حذف نویز انجام نشد");
+      const m = j.result;
+      if (!RL.media.some((x) => x.id === m.id)) RL.media.unshift(m);
+      const cur = rlCleanTarget(k);
+      if (cur?.media_id === src) {   // در این فاصله فایل عوض نشده باشد
+        cur.clean_of = cur.clean_of || src;
+        cur.media_id = m.id;
+        if (k === "v") { cur.mediaDur = m.duration || cur.mediaDur; cur.has_audio = true; }
+        reelSave();
+      }
+      toast("✨ صدا تمیز شد؛ با ▶ گوش کنید. اگر نپسندیدید «↩ صدای اصلی» را بزنید.", 5000);
+    } catch (e) { if (!(e instanceof LoginRequired)) toast(e.message, 6000); }
+    delete RL.cleaning[k];
+    rlPanel(); reelDraw();
+  }));
+}
