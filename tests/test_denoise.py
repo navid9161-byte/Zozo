@@ -68,3 +68,21 @@ def test_builtin_outro_is_hidden_media():
         assert a["kind"] == "video" and a["has_audio"] and 5.5 < a["duration"] < 6.5 and a["keep"] == 1
         assert c.get("/api/reel/outro").json()["id"] == a["id"]          # فقط یک بار ثبت می‌شود
         assert not any(m["id"] == a["id"] for m in c.get("/api/media").json())  # در کتابخانه دیده نمی‌شود
+
+
+@pytest.mark.skipif(not __import__("zozo.dfn", fromlist=["x"]).available(), reason="onnxruntime نصب نیست")
+def test_deepfilternet_removes_noise():
+    import numpy as np
+
+    from zozo import dfn
+
+    # همان پیاده‌سازی libDF: پنجره‌ی ۹۶۰ و ۳۲ باند ERB
+    assert dfn.WIDTHS.sum() == dfn.FFT // 2 + 1 and len(dfn.WIDTHS) == 32
+    rng = np.random.default_rng(0)
+    x = (rng.standard_normal(dfn.SR * 3) * 0.05).astype(np.float32)   # فقط نویز
+    y = dfn.get(1).channel(x)
+    assert len(y) == len(x)
+    db = lambda a: 20 * np.log10(np.sqrt(np.mean(a[dfn.SR:] ** 2)) + 1e-12)
+    assert db(y) < db(x) - 20                     # نویز دست‌کم ۲۰ دسی‌بل کم شد
+    light = dfn.get(1).channel(x, dfn.LEVEL_LIMIT["light"])
+    assert db(x) - 13 < db(light) < db(x) - 8      # «ملایم» فقط تا ۱۲ دسی‌بل

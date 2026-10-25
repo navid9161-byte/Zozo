@@ -16,3 +16,6 @@ edge-tts>=7.0
 piper-tts>=1.3
 # تنظیم سایز عکس و خروجی WebP
 pillow>=10.0
+# حذف نویز گفتار (DeepFilterNet3 به شکل ONNX؛ بدون PyTorch)
+onnxruntime>=1.17
+numpy>=1.24

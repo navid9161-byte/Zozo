@@ -1,6 +1,7 @@
 """حذف نویز صدای فیلم و فایل صوتی.
 
-صدای گفتار با شبکه‌ی عصبی RNNoise (مدل «ضبط با نویز»، داخل ffmpeg: arnndn) تمیز می‌شود؛
+صدای گفتار با شبکه‌ی عصبی DeepFilterNet3 (zozo/dfn.py) تمیز می‌شود؛ اگر در دسترس نباشد،
+با RNNoise داخل ffmpeg (arnndn، ضعیف‌تر).
 تصویر ویدیو اگر H.264/H.265 باشد بی‌تغییر کپی می‌شود (سریع و بی‌افت کیفیت)، وگرنه H.264 می‌شود.
 کار در پس‌زمینه انجام می‌شود و پیشرفتش پرسیدنی است.
 """
@@ -16,7 +17,9 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from . import db, teaser
+import numpy as np
+
+from . import db, dfn, teaser
 from .config import settings
 
 MODEL = Path(__file__).parent / "models" / "rnnoise-cb.rnnn"
@@ -66,6 +69,43 @@ def command(src: str, out: str, kind: str, vcodec: str | None, level: str, norma
     return [*args, "-af", af, "-c:a", "libmp3lame", "-b:a", "192k", "-ar", "48000", out]
 
 
+BLOCK_S, PAD_S = 60, 2   # صدای بلند تکه‌تکه (۶۰ ثانیه + ۲ ثانیه زمینه از هر طرف) تا حافظه کم بماند
+
+
+def _decode(path: str) -> np.ndarray:
+    r = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-i", path, "-map", "0:a:0", "-ac", "1", "-ar", str(dfn.SR),
+                        "-f", "f32le", "-"], capture_output=True, timeout=1800)
+    if r.returncode != 0:
+        raise db.ValidationError("صدای فایل خوانده نشد: " + r.stderr.decode(errors="ignore")[-300:])
+    return np.frombuffer(r.stdout, np.float32).copy()
+
+
+def _dfn_clean(x: np.ndarray, level: str, progress) -> np.ndarray:
+    den = dfn.get(settings.render_threads)
+    n, B, P = len(x), BLOCK_S * dfn.SR, PAD_S * dfn.SR
+    out = np.empty(n, np.float32)
+    starts = list(range(0, max(1, n), B))
+    for k, a in enumerate(starts):
+        b = min(n, a + B)
+        a0, b0 = max(0, a - P), min(n, b + P)
+        y = den.channel(x[a0:b0], dfn.LEVEL_LIMIT.get(level), lambda f: progress((k + f) / len(starts)))
+        out[a:b] = y[a - a0:b - a0]
+    return np.clip(out, -1, 1)
+
+
+def _mux_cmd(src: str, raw: str, out: str, kind: str, vcodec: str | None, normalize: bool) -> list[str]:
+    af = ["-af", "loudnorm=I=-16:TP=-1.5:LRA=11"] if normalize else []
+    args = ["ffmpeg", "-y", "-v", "error", "-nostdin", "-i", src, "-f", "f32le", "-ar", str(dfn.SR), "-ac", "1", "-i", raw]
+    if kind == "video":
+        venc = ["-c:v", "copy"] if vcodec in ("h264", "hevc") else \
+            ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
+        if vcodec == "hevc":
+            venc += ["-tag:v", "hvc1"]
+        return [*args, "-map", "0:v:0", "-map", "1:a", *venc, *af, "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+                "-shortest", "-movflags", "+faststart", "-threads", str(settings.render_threads), out]
+    return [*args, "-map", "1:a", *af, "-c:a", "libmp3lame", "-b:a", "192k", "-ar", "48000", out]
+
+
 def start(media_id: int, level: str = "normal", normalize: bool = True) -> dict[str, Any]:
     if not teaser.available():
         raise db.ValidationError("ffmpeg روی سرور نصب نیست")
@@ -100,8 +140,26 @@ def _run(job: dict[str, Any], m: dict[str, Any], level: str, normalize: bool) ->
         name = f"{stem}-بدون-نویز.{'mp4' if kind == 'video' else 'mp3'}"
         fd, out = tempfile.mkstemp(suffix=".mp4" if kind == "video" else ".mp3", dir=teaser.media_dir())
         os.close(fd)
+        raw = out + ".f32"
         try:
-            args = command(m["path"], out, kind, _video_codec(m["path"]) if kind == "video" else None, level, normalize)
+            vcodec = _video_codec(m["path"]) if kind == "video" else None
+            if dfn.available():
+                x = _decode(m["path"])
+                job["progress"] = 0.05
+
+                def prog(f: float) -> None:
+                    job["progress"] = round(0.05 + 0.85 * min(1.0, f), 3)
+
+                _dfn_clean(x, level, prog).tofile(raw)
+                del x
+                r = subprocess.run(_mux_cmd(m["path"], raw, out, kind, vcodec, normalize), capture_output=True, text=True, timeout=1800)
+                if r.returncode != 0 or not os.path.getsize(out):
+                    raise db.ValidationError("ساخت فایل بدون نویز انجام نشد: " + r.stderr.strip()[-300:])
+                with open(out, "rb") as f:
+                    res = teaser.add_media(f, name, keep=bool(m.get("keep", 0)))
+                job.update(status="done", progress=1.0, result=res, engine="dfn")
+                return
+            args = command(m["path"], out, kind, vcodec, level, normalize)
             dur = m["duration"] or 0
             p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             err: list[str] = []
@@ -123,5 +181,6 @@ def _run(job: dict[str, Any], m: dict[str, Any], level: str, normalize: bool) ->
         except Exception as e:  # noqa: BLE001
             job.update(status="error", error=str(e) or "خطا")
         finally:
-            if os.path.exists(out):
-                os.unlink(out)
+            for f in (out, raw):
+                if os.path.exists(f):
+                    os.unlink(f)
