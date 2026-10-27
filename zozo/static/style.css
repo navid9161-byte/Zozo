@@ -751,3 +751,12 @@ dialog.designer:not([open]) { display: none; }
 .rl-clean { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .rl-clean select { width: auto; }
 .rl-clean-ok { color: #15803d; font-weight: 700; }
+/* مالی: ثبت سریع و روزانه */
+.fd-scope { margin-inline-start: 8px; }
+.fd-quick .fq-amt { display: flex; align-items: center; gap: 10px; margin: 10px 0 6px; flex-wrap: wrap; }
+.fd-quick #fq-amt { font-size: 22px; font-weight: 800; width: 220px; text-align: center; direction: ltr; }
+.fq-cats { display: flex; flex-wrap: wrap; gap: 6px; }
+.fd-daykpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.fd-dayh { display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px; padding-bottom: 2px; border-bottom: 1px solid var(--line); }
+.fd-tx { cursor: pointer; }
+.fd-tx .neg { color: #b91c1c; } .fd-tx .pos { color: #15803d; }

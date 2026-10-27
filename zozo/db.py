@@ -89,6 +89,12 @@ EXPENSE_CATEGORIES = (
     "ایاب‌وذهاب", "اینترنت و تلفن", "تجهیزات", "اشتراک و نرم‌افزار", "کتاب و نشریه",
     "غذا و پذیرایی", "آموزش", "مالیات و بیمه", "سایر هزینه",
 )
+# هزینه‌ها و درآمدهای شخصی / خانه
+PERSONAL_EXPENSE_CATEGORIES = (
+    "خوراک و خرید روزانه", "قبض‌ها (آب، برق، گاز، تلفن)", "اجاره و مسکن", "حمل‌ونقل و سوخت", "درمان و دارو",
+    "پوشاک", "تفریح و رستوران", "آموزش و مدرسه", "هدیه و مهمانی", "اقساط و وام", "سایر شخصی",
+)
+PERSONAL_INCOME_CATEGORIES = ("یارانه", "هدیه", "فروش وسایل", "سود و بهره", "سایر شخصی")
 
 ENTITIES: dict[str, Entity] = {
     e.name: e
@@ -263,7 +269,11 @@ ENTITIES: dict[str, Entity] = {
                     "income": "دریافتی (درآمد)", "expense": "هزینه",
                 }),
                 Field("amount", "مبلغ", "money", required=True),
-                Field("category", "دسته", suggest=INCOME_CATEGORIES + EXPENSE_CATEGORIES),
+                Field("scope", "کاری یا شخصی", "choice", default="work", choices={
+                    "work": "💼 کاری", "personal": "🏠 شخصی / خانه",
+                }),
+                Field("category", "دسته", suggest=INCOME_CATEGORIES + EXPENSE_CATEGORIES
+                      + PERSONAL_EXPENSE_CATEGORIES + PERSONAL_INCOME_CATEGORIES),
                 Field("description", "شرح", required=True),
                 Field("outlet_id", "رسانه / کارفرما", "ref", ref="outlets"),
                 Field("story_id", "مربوط به سوژه", "ref", ref="stories", list_hidden=True),

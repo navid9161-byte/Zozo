@@ -387,3 +387,25 @@ def test_reel_body_motion_grid_transitions(client, tmp_path):
     assert px(1.05, 360, 640)[2] > 150 and px(2.4, 360, 640)[0] > 150
     # چیدمان: لبه‌ی ناحیه سفید، خانه‌ی راست سبز
     assert min(px(3.5, 72 + 4, 128 + 40)) > 200 and px(3.5, 72 + 288 + 100, 128 + 300)[1] > 120
+
+
+def test_finance_daily_and_scope(client):
+    from zozo import db as zdb, jalali
+
+    login(client)
+    today = zdb.today_str()
+    yest = jalali.add_days(today, -1)
+    add = lambda **k: client.post("/api/transactions", json={"description": k.pop("d", "x"), **k})
+    assert add(tx_date=today, kind="expense", amount=150000, category="خوراک و خرید روزانه", scope="personal").status_code == 201
+    assert add(tx_date=today, kind="expense", amount=50000, category="ایاب‌وذهاب").status_code == 201   # پیش‌فرض: کاری
+    assert add(tx_date=yest, kind="expense", amount=30000, category="قبض‌ها (آب، برق، گاز، تلفن)", scope="personal").status_code == 201
+    p = client.get("/api/finance/daily", params={"scope": "personal"}).json()
+    assert p["day"]["expense"] == 150000 and p["scope"] == "personal"
+    assert {c["name"] for c in p["expense_categories"]} >= {"خوراک و خرید روزانه"}
+    assert "ایاب‌وذهاب" not in {c["name"] for c in p["expense_categories"]}
+    a = client.get("/api/finance/daily").json()
+    assert a["day"]["expense"] >= 200000
+    day = next(x for x in a["days"] if x["date"] == today)
+    assert day["expense"] >= 200000 and "(" in day["label"]
+    w = client.get("/api/finance/dashboard", params={"period": "month", "scope": "work"}).json()
+    assert "خوراک و خرید روزانه" not in {c["name"] for c in w["expense_categories"]}

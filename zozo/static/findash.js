@@ -3,27 +3,35 @@
 // نمودارها با SVG ساده ساخته می‌شوند (بدون کتابخانه‌ی خارجی). رنگ‌ها از متغیرهای CSS (--c1…) می‌آیند
 // تا حالت تیره هم درست باشد. هر نمودار راهنما، برچسب و جدول دارد؛ رنگ تنها راه تشخیص نیست.
 
-const FD = { period: "12m" };
+const FD = { period: "12m", scope: "all" };
+const FD_SCOPES = [["all", "همه"], ["work", "💼 کاری"], ["personal", "🏠 شخصی"]];
+const fdScopeSeg = () => `<div class="seg fd-scope">${FD_SCOPES.map(([v, l]) => `<button data-scope="${v}" class="${FD.scope === v ? "active" : ""}">${l}</button>`).join("")}</div>`;
+function fdBindScope(view) {
+  $$("[data-scope]", view).forEach((b) => (b.onclick = () => { FD.scope = b.dataset.scope; lsSet("fdScope", FD.scope); refresh(); }));
+}
 const FD_PERIODS = [["month", "این ماه"], ["3m", "۳ ماه"], ["6m", "۶ ماه"], ["year", "امسال"], ["12m", "۱۲ ماه"], ["all", "همه"]];
 
 function financeTabs(active) {
-  return `<div class="seg fd-tabs"><a href="#finance" class="${active === "dash" ? "active" : ""}">📊 داشبورد</a><a href="#finance?tab=month" class="${active === "month" ? "active" : ""}">📅 گزارش ماهانه</a></div>`;
+  return `<div class="seg fd-tabs"><a href="#finance" class="${active === "dash" ? "active" : ""}">📊 داشبورد</a><a href="#finance?tab=day" class="${active === "day" ? "active" : ""}">📆 روزانه</a><a href="#finance?tab=month" class="${active === "month" ? "active" : ""}">📅 گزارش ماهانه</a></div>`;
 }
 
 VIEWS.finance = async (view, params) => {
   if (params.get("tab") === "month" || params.get("m")) return financeMonthView(view, params);
+  if (params.get("tab") === "day") return financeDailyView(view, params);
   if (params.get("p")) FD.period = params.get("p");
-  const d = await api(`/api/finance/dashboard?period=${FD.period}`);
+  const d = await api(`/api/finance/dashboard?period=${FD.period}&scope=${FD.scope}`);
+  const work = FD.scope !== "personal";
   const k = d.kpi;
   const range = d.months > 1 ? `${esc(d.label_from)} تا ${esc(d.label_to)}` : esc(d.label_to);
   view.innerHTML = `
     <div class="page-title"><h2>💰 مالی</h2>${financeTabs("dash")}</div>
     <div class="fd-filter">
       <div class="seg">${FD_PERIODS.map(([v, l]) => `<button data-p="${v}" class="${FD.period === v ? "active" : ""}">${l}</button>`).join("")}</div>
+      ${fdScopeSeg()}
       <span class="small muted">${range}</span>
     </div>
     <div class="quick-actions">
-      <button id="f-inc">➕ ثبت دریافتی</button><button id="f-exp">➖ ثبت هزینه</button>
+      <button data-go="#finance?tab=day">⚡ ثبت سریع هزینه‌ی امروز</button><button id="f-inc">➕ ثبت دریافتی</button><button id="f-exp">➖ ثبت هزینه</button>
       <button data-go="#invoices">🧾 صدور فاکتور</button><button data-go="#transactions">💳 همه‌ی تراکنش‌ها</button>
       <button data-go="#legal_docs">📜 اسناد و سررسیدها</button><button data-go="#contracts">📑 قراردادها</button>
     </div>
@@ -37,9 +45,9 @@ VIEWS.finance = async (view, params) => {
       <div class="fd-kpis">
         ${fdKpi("درآمد", k.income, fdDelta(k.income, k.prev_income, true), "c1")}
         ${fdKpi("هزینه", k.expense, fdDelta(k.expense, k.prev_expense, false), "c2")}
-        ${fdKpi("فاکتور صادرشده", k.billed, `<span class="small muted">${num(k.billed_count)} فاکتور</span>`, "c7")}
+        ${work ? `${fdKpi("فاکتور صادرشده", k.billed, `<span class="small muted">${num(k.billed_count)} فاکتور</span>`, "c7")}
         ${fdKpi("وصول‌شده از فاکتورها", k.collected, k.collection_rate != null ? fdMeter(k.collection_rate) : `<span class="small muted">—</span>`, "c3")}
-        ${fdKpi("مطالبات باز (طلب)", k.receivable, `<span class="small muted">${num(k.receivable_count)} مورد${k.overdue ? ` · <b class="fd-late">⚠ ${moneyWords(k.overdue)} بیش از ۶۰ روز</b>` : ""}</span>`, "", "#finance?tab=month")}
+        ${fdKpi("مطالبات باز (طلب)", k.receivable, `<span class="small muted">${num(k.receivable_count)} مورد${k.overdue ? ` · <b class="fd-late">⚠ ${moneyWords(k.overdue)} بیش از ۶۰ روز</b>` : ""}</span>`, "", "#finance?tab=month")}` : ""}
       </div>
     </div>
 
@@ -53,7 +61,7 @@ VIEWS.finance = async (view, params) => {
       <div class="card"><h3>📤 هزینه به تفکیک دسته</h3>${fdDonut(d.expense_categories, "expense", "کل هزینه")}</div>
     </div>
 
-    <div class="card"><div class="fd-head"><h3>🧾 فاکتورشده در برابر وصول‌شده</h3>${fdLegend([["c7", "فاکتورشده"], ["c3", "وصول‌شده"]])}</div>
+    ${work ? `<div class="card"><div class="fd-head"><h3>🧾 فاکتورشده در برابر وصول‌شده</h3>${fdLegend([["c7", "فاکتورشده"], ["c3", "وصول‌شده"]])}</div>
       ${d.trend.some((t) => t.billed || t.collected) ? fdColumns(d.trend, [["billed", "فاکتورشده", "c7"], ["collected", "وصول‌شده", "c3"]])
         : `<div class="empty">در این بازه فاکتوری صادر یا وصول نشده. <a href="#invoices">صدور فاکتور</a></div>`}
     </div>
@@ -81,11 +89,13 @@ VIEWS.finance = async (view, params) => {
           : `<div class="empty">همه‌ی فاکتورها پرداخت شده‌اند ✔</div>`}
       </div>
       <div class="card"><h3>🏢 درآمد به تفکیک رسانه / کارفرما</h3>${d.by_outlet.length ? fdHbars(d.by_outlet) : `<div class="empty">موردی نیست.</div>`}</div>
-    </div>`;
+    </div>` : ""}`;
 
   $$("[data-p]", view).forEach((b) => (b.onclick = () => { FD.period = b.dataset.p; lsSet("fdPeriod", FD.period); refresh(); }));
-  $("#f-inc").onclick = () => openForm("transactions", null, { kind: "income" });
-  $("#f-exp").onclick = () => openForm("transactions", null, { kind: "expense" });
+  const sc = FD.scope === "all" ? {} : { scope: FD.scope };
+  $("#f-inc").onclick = () => openForm("transactions", null, { kind: "income", ...sc });
+  $("#f-exp").onclick = () => openForm("transactions", null, { kind: "expense", ...sc });
+  fdBindScope(view);
   $$("[data-pay]", view).forEach((b) => (b.onclick = async (ev) => {
     ev.stopPropagation();
     const inv = await api(`/api/invoices/${b.dataset.pay}`);
@@ -93,7 +103,7 @@ VIEWS.finance = async (view, params) => {
   }));
   fdBindTips(view);
 };
-try { FD.period = lsGet("fdPeriod", "12m") || "12m"; } catch { /* */ }
+try { FD.period = lsGet("fdPeriod", "12m") || "12m"; FD.scope = lsGet("fdScope", "all") || "all"; } catch { /* */ }
 
 // ───────────── اجزا ─────────────
 function fdKpi(label, value, sub, swatch, go) {
@@ -264,4 +274,98 @@ function fdBindTips(root) {
     el.addEventListener("pointerleave", (ev) => { if (ev.pointerType === "mouse") hide(); });
   });
   document.addEventListener("scroll", hide, { passive: true, once: true });
+}
+
+// ═════════════════════════ روزانه: ثبت سریع و نمودار روزهای ماه ═════════════════════════
+const FQ_CATS = {
+  "expense:personal": ["خوراک و خرید روزانه", "قبض‌ها (آب، برق، گاز، تلفن)", "اجاره و مسکن", "حمل‌ونقل و سوخت", "درمان و دارو", "پوشاک", "تفریح و رستوران", "آموزش و مدرسه", "هدیه و مهمانی", "اقساط و وام", "سایر شخصی"],
+  "expense:work": ["ایاب‌وذهاب", "اینترنت و تلفن", "تجهیزات", "اشتراک و نرم‌افزار", "کتاب و نشریه", "غذا و پذیرایی", "آموزش", "مالیات و بیمه", "سایر هزینه"],
+  "income:personal": ["یارانه", "هدیه", "فروش وسایل", "سود و بهره", "سایر شخصی"],
+  "income:work": ["حقوق", "دستمزد کار", "صورتحساب", "قرارداد", "پاداش", "تدریس / کارگاه", "سایر درآمد"],
+};
+const FQ = { kind: "expense", scope: null, cat: "", date: null };
+const fqAmount = (v) => Number(enDigits(String(v || "")).replace(/[^\d]/g, "")) || 0;
+
+function fdQuickHTML(d) {
+  FQ.scope = FQ.scope || (FD.scope === "all" ? lsGet("fqScope", "personal") : FD.scope);
+  FQ.date = FQ.date || d.today;
+  const base = FQ_CATS[`${FQ.kind}:${FQ.scope}`] || [];
+  const freq = FQ.kind === "expense" ? (d.frequent || []).filter((c) => base.includes(c)) : [];
+  const cats = [...new Set([...freq, ...base])];
+  if (!cats.includes(FQ.cat)) FQ.cat = cats[0] || "";
+  const yest = Jalali.addDays(d.today, -1);
+  return `<div class="card fd-quick"><h3>⚡ ثبت سریع</h3>
+    <div class="btn-row">
+      <div class="seg" id="fq-kind"><button data-k="expense" class="${FQ.kind === "expense" ? "active" : ""}">➖ هزینه</button><button data-k="income" class="${FQ.kind === "income" ? "active" : ""}">➕ دریافتی</button></div>
+      <div class="seg" id="fq-scope"><button data-s="personal" class="${FQ.scope === "personal" ? "active" : ""}">🏠 شخصی / خانه</button><button data-s="work" class="${FQ.scope === "work" ? "active" : ""}">💼 کاری</button></div>
+    </div>
+    <div class="fq-amt"><input id="fq-amt" inputmode="numeric" autocomplete="off" placeholder="مبلغ به ${META.currency}"><span class="small muted" id="fq-words"></span></div>
+    <div class="fq-cats">${cats.map((c) => `<button type="button" class="chip ${c === FQ.cat ? "active" : ""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("")}</div>
+    <div class="btn-row" style="margin-top:8px">
+      <input id="fq-desc" placeholder="شرح (اختیاری) — مثلاً نان و شیر" style="flex:1;min-width:160px">
+      <div class="seg" id="fq-day"><button data-d="${d.today}" class="${FQ.date === d.today ? "active" : ""}">امروز</button><button data-d="${yest}" class="${FQ.date === yest ? "active" : ""}">دیروز</button></div>
+      <input id="fq-date" value="${fa(FQ.date)}" style="width:110px;text-align:center" title="تاریخ">
+      <button class="btn primary" id="fq-go">✔ ثبت</button>
+    </div></div>`;
+}
+function fdBindQuick(view) {
+  const amt = $("#fq-amt", view), words = $("#fq-words", view);
+  amt.oninput = () => { const v = fqAmount(amt.value); amt.value = v ? num(v) : ""; words.textContent = v ? `${moneyWords(v)} ${META.currency}` : ""; };
+  $$("#fq-kind [data-k]", view).forEach((b) => (b.onclick = () => { FQ.kind = b.dataset.k; FQ.cat = ""; refresh(); }));
+  $$("#fq-scope [data-s]", view).forEach((b) => (b.onclick = () => { FQ.scope = b.dataset.s; lsSet("fqScope", FQ.scope); FQ.cat = ""; refresh(); }));
+  $$("[data-cat]", view).forEach((b) => (b.onclick = () => { FQ.cat = b.dataset.cat; $$("[data-cat]", view).forEach((x) => x.classList.toggle("active", x === b)); amt.focus(); }));
+  $$("#fq-day [data-d]", view).forEach((b) => (b.onclick = () => { FQ.date = b.dataset.d; $("#fq-date", view).value = fa(FQ.date); $$("#fq-day [data-d]", view).forEach((x) => x.classList.toggle("active", x === b)); }));
+  const go = async () => {
+    const v = fqAmount(amt.value);
+    if (!v) { amt.focus(); return toast("مبلغ را بنویسید"); }
+    const date = enDigits($("#fq-date", view).value.trim()) || FQ.date;
+    const desc = $("#fq-desc", view).value.trim();
+    try {
+      await api("/api/transactions", { method: "POST", body: { tx_date: date, kind: FQ.kind, amount: v, category: FQ.cat || null, description: desc || FQ.cat || (FQ.kind === "expense" ? "هزینه" : "دریافتی"), scope: FQ.scope } });
+      toast(`✔ ${FQ.kind === "expense" ? "هزینه" : "دریافتی"} ${moneyWords(v)} ${META.currency} ثبت شد`);
+      refresh();
+    } catch (e) { if (!(e instanceof LoginRequired)) toast(e.message, 6000); }
+  };
+  $("#fq-go", view).onclick = go;
+  amt.onkeydown = (ev) => { if (ev.key === "Enter") go(); };
+  $("#fq-desc", view).onkeydown = (ev) => { if (ev.key === "Enter") go(); };
+}
+
+async function financeDailyView(view, params) {
+  const month = params.get("dm") || "";
+  const d = await api(`/api/finance/daily?scope=${FD.scope}${month ? `&month=${encodeURIComponent(month)}` : ""}`);
+  const wk = d.week, pw = d.prev_week;
+  d.month_label = fa(d.month_label);
+  d.days.forEach((x) => (x.label = fa(x.label)));
+  const byDay = {};
+  for (const r of d.recent) (byDay[r.tx_date] = byDay[r.tx_date] || []).push(r);
+  view.innerHTML = `
+    <div class="page-title"><h2>💰 مالی</h2>${financeTabs("day")}</div>
+    <div class="fd-filter">${fdScopeSeg()}
+      <span class="btn-row"><a class="btn sm ghost" href="#finance?tab=day&dm=${encodeURIComponent(d.prev_month)}">→ ماه قبل</a><b>${esc(d.month_label)}</b><a class="btn sm ghost" href="#finance?tab=day&dm=${encodeURIComponent(d.next_month)}">ماه بعد ←</a></span></div>
+    ${fdQuickHTML(d)}
+    <div class="fd-kpis fd-daykpi card">
+      ${fdKpi("هزینه‌ی امروز", d.day.expense, `<span class="small muted">${esc(fa(d.today_label))} · ${num(d.day.count)} ثبت</span>`, "c2")}
+      ${fdKpi("هزینه‌ی این هفته", wk.expense, fdDelta(wk.expense, pw.expense, false, "نسبت به هفته‌ی قبل"), "c2")}
+      ${fdKpi(`هزینه‌ی ${esc(d.month_label)}`, d.month_sum.expense, `<span class="small muted">میانگین روزانه ${moneyWords(d.avg_daily_expense)}</span>`, "c2")}
+      ${fdKpi(`دریافتی ${esc(d.month_label)}`, d.month_sum.income, `<span class="small muted">خالص ${moneyWords(d.month_sum.income - d.month_sum.expense)}</span>`, "c1")}
+    </div>
+    <div class="card"><div class="fd-head"><h3>📆 هزینه و دریافتی روزهای ${esc(d.month_label)}</h3>${fdLegend([["c2", "هزینه"], ["c1", "دریافتی"]])}</div>
+      ${fdColumns(d.days, [["expense", "هزینه", "c2"], ["income", "دریافتی", "c1"]])}
+      ${fdTable(d.days.filter((x) => x.income || x.expense), [["label", "روز"], ["income", "دریافتی"], ["expense", "هزینه"]], (r) => ({ ...r, net: r.income - r.expense }))}</div>
+    <div class="grid fd-grid2">
+      <div class="card"><h3>🥧 هزینه‌های ${esc(d.month_label)} به تفکیک دسته</h3>${fdDonut(d.expense_categories, "expense", "کل هزینه")}</div>
+      <div class="card"><h3>🧾 ثبت‌های دو هفته‌ی اخیر</h3>
+        ${Object.keys(byDay).length ? Object.entries(byDay).map(([day, list]) => `<div class="fd-dayh"><b>${esc(fa(day))}</b><small class="muted">هزینه ${moneyWords(list.filter((r) => r.kind === "expense").reduce((a, r) => a + r.amount, 0))}</small></div>
+          ${list.map((r) => `<div class="row fd-tx" data-tx="${r.id}"><span>${r.scope === "personal" ? "🏠" : "💼"} ${esc(r.description || r.category || "")}${r.kind === "income" ? ` <small class="pos">(دریافتی)</small>` : ""}
+            ${r.category && r.category !== r.description ? `<br><small class="muted">${esc(r.category)}</small>` : ""}</span>
+            <b class="${r.kind === "expense" ? "neg" : "pos"}">${moneyWords(r.amount)}</b></div>`).join("")}`).join("")
+          : `<div class="empty">در دو هفته‌ی اخیر چیزی ثبت نشده. با «⚡ ثبت سریع» شروع کنید.</div>`}
+        <div class="btn-row" style="margin-top:8px"><a class="btn sm" href="#transactions">💳 همه‌ی تراکنش‌ها</a></div></div>
+    </div>`;
+  fdBindScope(view);
+  fdBindQuick(view);
+  $$("[data-tx]", view).forEach((el) => (el.onclick = async () => openForm("transactions", await api(`/api/transactions/${el.dataset.tx}`))));
+  fdBindTips(view);
+  if (window.innerWidth > 700) $("#fq-amt", view).focus();
 }

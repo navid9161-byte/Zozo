@@ -142,9 +142,23 @@ def finance_summary(conn: sqlite3.Connection, month: str | None = None) -> dict[
 PERIODS = {"month": 1, "3m": 3, "6m": 6, "12m": 12, "year": 0, "all": -1}
 
 
-def finance_dashboard(conn: sqlite3.Connection, period: str = "12m", month: str | None = None) -> dict[str, Any]:
+SCOPES = {"work": "COALESCE(scope,'work')='work'", "personal": "scope='personal'"}
+
+
+def _scope_sql(scope: str, alias: str = "") -> str:
+    """شرط «کاری / شخصی» برای پرس‌وجوی تراکنش‌ها (همه = بدون شرط)."""
+    s = SCOPES.get(scope)
+    if not s:
+        return ""
+    return " AND " + (s.replace("scope", f"{alias}.scope") if alias else s)
+
+
+def finance_dashboard(conn: sqlite3.Connection, period: str = "12m", month: str | None = None,
+                      scope: str = "all") -> dict[str, Any]:
     """داشبورد مالی: شاخص‌ها، روند ماهانه، ترکیب درآمد/هزینه، طلب‌ها و سن مطالبات."""
     from . import invoices
+
+    sc, sct = _scope_sql(scope), _scope_sql(scope, "t")
 
     today = db.today_str()
     end_key = month or jalali.month_key(today)
@@ -167,7 +181,7 @@ def finance_dashboard(conn: sqlite3.Connection, period: str = "12m", month: str 
     def sums(a: str, b: str) -> tuple[int, int]:
         r = conn.execute("SELECT COALESCE(SUM(CASE WHEN kind='income' THEN amount END),0) i, "
                          "COALESCE(SUM(CASE WHEN kind='expense' THEN amount END),0) e FROM transactions "
-                         "WHERE tx_date BETWEEN ? AND ?", (a, b)).fetchone()
+                         "WHERE tx_date BETWEEN ? AND ?" + sc, (a, b)).fetchone()
         return r["i"], r["e"]
 
     income, expense = sums(d_from, d_to)
@@ -191,12 +205,12 @@ def finance_dashboard(conn: sqlite3.Connection, period: str = "12m", month: str 
         return [dict(r) for r in conn.execute(sql, (d_from, d_to))]
 
     inc_cat = group("SELECT COALESCE(NULLIF(category,''),'بدون دسته') name, SUM(amount) total FROM transactions "
-                    "WHERE kind='income' AND tx_date BETWEEN ? AND ? GROUP BY name ORDER BY total DESC")
+                    "WHERE kind='income' AND tx_date BETWEEN ? AND ?" + sc + " GROUP BY name ORDER BY total DESC")
     exp_cat = group("SELECT COALESCE(NULLIF(category,''),'بدون دسته') name, SUM(amount) total FROM transactions "
-                    "WHERE kind='expense' AND tx_date BETWEEN ? AND ? GROUP BY name ORDER BY total DESC")
+                    "WHERE kind='expense' AND tx_date BETWEEN ? AND ?" + sc + " GROUP BY name ORDER BY total DESC")
     by_outlet = group("SELECT COALESCE(o.name,'بدون رسانه') name, SUM(t.amount) total FROM transactions t "
-                      "LEFT JOIN outlets o ON o.id=t.outlet_id WHERE t.kind='income' AND t.tx_date BETWEEN ? AND ? "
-                      "GROUP BY name ORDER BY total DESC")
+                      "LEFT JOIN outlets o ON o.id=t.outlet_id WHERE t.kind='income' AND t.tx_date BETWEEN ? AND ?" + sct
+                      + " GROUP BY name ORDER BY total DESC")
 
     rec = receivables(conn)
     rec_parts = [
@@ -223,7 +237,7 @@ def finance_dashboard(conn: sqlite3.Connection, period: str = "12m", month: str 
         debtors[who] = debtors.get(who, 0) + due
     billed_total = sum(i["payable"] for i in billed_in)
     return {
-        "period": period, "from": d_from, "to": d_to, "label_from": jalali.month_label(keys[0]),
+        "period": period, "scope": scope if scope in SCOPES else "all", "from": d_from, "to": d_to, "label_from": jalali.month_label(keys[0]),
         "label_to": jalali.month_label(keys[-1]), "months": len(keys),
         "kpi": {
             "income": income, "expense": expense, "net": income - expense,
@@ -238,6 +252,63 @@ def finance_dashboard(conn: sqlite3.Connection, period: str = "12m", month: str 
         "debtors": [{"name": k, "total": v} for k, v in sorted(debtors.items(), key=lambda x: -x[1])[:6]],
         "open_invoices": rec["invoices"][:10],
         "recent_payments": payments[:8],
+    }
+
+
+WEEKDAYS = ("شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه")
+
+
+def finance_daily(conn: sqlite3.Connection, month: str | None = None, scope: str = "all") -> dict[str, Any]:
+    """هزینه و درآمد روزانه: امروز، این هفته، روزهای ماه، دسته‌ها و آخرین ثبت‌ها."""
+    today = db.today_str()
+    month = month or jalali.month_key(today)
+    a, b = jalali.month_range(month)
+    sc = _scope_sql(scope)
+
+    def sums(x: str, y: str) -> dict[str, int]:
+        r = conn.execute("SELECT COALESCE(SUM(CASE WHEN kind='income' THEN amount END),0) i, "
+                         "COALESCE(SUM(CASE WHEN kind='expense' THEN amount END),0) e, COUNT(*) n FROM transactions "
+                         "WHERE tx_date BETWEEN ? AND ?" + sc, (x, y)).fetchone()
+        return {"income": r["i"], "expense": r["e"], "count": r["n"]}
+
+    # هفته از شنبه
+    g = jalali.parse(today)
+    w_from = jalali.add_days(today, -((g.weekday() + 2) % 7))
+    w_to = jalali.add_days(w_from, 6)
+    pw_from, pw_to = jalali.add_days(w_from, -7), jalali.add_days(w_from, -1)
+    rows = {r["tx_date"]: r for r in conn.execute(
+        "SELECT tx_date, COALESCE(SUM(CASE WHEN kind='income' THEN amount END),0) i, "
+        "COALESCE(SUM(CASE WHEN kind='expense' THEN amount END),0) e FROM transactions "
+        "WHERE tx_date BETWEEN ? AND ?" + sc + " GROUP BY tx_date", (a, b))}
+    mname = jalali.month_label(month).split(" ")[0]
+    days = []
+    for d in range(1, int(b[-2:]) + 1):
+        key = f"{month}/{d:02d}"
+        r = rows.get(key)
+        wd = WEEKDAYS[(jalali.parse(key).weekday() + 2) % 7]
+        days.append({"date": key, "label": f"{d} {mname} ({wd})", "income": r["i"] if r else 0, "expense": r["e"] if r else 0})
+    cats = [dict(r) for r in conn.execute(
+        "SELECT COALESCE(NULLIF(category,''),'بدون دسته') name, SUM(amount) total FROM transactions "
+        "WHERE kind='expense' AND tx_date BETWEEN ? AND ?" + sc + " GROUP BY name ORDER BY total DESC", (a, b))]
+    recent = [dict(r) for r in conn.execute(
+        "SELECT id, tx_date, kind, amount, category, description, COALESCE(scope,'work') scope FROM transactions "
+        "WHERE tx_date BETWEEN ? AND ?" + sc + " ORDER BY tx_date DESC, id DESC LIMIT 40",
+        (jalali.add_days(today, -13), today))]
+    m = sums(a, b)
+    passed = min(len(days), max(1, jalali.days_between(a, min(today, b)) + 1)) if a <= today else len(days)
+    # دسته‌هایی که بیشتر استفاده شده‌اند (برای ثبت سریع)
+    used = [r["category"] for r in conn.execute(
+        "SELECT category, COUNT(*) n FROM transactions WHERE kind='expense' AND COALESCE(category,'')!='' "
+        "AND tx_date >= ?" + sc + " GROUP BY category ORDER BY n DESC LIMIT 8", (jalali.add_days(today, -90),))]
+    prev = jalali.prev_months(month, 2)[0]
+    return {
+        "month": month, "month_label": jalali.month_label(month), "scope": scope if scope in SCOPES else "all",
+        "today": today, "today_label": f"{WEEKDAYS[(g.weekday() + 2) % 7]} {today}",
+        "day": sums(today, today), "week": sums(w_from, w_to), "prev_week": sums(pw_from, pw_to),
+        "week_from": w_from, "week_to": w_to,
+        "month_sum": m, "avg_daily_expense": round(m["expense"] / passed) if passed else 0,
+        "days": days, "expense_categories": cats, "recent": recent, "frequent": used,
+        "prev_month": prev, "next_month": jalali.month_key(jalali.add_months(a, 1)),
     }
 
 

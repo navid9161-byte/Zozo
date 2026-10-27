@@ -324,9 +324,15 @@ def finance(month: str | None = None):
 
 
 @app.get("/api/finance/dashboard")
-def finance_dashboard(period: str = "12m", month: str | None = None):
+def finance_dashboard(period: str = "12m", month: str | None = None, scope: str = "all"):
     with db.connect() as conn:
-        return services.finance_dashboard(conn, period, _month(month))
+        return services.finance_dashboard(conn, period, _month(month), scope)
+
+
+@app.get("/api/finance/daily")
+def finance_daily(month: str | None = None, scope: str = "all"):
+    with db.connect() as conn:
+        return services.finance_daily(conn, _month(month), scope)
 
 
 @app.get("/api/finance/csv")
