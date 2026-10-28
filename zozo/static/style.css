@@ -760,3 +760,31 @@ dialog.designer:not([open]) { display: none; }
 .fd-dayh { display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px; padding-bottom: 2px; border-bottom: 1px solid var(--line); }
 .fd-tx { cursor: pointer; }
 .fd-tx .neg { color: #b91c1c; } .fd-tx .pos { color: #15803d; }
+/* فاکتور روزنامه‌ها */
+.pp-filter .btn-row { align-items: end; gap: 8px; }
+.pp-filter label { display: grid; gap: 2px; font-size: 12.5px; color: var(--muted); }
+.pp-filter select, .pp-filter input { min-width: 120px; }
+.pp-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.pp-table th, .pp-table td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: right; vertical-align: middle; }
+.pp-table thead th { background: var(--bg, #f6f7f9); font-weight: 700; white-space: nowrap; position: sticky; top: 0; }
+.pp-table tfoot th { background: var(--primary-soft); font-weight: 800; }
+.pp-table td.num, .pp-table th.num { text-align: left; direction: ltr; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pp-table .pos { color: var(--ok); } .pp-table .neg { color: var(--danger); font-weight: 700; }
+.pp-table .nw { white-space: nowrap; }
+.pp-table tbody tr { cursor: pointer; } .pp-table tbody tr:hover { background: var(--primary-soft); }
+.pp-st { border: 0; cursor: pointer; font: inherit; font-size: 12.5px; white-space: nowrap; }
+.pp-grp td:first-child { font-weight: 700; }
+.pp-sseg { display: flex; flex-wrap: wrap; margin-top: 4px; }
+.pp-form .money-hint, .pp-check { color: var(--muted); }
+.pp-check { color: var(--warn); margin-top: 4px; min-height: 1em; }
+.pp-quick { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.pp-hist { margin-top: 10px; } .pp-hist ol { margin: 6px 0 0; padding-inline-start: 20px; }
+.pp-papers { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 0; }
+.pp-papers .chk { display: flex; align-items: center; gap: 4px; }
+.pp-fgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+.pp-fgrid > label { display: grid; gap: 3px; font-size: 13px; font-weight: 600; }
+.pp-fgrid > label.wide { grid-column: 1 / -1; }
+.pp-fgrid input, .pp-fgrid select { width: 100%; }
+.pp-fgrid input[inputmode=numeric] { direction: ltr; text-align: left; font-variant-numeric: tabular-nums; }
+.pp-fgrid .money-hint { font-weight: 400; font-size: 12px; color: var(--muted); min-height: 1em; }
+@media (max-width: 560px) { .pp-fgrid { grid-template-columns: 1fr; } .pp-quick { grid-template-columns: 1fr; } }

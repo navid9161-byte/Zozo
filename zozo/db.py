@@ -527,6 +527,34 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # فایل‌های ریلز: ۱ = در کتابخانه بماند، ۰ = موقت (بعد از چند روز خودکار پاک می‌شود)
     if "keep" not in {r["name"] for r in conn.execute("PRAGMA table_info(media)")}:
         conn.execute("ALTER TABLE media ADD COLUMN keep INTEGER DEFAULT 1")
+    # فاکتور روزنامه‌ها: روزنامه‌ها، مشتری‌ها (هر مشتری برای یک یا چند روزنامه) و فاکتورهای ساده با پیگیری وصول
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS papers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, notes TEXT, created_at TEXT, updated_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS paper_clients (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, kind TEXT, phone TEXT, notes TEXT,
+            created_at TEXT, updated_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS paper_client_links (
+            client_id INTEGER NOT NULL REFERENCES paper_clients(id) ON DELETE CASCADE,
+            paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+            PRIMARY KEY (client_id, paper_id)
+        );
+        CREATE TABLE IF NOT EXISTS paper_invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, number TEXT, issue_date TEXT,
+            client_id INTEGER REFERENCES paper_clients(id) ON DELETE SET NULL,
+            paper_id INTEGER REFERENCES papers(id) ON DELETE SET NULL,
+            title TEXT, total INTEGER DEFAULT 0, profit INTEGER DEFAULT 0, paper_cost INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'follow', follow_date TEXT, collected_date TEXT, history TEXT,
+            reminder_id INTEGER, tx_income_id INTEGER, tx_expense_id INTEGER, notes TEXT,
+            created_at TEXT, updated_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_pinv_client ON paper_invoices(client_id);
+        CREATE INDEX IF NOT EXISTS idx_pinv_paper ON paper_invoices(paper_id);
+        """
+    )
 
 
 def now_str() -> str:

@@ -106,7 +106,7 @@ const NAV_MORE = [
   ["reminders", "⏰", "یادآوری‌ها", "یک‌باره یا تکرارشونده"],
   ["news", "📡", "رصد خبر", "خبرهای خبرگزاری‌ها و کلیدواژه‌ها"],
   ["finance", "💰", "مالی", "درآمد، هزینه و طلب‌ها"],
-  ["invoices", "🧾", "فاکتور (صورتحساب)", "صدور فاکتور و خروجی PDF"],
+  ["papers", "📰", "فاکتور روزنامه‌ها", "روزنامه‌ها، مشتری‌ها، فاکتور و پیگیری وصول"],
   ["legal_docs", "📜", "اسناد و سررسیدها", "یادآوری انقضا و تمدید اسناد"],
   ["contacts", "👥", "منابع و مخاطبین", "دفترچه‌ی تلفن خبری"],
   ["notes", "🗒️", "یادداشت‌ها", "ایده‌ها و پیش‌نویس‌ها"],
@@ -775,7 +775,7 @@ async function financeMonthView(view, params) {
       <div class="btn-row"><a class="btn" href="#finance?m=${f.prev_month}">→</a><b>${esc(f.month_label)}</b><a class="btn" href="#finance?m=${f.next_month}">←</a></div></div>
     <div class="quick-actions">
       <button id="f-inc">➕ ثبت دریافتی</button><button id="f-exp">➖ ثبت هزینه</button>
-      <button data-go="#invoices">🧾 صدور فاکتور</button><button data-go="#legal_docs">📜 اسناد و سررسیدها</button>
+      <button data-go="#papers">📰 فاکتور روزنامه‌ها</button><button data-go="#legal_docs">📜 اسناد و سررسیدها</button>
       <button data-go="#transactions">💳 همه‌ی تراکنش‌ها</button><button data-go="#contracts">📑 قراردادها</button><button data-go="#outlets">🏢 رسانه‌ها</button>
       <button id="f-csv">⬇️ خروجی اکسل این ماه</button>
     </div>

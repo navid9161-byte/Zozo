@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest, fonts, push, tts, imgfit, denoise
+from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest, fonts, push, tts, imgfit, denoise, papers
 from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -724,6 +724,86 @@ def legal_renew(doc_id: int, data: dict[str, Any]):
 
 def enum_digits(s: str) -> str:
     return str(s).translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
+
+
+# ───────────────────────── فاکتور روزنامه‌ها ─────────────────────────
+
+
+@app.get("/api/papers/all")
+def papers_all():
+    with db.connect() as conn:
+        return {"papers": papers.list_papers(conn), "clients": papers.list_clients(conn), "status": papers.STATUS,
+                "kinds": papers.CLIENT_KINDS, "next_number": papers.next_number(conn)}
+
+
+@app.post("/api/papers", status_code=201)
+def paper_create(data: dict[str, Any]):
+    with db.connect() as conn:
+        return papers.save_paper(conn, data)
+
+
+@app.put("/api/papers/{pid}")
+def paper_update(pid: int, data: dict[str, Any]):
+    with db.connect() as conn:
+        return papers.save_paper(conn, data, pid)
+
+
+@app.delete("/api/papers/{pid}")
+def paper_delete(pid: int):
+    with db.connect() as conn:
+        papers.delete_paper(conn, pid)
+    return {"ok": True}
+
+
+@app.post("/api/paper-clients", status_code=201)
+def paper_client_create(data: dict[str, Any]):
+    with db.connect() as conn:
+        return papers.save_client(conn, data)
+
+
+@app.put("/api/paper-clients/{cid}")
+def paper_client_update(cid: int, data: dict[str, Any]):
+    with db.connect() as conn:
+        return papers.save_client(conn, data, cid)
+
+
+@app.delete("/api/paper-clients/{cid}")
+def paper_client_delete(cid: int):
+    with db.connect() as conn:
+        papers.delete_client(conn, cid)
+    return {"ok": True}
+
+
+@app.get("/api/paper-invoices")
+def paper_invoices(paper_id: int | None = None, client_id: int | None = None, status: str = "", q: str = "",
+                   date_from: str = "", date_to: str = ""):
+    with db.connect() as conn:
+        return papers.list_invoices(conn, paper_id, client_id, status, q, date_from, date_to)
+
+
+@app.get("/api/paper-invoices/{iid}")
+def paper_invoice_get(iid: int):
+    with db.connect() as conn:
+        return papers.get_invoice(conn, iid)
+
+
+@app.post("/api/paper-invoices", status_code=201)
+def paper_invoice_create(data: dict[str, Any]):
+    with db.connect() as conn:
+        return papers.save_invoice(conn, data)
+
+
+@app.put("/api/paper-invoices/{iid}")
+def paper_invoice_update(iid: int, data: dict[str, Any]):
+    with db.connect() as conn:
+        return papers.save_invoice(conn, data, iid)
+
+
+@app.delete("/api/paper-invoices/{iid}")
+def paper_invoice_delete(iid: int):
+    with db.connect() as conn:
+        papers.delete_invoice(conn, iid)
+    return {"ok": True}
 
 
 # ───────────────────────── صورتحساب ─────────────────────────

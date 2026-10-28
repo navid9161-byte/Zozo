@@ -32,7 +32,7 @@ VIEWS.finance = async (view, params) => {
     </div>
     <div class="quick-actions">
       <button data-go="#finance?tab=day">⚡ ثبت سریع هزینه‌ی امروز</button><button id="f-inc">➕ ثبت دریافتی</button><button id="f-exp">➖ ثبت هزینه</button>
-      <button data-go="#invoices">🧾 صدور فاکتور</button><button data-go="#transactions">💳 همه‌ی تراکنش‌ها</button>
+      <button data-go="#papers">📰 فاکتور روزنامه‌ها</button><button data-go="#transactions">💳 همه‌ی تراکنش‌ها</button>
       <button data-go="#legal_docs">📜 اسناد و سررسیدها</button><button data-go="#contracts">📑 قراردادها</button>
     </div>
 
