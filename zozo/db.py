@@ -555,6 +555,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_pinv_paper ON paper_invoices(paper_id);
         """
     )
+    # مشتری روزنامه: چند شماره تلفن (JSON) و آدرس
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(paper_clients)")}
+    if "phones" not in cols:
+        conn.execute("ALTER TABLE paper_clients ADD COLUMN phones TEXT")
+        conn.execute("UPDATE paper_clients SET phones=json_array(phone) WHERE COALESCE(phone,'')!=''")
+    if "address" not in cols:
+        conn.execute("ALTER TABLE paper_clients ADD COLUMN address TEXT")
+        conn.execute("UPDATE paper_clients SET address=notes WHERE COALESCE(notes,'')!=''")
 
 
 def now_str() -> str:

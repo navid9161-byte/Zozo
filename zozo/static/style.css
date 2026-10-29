@@ -788,3 +788,14 @@ dialog.designer:not([open]) { display: none; }
 .pp-fgrid input[inputmode=numeric] { direction: ltr; text-align: left; font-variant-numeric: tabular-nums; }
 .pp-fgrid .money-hint { font-weight: 400; font-size: 12px; color: var(--muted); min-height: 1em; }
 @media (max-width: 560px) { .pp-fgrid { grid-template-columns: 1fr; } .pp-quick { grid-template-columns: 1fr; } }
+.pp-combo { position: relative; display: grid; gap: 3px; }
+.pp-combo #pi-cq { width: 100%; }
+.pp-combo #pi-cq.ok { border-color: var(--ok); background: var(--ok-soft); }
+.pp-combo-list { position: absolute; top: 100%; right: 0; left: 0; z-index: 30; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.15); max-height: 260px; overflow-y: auto; margin-top: 2px; }
+.pp-combo-list button { display: block; width: 100%; text-align: right; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 8px 10px; cursor: pointer; font: inherit; }
+.pp-combo-list button small { display: block; }
+.pp-combo-list button.on, .pp-combo-list button:hover { background: var(--primary-soft); }
+.pc-phones { display: grid; gap: 6px; margin: 4px 0; }
+.pc-ph { display: flex; gap: 6px; } .pc-ph input { flex: 1; }
+.pp-fgrid > .wide { grid-column: 1 / -1; }
+.pp-fgrid textarea { width: 100%; }

@@ -95,26 +95,42 @@ def list_clients(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         d = dict(r)
         d["paper_ids"] = sorted(links.get(r["id"], []))
         d["kind_label"] = CLIENT_KINDS.get(d["kind"] or "", "")
+        try:
+            d["phones"] = [p for p in json.loads(d.get("phones") or "[]") if p]
+        except ValueError:
+            d["phones"] = []
         out.append(d)
     return out
 
 
 def save_client(conn: sqlite3.Connection, data: dict[str, Any], cid: int | None = None) -> dict[str, Any]:
     name, now = _name(data.get("name"), "مشتری"), db.now_str()
-    kind = data.get("kind") if data.get("kind") in CLIENT_KINDS else "other"
-    phone, notes = str(data.get("phone") or "").strip()[:40], str(data.get("notes") or "").strip()
+    old = conn.execute("SELECT kind FROM paper_clients WHERE id=?", (cid or 0,)).fetchone()
+    kind = data.get("kind") if data.get("kind") in CLIENT_KINDS else (old["kind"] if old else "other")
+    raw = data.get("phones")
+    if raw is None:
+        raw = [data.get("phone")]
+    phones = []
+    for p in raw if isinstance(raw, list) else [raw]:
+        p = _en(str(p or "")).strip()[:40]
+        if p and p not in phones:
+            phones.append(p)
+    phone = phones[0] if phones else ""
+    address = str(data.get("address") if "address" in data else data.get("notes") or "").strip()[:500]
+    notes = address
     valid = {r["id"] for r in conn.execute("SELECT id FROM papers")}
     ids = valid if data.get("all_papers") else {int(x) for x in (data.get("paper_ids") or []) if int(x) in valid}
     if not ids:
         raise db.ValidationError("دست‌کم یک روزنامه برای این مشتری انتخاب کنید")
     if cid:
-        if not conn.execute("UPDATE paper_clients SET name=?, kind=?, phone=?, notes=?, updated_at=? WHERE id=?",
-                            (name, kind, phone, notes, now, cid)).rowcount:
+        if not conn.execute("UPDATE paper_clients SET name=?, kind=?, phone=?, phones=?, address=?, notes=?, updated_at=? WHERE id=?",
+                            (name, kind, phone, json.dumps(phones, ensure_ascii=False), address, notes, now, cid)).rowcount:
             raise db.NotFound("مشتری پیدا نشد")
         conn.execute("DELETE FROM paper_client_links WHERE client_id=?", (cid,))
     else:
-        cid = conn.execute("INSERT INTO paper_clients (name, kind, phone, notes, created_at, updated_at) VALUES (?,?,?,?,?,?)",
-                           (name, kind, phone, notes, now, now)).lastrowid
+        cid = conn.execute("INSERT INTO paper_clients (name, kind, phone, phones, address, notes, created_at, updated_at) "
+                           "VALUES (?,?,?,?,?,?,?,?)",
+                           (name, kind, phone, json.dumps(phones, ensure_ascii=False), address, notes, now, now)).lastrowid
     conn.executemany("INSERT INTO paper_client_links (client_id, paper_id) VALUES (?,?)", [(cid, p) for p in sorted(ids)])
     return next(c for c in list_clients(conn) if c["id"] == cid)
 

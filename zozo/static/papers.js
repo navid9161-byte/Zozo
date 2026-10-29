@@ -15,7 +15,7 @@ const ppClient = (id) => PP.meta.clients.find((c) => c.id === Number(id));
 
 VIEWS.papers = async (view, params) => {
   await ppLoadMeta();
-  if (params.get("tab")) PP.tab = params.get("tab");
+  if (params.get("tab")) { PP.tab = params.get("tab"); history.replaceState(null, "", "#papers"); }
   if (!PP.meta.papers.length && PP.tab === "inv") PP.tab = "papers";
   const tabs = [["inv", "🧾 فاکتورها"], ["clients", `👥 مشتری‌ها (${num(PP.meta.clients.length)})`], ["papers", `📰 روزنامه‌ها (${num(PP.meta.papers.length)})`]];
   view.innerHTML = `<div class="page-title"><h2>📰 فاکتور روزنامه‌ها</h2>
@@ -122,7 +122,8 @@ function ppInvoiceForm(inv) {
   $("#dlg-body").innerHTML = `<h3>🧾 ${isNew ? "فاکتور تازه" : `فاکتور ${esc(fa(v.number || ""))}`}</h3>
     <form id="pi-form" class="pp-form">
       <div class="pp-fgrid">
-        <label>مشتری<select name="client_id" required><option value="">— انتخاب —</option>${m.clients.map((c) => `<option value="${c.id}" ${String(c.id) === String(v.client_id) ? "selected" : ""}>${esc(c.name)}${c.kind_label ? ` (${esc(c.kind_label)})` : ""}</option>`).join("")}</select></label>
+        <div class="pp-combo"><b class="small">مشتری</b><input id="pi-cq" autocomplete="off" placeholder="چند حرف از اسم یا شماره را بنویسید…" value="${esc(ppClient(v.client_id)?.name || "")}">
+          <input type="hidden" name="client_id" value="${esc(v.client_id || "")}"><div class="pp-combo-list" id="pi-clist" hidden></div></div>
         <label>روزنامه<select name="paper_id" required></select></label>
         <label>شماره<input name="number" value="${esc(fa(v.number || ""))}"></label>
         <label>تاریخ فاکتور<input name="issue_date" value="${esc(fa(v.issue_date || ""))}" inputmode="numeric"></label>
@@ -169,7 +170,7 @@ function ppInvoiceForm(inv) {
     } else box.innerHTML = t && (p || c) && p + c !== t ? `⚠ سود من + سهم روزنامه (${moneyWords(p + c)}) با مبلغ کل (${moneyWords(t)}) برابر نیست؛ اگر درست است، اشکالی ندارد.` : "";
   };
   for (const k of ["total", "profit", "paper_cost"]) form[k].addEventListener("input", () => { const n = ppAmount(form[k].value); form[k].value = n ? num(n) : ""; check(); });
-  form.client_id.onchange = fillPapers;
+  ppBindClientCombo(form, fillPapers);
   $$(".pp-sseg [data-s]", form).forEach((b) => (b.onclick = () => { status = b.dataset.s; $$(".pp-sseg [data-s]", form).forEach((x) => x.classList.toggle("active", x === b)); followBox(); }));
   fillPapers(); followBox(); check();
   form.onsubmit = async (ev) => {
@@ -233,8 +234,9 @@ function ppClientsTab(box) {
   box.innerHTML = `<div class="card"><div class="btn-row" style="justify-content:space-between"><h3 style="margin:0">👥 مشتری‌ها</h3>
       <button class="btn primary" id="pc-new" ${m.papers.length ? "" : "disabled"}>➕ مشتری تازه</button></div>
     ${m.papers.length ? "" : `<p class="small warn-bar">اول در زبانه‌ی «📰 روزنامه‌ها» روزنامه‌ها را ثبت کنید.</p>`}
-    <div class="list pp-list">${m.clients.map((c) => `<div class="row" data-cl="${c.id}"><span><b>${esc(c.name)}</b> ${c.kind_label ? `<span class="badge gray">${esc(c.kind_label)}</span>` : ""}<br>
-      <small class="muted">${c.paper_ids.length === m.papers.length && m.papers.length > 1 ? "همه‌ی روزنامه‌ها" : c.paper_ids.map((id) => esc(ppPaper(id)?.name || "")).join("، ")}${c.phone ? ` · ${esc(fa(c.phone))}` : ""}</small></span>
+    <div class="list pp-list">${m.clients.map((c) => `<div class="row" data-cl="${c.id}"><span><b>${esc(c.name)}</b><br>
+      <small class="muted">${c.paper_ids.length === m.papers.length && m.papers.length > 1 ? "همه‌ی روزنامه‌ها" : c.paper_ids.map((id) => esc(ppPaper(id)?.name || "")).join("، ")}${(c.phones || []).length ? ` · 📞 ${c.phones.map((x) => esc(fa(x))).join("، ")}` : ""}</small>
+      ${c.address ? `<br><small class="muted">📍 ${esc(c.address)}</small>` : ""}</span>
       <span class="btn-row"><small class="muted">${num(c.invoices)} فاکتور</small><button class="btn sm" data-cinv="${c.id}">🧾 فاکتورها</button></span></div>`).join("") || `<div class="empty">هنوز مشتری‌ای تعریف نشده.</div>`}</div></div>`;
   if ($("#pc-new")) $("#pc-new").onclick = () => ppClientForm(null);
   $$("[data-cl]", box).forEach((el) => (el.onclick = (ev) => { if (ev.target.closest("[data-cinv]")) return; ppClientForm(ppClient(el.dataset.cl)); }));
@@ -246,9 +248,9 @@ function ppClientForm(c) {
     <form id="pc-form" class="pp-form">
       <div class="pp-fgrid">
         <label class="wide">نام (اداره، شخص، شرکت…)<input name="name" value="${esc(v.name || "")}" required></label>
-        <label>نوع<select name="kind">${Object.entries(m.kinds).map(([k, l]) => `<option value="${k}" ${v.kind === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-        <label>تلفن<input name="phone" value="${esc(v.phone || "")}" class="ltr"></label>
-        <label class="wide">توضیح<input name="notes" value="${esc(v.notes || "")}"></label>
+        <div class="wide"><b class="small">شماره تلفن</b><div id="pc-phones" class="pc-phones"></div>
+          <button type="button" class="btn sm ghost" id="pc-addph">➕ شماره‌ی دیگر</button></div>
+        <label class="wide">آدرس<textarea name="address" rows="2">${esc(v.address ?? v.notes ?? "")}</textarea></label>
       </div>
       <b class="small">برای کدام روزنامه‌ها؟</b>
       <div class="pp-papers">${m.papers.map((p) => `<label class="chk"><input type="checkbox" name="pp" value="${p.id}" ${v.paper_ids.includes(p.id) ? "checked" : ""}> ${esc(p.name)}</label>`).join("")}</div>
@@ -257,12 +259,24 @@ function ppClientForm(c) {
       <div class="modal-actions">${isNew ? "" : `<button type="button" class="btn danger ghost" id="pc-del">🗑 حذف</button>`}<span style="flex:1"></span>
         <button type="button" class="btn" onclick="this.closest('dialog').close()">بستن</button><button class="btn primary">✔ ذخیره</button></div>
     </form>`;
-  const form = $("#pc-form");
+  const form = $("#pc-form"), phBox = $("#pc-phones");
+  const addPhone = (val = "") => {
+    const row = document.createElement("div");
+    row.className = "pc-ph";
+    row.innerHTML = `<input name="ph" type="tel" inputmode="tel" class="ltr" value="${esc(fa(val))}" placeholder="مثلاً ۰۹۱۲۳۴۵۶۷۸۹"><button type="button" class="btn sm ghost" title="حذف این شماره">✕</button>`;
+    $("button", row).onclick = () => { row.remove(); if (!$$(".pc-ph", phBox).length) addPhone(); };
+    phBox.appendChild(row);
+    return $("input", row);
+  };
+  const phs = (v.phones && v.phones.length ? v.phones : [v.phone || ""]);
+  phs.forEach((x) => addPhone(x));
+  $("#pc-addph").onclick = () => addPhone().focus();
   $("#pc-all").onclick = () => $$("[name=pp]", form).forEach((x) => (x.checked = true));
   $("#pc-none").onclick = () => $$("[name=pp]", form).forEach((x) => (x.checked = false));
   form.onsubmit = async (ev) => {
     ev.preventDefault();
-    const body = { name: form.name.value, kind: form.kind.value, phone: form.phone.value, notes: form.notes.value, paper_ids: $$("[name=pp]:checked", form).map((x) => Number(x.value)) };
+    const body = { name: form.name.value, phones: $$("[name=ph]", form).map((x) => enDigits(x.value.trim())).filter(Boolean), address: form.address.value,
+      paper_ids: $$("[name=pp]:checked", form).map((x) => Number(x.value)) };
     try { await api(isNew ? "/api/paper-clients" : `/api/paper-clients/${c.id}`, { method: isNew ? "POST" : "PUT", body }); $("#dlg").close(); toast("✔ ذخیره شد"); refresh(); }
     catch (e) { $("#pc-err").textContent = e.message; }
   };
@@ -296,4 +310,45 @@ function ppPapersTab(box) {
     try { await api(`/api/papers/${p.id}`, { method: "DELETE" }); refresh(); } catch (e) { toast(e.message, 6000); }
   }));
   $$("[data-pinv]", box).forEach((b) => (b.onclick = () => { PP.f = { ...PP.f, paper_id: b.dataset.pinv, client_id: "" }; PP.tab = "inv"; refresh(); }));
+}
+
+// جستجوی مشتری با تایپ (نام یا شماره)؛ «ی/ي» و «ک/ك» و ارقام فارسی یکی حساب می‌شوند
+const ppNorm = (t) => enDigits(String(t || "")).replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/[‌\s]+/g, " ").trim().toLowerCase();
+function ppBindClientCombo(form, onPick) {
+  const q = $("#pi-cq", form), list = $("#pi-clist", form), hid = form.client_id;
+  let items = [], idx = -1;
+  const draw = () => {
+    const words = ppNorm(q.value).split(" ").filter(Boolean);
+    items = PP.meta.clients.filter((c) => {
+      const hay = ppNorm(`${c.name} ${(c.phones || []).join(" ")} ${c.address || ""}`);
+      return words.every((w) => hay.includes(w));
+    }).slice(0, 30);
+    idx = items.length ? 0 : -1;
+    list.innerHTML = items.length ? items.map((c, i) => `<button type="button" data-ci="${i}" class="${i === idx ? "on" : ""}"><b>${esc(c.name)}</b>
+        <small class="muted">${c.paper_ids.map((id) => esc(ppPaper(id)?.name || "")).join("، ")}${(c.phones || []).length ? ` · ${esc(fa(c.phones[0]))}` : ""}</small></button>`).join("")
+      : `<div class="small muted" style="padding:8px">مشتری‌ای با این نام نیست. در زبانه‌ی «👥 مشتری‌ها» تعریفش کنید.</div>`;
+    list.hidden = false;
+    $$("[data-ci]", list).forEach((b) => b.addEventListener("mousedown", (ev) => { ev.preventDefault(); pick(items[Number(b.dataset.ci)]); }));
+  };
+  const pick = (c) => {
+    if (!c) return;
+    hid.value = c.id; q.value = c.name; list.hidden = true;
+    q.classList.add("ok");
+    onPick();
+  };
+  q.addEventListener("input", () => { hid.value = ""; q.classList.remove("ok"); draw(); onPick(); });
+  q.addEventListener("focus", () => { q.select(); draw(); });
+  q.addEventListener("blur", () => setTimeout(() => {
+    list.hidden = true;
+    if (!hid.value) { const exact = PP.meta.clients.find((c) => ppNorm(c.name) === ppNorm(q.value)); if (exact) pick(exact); }
+  }, 150));
+  q.addEventListener("keydown", (ev) => {
+    if (list.hidden || !items.length) return;
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault(); idx = (idx + (ev.key === "ArrowDown" ? 1 : items.length - 1)) % items.length;
+      $$("[data-ci]", list).forEach((b, i) => b.classList.toggle("on", i === idx));
+    } else if (ev.key === "Enter") { ev.preventDefault(); pick(items[idx]); }
+    else if (ev.key === "Escape") list.hidden = true;
+  });
+  if (hid.value) q.classList.add("ok");
 }

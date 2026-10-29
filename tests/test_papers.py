@@ -13,7 +13,11 @@ def test_paper_invoices_flow():
         assert c.post("/api/papers", json={"name": "اطلاعات"}).status_code == 400
         office = c.post("/api/paper-clients", json={"name": "شهرداری کرمان", "kind": "office", "all_papers": True}).json()
         assert sorted(office["paper_ids"]) == sorted([p1, p2])
-        person = c.post("/api/paper-clients", json={"name": "آقای رضایی", "kind": "person", "paper_ids": [p2]}).json()
+        person = c.post("/api/paper-clients", json={"name": "آقای رضایی", "paper_ids": [p2], "phones": ["۰۹۱۲۱۱۱۲۲۳۳", "", "0343-2223344", "09121112233"],
+                                                    "address": "کرمان، خیابان شریعتی"}).json()
+        assert person["phones"] == ["09121112233", "0343-2223344"] and person["address"] == "کرمان، خیابان شریعتی"
+        upd = c.put(f"/api/paper-clients/{person['id']}", json={"name": "آقای رضایی", "paper_ids": [p2], "phones": ["09121112233"], "address": "کرمان"}).json()
+        assert upd["phones"] == ["09121112233"] and upd["address"] == "کرمان"
         assert c.post("/api/paper-clients", json={"name": "بی‌روزنامه"}).status_code == 400
         # مشتری برای روزنامه‌ای که به او وصل نیست → خطا
         assert c.post("/api/paper-invoices", json={"client_id": person["id"], "paper_id": p1, "total": 100,
