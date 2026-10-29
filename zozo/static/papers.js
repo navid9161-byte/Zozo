@@ -7,6 +7,9 @@ const PP = { meta: null, tab: "inv", f: { paper_id: "", client_id: "", status: "
 const PP_STATUS_CLS = { follow: "primary", reprint: "amber", refollow: "red", collected: "green" };
 const PP_STATUS_ICON = { follow: "🔎", reprint: "🖨", refollow: "🔁", collected: "✅" };
 const ppMoney = (v) => (v ? num(v) : "۰");
+// شماره‌ها: {label, number} (شماره‌های قدیمی فقط متن بودند)
+const ppPh = (x) => (typeof x === "string" ? { label: "", number: x } : x || { label: "", number: "" });
+const ppPhText = (x) => { const p = ppPh(x); return `${p.label ? `${esc(p.label)}: ` : ""}<span dir="ltr">${esc(fa(p.number))}</span>`; };
 const ppAmount = (v) => Number(enDigits(String(v ?? "")).replace(/[^\d]/g, "")) || 0;
 
 async function ppLoadMeta() { PP.meta = await api("/api/papers/all"); return PP.meta; }
@@ -61,7 +64,7 @@ async function ppInvoicesTab(box, params) {
     <div class="card"><div class="table-wrap"><table class="pp-table">
       <thead><tr><th>شماره</th><th>تاریخ</th><th>مشتری</th><th>روزنامه</th><th>شرح</th><th>مبلغ کل</th><th>سود من</th><th>سهم روزنامه</th><th>وضعیت</th><th>پیگیری</th><th></th></tr></thead>
       <tbody>${d.items.map((r) => `<tr data-inv="${r.id}">
-        <td>${esc(fa(r.number || ""))}</td><td class="nw">${esc(fa(r.issue_date || ""))}</td>
+        <td class="nw">${esc(fa(r.number || ""))}${r.file_count ? ` <span class="small" title="${num(r.file_count)} پیوست">📎${num(r.file_count)}</span>` : ""}</td><td class="nw">${esc(fa(r.issue_date || ""))}</td>
         <td>${esc(r.client_name || "—")}</td><td>${esc(r.paper_name || "—")}</td><td class="small">${esc(r.title || "")}</td>
         <td class="num">${ppMoney(r.total)}</td><td class="num pos">${ppMoney(r.profit)}</td><td class="num">${ppMoney(r.paper_cost)}</td>
         <td><button class="badge ${PP_STATUS_CLS[r.status]} pp-st" data-st="${r.id}" title="تغییر وضعیت">${PP_STATUS_ICON[r.status]} ${esc(r.status_label)}${r.renewals ? ` ×${num(r.renewals + 1)}` : ""}</button></td>
@@ -135,6 +138,9 @@ function ppInvoiceForm(inv) {
       <div class="small pp-check" id="pi-check"></div>
       <div style="margin-top:10px"><b class="small">وضعیت</b><div>${statusSeg(v.status)}</div></div>
       <div id="pi-follow-box" style="margin-top:8px"></div>
+      <div class="pp-files"><b class="small">📎 پیوست‌ها <span class="muted">(عکس فاکتور، رسید، نامه، PDF…)</span></b>
+        <div id="pi-files"></div>
+        <button type="button" class="btn sm" id="pi-addf">📎 افزودن فایل</button><input type="file" id="pi-fin" multiple hidden accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.txt"></div>
       ${ppHistoryHTML(inv)}
       <div class="modal-error" id="pi-err"></div>
       <div class="modal-actions">${isNew ? "" : `<button type="button" class="btn danger ghost" id="pi-del">🗑 حذف</button>`}<span style="flex:1"></span>
@@ -173,6 +179,40 @@ function ppInvoiceForm(inv) {
   ppBindClientCombo(form, fillPapers);
   $$(".pp-sseg [data-s]", form).forEach((b) => (b.onclick = () => { status = b.dataset.s; $$(".pp-sseg [data-s]", form).forEach((x) => x.classList.toggle("active", x === b)); followBox(); }));
   fillPapers(); followBox(); check();
+  // پیوست‌ها: فاکتور تازه ← بعد از ذخیره بارگذاری می‌شوند
+  const pending = [];
+  const fileIcon = (n) => (/\.(jpe?g|png|webp|gif|heic)$/i.test(n) ? "🖼" : /\.pdf$/i.test(n) ? "📄" : "📁");
+  const kb = (b) => (b >= 1048576 ? `${num((b / 1048576).toFixed(1))} مگابایت` : `${num(Math.max(1, Math.round(b / 1024)))} کیلوبایت`);
+  const drawFiles = () => {
+    const saved = (inv?.files || []).map((f) => `<div class="pp-file"><a href="/api/paper-invoice-files/${f.id}" target="_blank" rel="noopener">${fileIcon(f.filename)} ${esc(f.filename)}</a>
+        <small class="muted">${kb(f.size)}</small><a class="btn sm ghost" href="/api/paper-invoice-files/${f.id}?download=1" title="دانلود">⬇️</a><button type="button" class="btn sm ghost" data-fdel="${f.id}" title="حذف">✕</button></div>`);
+    const waiting = pending.map((f, i) => `<div class="pp-file pend">${fileIcon(f.name)} ${esc(f.name)} <small class="muted">${kb(f.size)} · بعد از ذخیره بارگذاری می‌شود</small><button type="button" class="btn sm ghost" data-pdel="${i}">✕</button></div>`);
+    $("#pi-files").innerHTML = [...saved, ...waiting].join("") || `<div class="small muted">فایلی پیوست نشده.</div>`;
+    $$("[data-fdel]", form).forEach((b) => (b.onclick = async () => {
+      if (!confirm("این پیوست حذف شود؟")) return;
+      await api(`/api/paper-invoice-files/${b.dataset.fdel}`, { method: "DELETE" });
+      inv.files = inv.files.filter((x) => x.id !== Number(b.dataset.fdel)); drawFiles(); PP.dirty = true;
+    }));
+    $$("[data-pdel]", form).forEach((b) => (b.onclick = () => { pending.splice(Number(b.dataset.pdel), 1); drawFiles(); }));
+  };
+  const upload = async (iid, files) => {
+    let ok = 0;
+    for (const [i, f] of files.entries()) {
+      const r = await uploadOne(`/api/paper-invoices/${iid}/files`, f, {}, (p) => toast(`بارگذاری ${num(i + 1)} از ${num(files.length)}… ${num(Math.round(p * 100))}٪`, 60000));
+      if (r.ok) ok++; else toast(`«${f.name}»: ${r.error}`, 6000);
+    }
+    return ok;
+  };
+  $("#pi-addf").onclick = () => $("#pi-fin").click();
+  $("#pi-fin").onchange = async (ev) => {
+    const files = [...ev.target.files]; ev.target.value = "";
+    if (!files.length) return;
+    if (isNew) { pending.push(...files); drawFiles(); return; }
+    const ok = await upload(inv.id, files);
+    if (ok) { toast(`✔ ${num(ok)} فایل پیوست شد`); inv.files = (await api(`/api/paper-invoices/${inv.id}`)).files; drawFiles(); PP.dirty = true; }
+  };
+  drawFiles();
+  dlg.addEventListener("close", () => { if (PP.dirty) { PP.dirty = false; refresh(); } }, { once: true });
   form.onsubmit = async (ev) => {
     ev.preventDefault();
     const body = { client_id: Number(form.client_id.value) || null, paper_id: Number(form.paper_id.value) || null, number: enDigits(form.number.value.trim()),
@@ -182,6 +222,7 @@ function ppInvoiceForm(inv) {
     else body.follow_date = enDigits($("#pi-follow").value.trim());
     try {
       const r = await api(isNew ? "/api/paper-invoices" : `/api/paper-invoices/${inv.id}`, { method: isNew ? "POST" : "PUT", body });
+      if (pending.length) await upload(r.id, pending.splice(0));
       dlg.close();
       toast(status === "collected" ? "✅ وصول ثبت شد و درآمد/هزینه به بخش مالی رفت" : `✔ ذخیره شد · یادآوری پیگیری: ${fa(r.follow_date || "")}`, 4500);
       refresh();
@@ -235,21 +276,24 @@ function ppClientsTab(box) {
       <button class="btn primary" id="pc-new" ${m.papers.length ? "" : "disabled"}>➕ مشتری تازه</button></div>
     ${m.papers.length ? "" : `<p class="small warn-bar">اول در زبانه‌ی «📰 روزنامه‌ها» روزنامه‌ها را ثبت کنید.</p>`}
     <div class="list pp-list">${m.clients.map((c) => `<div class="row" data-cl="${c.id}"><span><b>${esc(c.name)}</b><br>
-      <small class="muted">${c.paper_ids.length === m.papers.length && m.papers.length > 1 ? "همه‌ی روزنامه‌ها" : c.paper_ids.map((id) => esc(ppPaper(id)?.name || "")).join("، ")}${(c.phones || []).length ? ` · 📞 ${c.phones.map((x) => esc(fa(x))).join("، ")}` : ""}</small>
+      <small class="muted">${c.paper_ids.length === m.papers.length && m.papers.length > 1 ? "همه‌ی روزنامه‌ها" : c.paper_ids.map((id) => esc(ppPaper(id)?.name || "")).join("، ")}</small>
+      ${(c.phones || []).length ? `<br><small class="muted">📞 ${c.phones.map(ppPhText).join(" · ")}</small>` : ""}
       ${c.address ? `<br><small class="muted">📍 ${esc(c.address)}</small>` : ""}</span>
-      <span class="btn-row"><small class="muted">${num(c.invoices)} فاکتور</small><button class="btn sm" data-cinv="${c.id}">🧾 فاکتورها</button></span></div>`).join("") || `<div class="empty">هنوز مشتری‌ای تعریف نشده.</div>`}</div></div>`;
+      <span class="btn-row"><small class="muted">${num(c.invoices)} فاکتور</small><button class="btn sm" data-cedit="${c.id}">✏️ ویرایش</button><button class="btn sm" data-cinv="${c.id}">🧾 فاکتورها</button></span></div>`).join("") || `<div class="empty">هنوز مشتری‌ای تعریف نشده.</div>`}</div></div>`;
   if ($("#pc-new")) $("#pc-new").onclick = () => ppClientForm(null);
   $$("[data-cl]", box).forEach((el) => (el.onclick = (ev) => { if (ev.target.closest("[data-cinv]")) return; ppClientForm(ppClient(el.dataset.cl)); }));
+  $$("[data-cedit]", box).forEach((b) => (b.onclick = (ev) => { ev.stopPropagation(); ppClientForm(ppClient(b.dataset.cedit)); }));
   $$("[data-cinv]", box).forEach((b) => (b.onclick = () => { PP.f = { ...PP.f, client_id: b.dataset.cinv, paper_id: "" }; PP.tab = "inv"; refresh(); }));
 }
 function ppClientForm(c) {
   const m = PP.meta, isNew = !c, v = c || { kind: "office", paper_ids: m.papers.length === 1 ? [m.papers[0].id] : [] };
-  $("#dlg-body").innerHTML = `<h3>👥 ${isNew ? "مشتری تازه" : esc(c.name)}</h3>
+  $("#dlg-body").innerHTML = `<h3>👥 ${isNew ? "مشتری تازه" : `ویرایش «${esc(c.name)}»`}</h3>
     <form id="pc-form" class="pp-form">
       <div class="pp-fgrid">
         <label class="wide">نام (اداره، شخص، شرکت…)<input name="name" value="${esc(v.name || "")}" required></label>
         <div class="wide"><b class="small">شماره تلفن</b><div id="pc-phones" class="pc-phones"></div>
-          <button type="button" class="btn sm ghost" id="pc-addph">➕ شماره‌ی دیگر</button></div>
+          <button type="button" class="btn sm ghost" id="pc-addph">➕ شماره‌ی دیگر</button>
+          <datalist id="pc-phl">${["روابط عمومی", "مدیر", "دفتر", "همراه", "حسابداری", "مسئول آگهی"].map((x) => `<option value="${x}">`).join("")}</datalist></div>
         <label class="wide">آدرس<textarea name="address" rows="2">${esc(v.address ?? v.notes ?? "")}</textarea></label>
       </div>
       <b class="small">برای کدام روزنامه‌ها؟</b>
@@ -261,9 +305,10 @@ function ppClientForm(c) {
     </form>`;
   const form = $("#pc-form"), phBox = $("#pc-phones");
   const addPhone = (val = "") => {
-    const row = document.createElement("div");
+    const p = ppPh(val), row = document.createElement("div");
     row.className = "pc-ph";
-    row.innerHTML = `<input name="ph" type="tel" inputmode="tel" class="ltr" value="${esc(fa(val))}" placeholder="مثلاً ۰۹۱۲۳۴۵۶۷۸۹"><button type="button" class="btn sm ghost" title="حذف این شماره">✕</button>`;
+    row.innerHTML = `<input name="phl" list="pc-phl" value="${esc(p.label)}" placeholder="عنوان (اختیاری)" class="pc-phl">
+      <input name="ph" type="tel" inputmode="tel" class="ltr" value="${esc(fa(p.number))}" placeholder="مثلاً ۰۹۱۲۳۴۵۶۷۸۹"><button type="button" class="btn sm ghost" title="حذف این شماره">✕</button>`;
     $("button", row).onclick = () => { row.remove(); if (!$$(".pc-ph", phBox).length) addPhone(); };
     phBox.appendChild(row);
     return $("input", row);
@@ -275,7 +320,8 @@ function ppClientForm(c) {
   $("#pc-none").onclick = () => $$("[name=pp]", form).forEach((x) => (x.checked = false));
   form.onsubmit = async (ev) => {
     ev.preventDefault();
-    const body = { name: form.name.value, phones: $$("[name=ph]", form).map((x) => enDigits(x.value.trim())).filter(Boolean), address: form.address.value,
+    const body = { name: form.name.value, address: form.address.value,
+      phones: $$(".pc-ph", form).map((r) => ({ label: $("[name=phl]", r).value.trim(), number: enDigits($("[name=ph]", r).value.trim()) })).filter((x) => x.number),
       paper_ids: $$("[name=pp]:checked", form).map((x) => Number(x.value)) };
     try { await api(isNew ? "/api/paper-clients" : `/api/paper-clients/${c.id}`, { method: isNew ? "POST" : "PUT", body }); $("#dlg").close(); toast("✔ ذخیره شد"); refresh(); }
     catch (e) { $("#pc-err").textContent = e.message; }
@@ -320,12 +366,12 @@ function ppBindClientCombo(form, onPick) {
   const draw = () => {
     const words = ppNorm(q.value).split(" ").filter(Boolean);
     items = PP.meta.clients.filter((c) => {
-      const hay = ppNorm(`${c.name} ${(c.phones || []).join(" ")} ${c.address || ""}`);
+      const hay = ppNorm(`${c.name} ${(c.phones || []).map((x) => `${ppPh(x).label} ${ppPh(x).number}`).join(" ")} ${c.address || ""}`);
       return words.every((w) => hay.includes(w));
     }).slice(0, 30);
     idx = items.length ? 0 : -1;
     list.innerHTML = items.length ? items.map((c, i) => `<button type="button" data-ci="${i}" class="${i === idx ? "on" : ""}"><b>${esc(c.name)}</b>
-        <small class="muted">${c.paper_ids.map((id) => esc(ppPaper(id)?.name || "")).join("، ")}${(c.phones || []).length ? ` · ${esc(fa(c.phones[0]))}` : ""}</small></button>`).join("")
+        <small class="muted">${c.paper_ids.map((id) => esc(ppPaper(id)?.name || "")).join("، ")}${(c.phones || []).length ? ` · ${ppPhText(c.phones[0])}` : ""}</small></button>`).join("")
       : `<div class="small muted" style="padding:8px">مشتری‌ای با این نام نیست. در زبانه‌ی «👥 مشتری‌ها» تعریفش کنید.</div>`;
     list.hidden = false;
     $$("[data-ci]", list).forEach((b) => b.addEventListener("mousedown", (ev) => { ev.preventDefault(); pick(items[Number(b.dataset.ci)]); }));

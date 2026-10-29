@@ -9,11 +9,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
-from typing import Any
+from pathlib import Path
+from typing import Any, BinaryIO
 
-from . import db, jalali
+from . import db, documents, jalali
+from .config import settings
 
 STATUS = {"follow": "در حال پیگیری", "reprint": "تجدید چاپ دوم", "refollow": "پیگیری مجدد", "collected": "اعلام وصول"}
 FOLLOW = ("follow", "reprint", "refollow")
@@ -96,10 +99,25 @@ def list_clients(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         d["paper_ids"] = sorted(links.get(r["id"], []))
         d["kind_label"] = CLIENT_KINDS.get(d["kind"] or "", "")
         try:
-            d["phones"] = [p for p in json.loads(d.get("phones") or "[]") if p]
+            d["phones"] = _phones(json.loads(d.get("phones") or "[]"))
         except ValueError:
             d["phones"] = []
         out.append(d)
+    return out
+
+
+def _phones(raw: Any) -> list[dict[str, str]]:
+    """شماره‌ها با عنوان اختیاری (مثلاً «روابط عمومی»)؛ شماره‌های قدیمیِ بی‌عنوان هم پذیرفته می‌شوند."""
+    out: list[dict[str, str]] = []
+    for p in raw if isinstance(raw, list) else [raw]:
+        if isinstance(p, dict):
+            num, label = p.get("number"), p.get("label")
+        else:
+            num, label = p, ""
+        num = _en(str(num or "")).strip()[:40]
+        label = str(label or "").strip()[:60]
+        if num and all(x["number"] != num for x in out):
+            out.append({"label": label, "number": num})
     return out
 
 
@@ -108,14 +126,8 @@ def save_client(conn: sqlite3.Connection, data: dict[str, Any], cid: int | None 
     old = conn.execute("SELECT kind FROM paper_clients WHERE id=?", (cid or 0,)).fetchone()
     kind = data.get("kind") if data.get("kind") in CLIENT_KINDS else (old["kind"] if old else "other")
     raw = data.get("phones")
-    if raw is None:
-        raw = [data.get("phone")]
-    phones = []
-    for p in raw if isinstance(raw, list) else [raw]:
-        p = _en(str(p or "")).strip()[:40]
-        if p and p not in phones:
-            phones.append(p)
-    phone = phones[0] if phones else ""
+    phones = _phones(raw if raw is not None else [data.get("phone")])
+    phone = phones[0]["number"] if phones else ""
     address = str(data.get("address") if "address" in data else data.get("notes") or "").strip()[:500]
     notes = address
     valid = {r["id"] for r in conn.execute("SELECT id FROM papers")}
@@ -153,7 +165,8 @@ def _row(r: sqlite3.Row) -> dict[str, Any]:
     return d
 
 
-_SELECT = ("SELECT i.*, c.name client_name, p.name paper_name FROM paper_invoices i "
+_SELECT = ("SELECT i.*, c.name client_name, p.name paper_name, "
+           "(SELECT COUNT(*) FROM paper_invoice_files f WHERE f.invoice_id=i.id) file_count FROM paper_invoices i "
            "LEFT JOIN paper_clients c ON c.id=i.client_id LEFT JOIN papers p ON p.id=i.paper_id")
 
 
@@ -161,7 +174,9 @@ def get_invoice(conn: sqlite3.Connection, iid: int) -> dict[str, Any]:
     r = conn.execute(_SELECT + " WHERE i.id=?", (iid,)).fetchone()
     if not r:
         raise db.NotFound("فاکتور پیدا نشد")
-    return _row(r)
+    d = _row(r)
+    d["files"] = list_files(conn, iid)
+    return d
 
 
 def next_number(conn: sqlite3.Connection) -> str:
@@ -273,8 +288,57 @@ def save_invoice(conn: sqlite3.Connection, data: dict[str, Any], iid: int | None
     return get_invoice(conn, iid)
 
 
+# ───── پیوست‌های فاکتور (عکس فاکتور، رسید، نامه، PDF…) ─────
+ALLOWED_EXT = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".heic", ".gif", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".zip", ".rar"}
+
+
+def files_dir() -> Path:
+    return settings.dir("paper_files")
+
+
+def list_files(conn: sqlite3.Connection, iid: int) -> list[dict[str, Any]]:
+    return [{k: r[k] for k in ("id", "filename", "size", "created_at")}
+            for r in conn.execute("SELECT * FROM paper_invoice_files WHERE invoice_id=? ORDER BY id", (iid,))]
+
+
+def add_file(conn: sqlite3.Connection, iid: int, fileobj: BinaryIO, filename: str) -> dict[str, Any]:
+    get_invoice(conn, iid)
+    ext = Path(filename or "").suffix.lower()
+    if ext not in ALLOWED_EXT:
+        raise db.ValidationError(f"«{filename}»: این نوع فایل پذیرفته نمی‌شود (عکس، PDF، Word، Excel یا زیپ)")
+    tmp, size, _ = documents.save_upload(fileobj, files_dir(), settings.max_upload_mb * 1024 * 1024)
+    try:
+        fid = conn.execute("INSERT INTO paper_invoice_files (invoice_id, filename, path, size, created_at) VALUES (?,?,?,?,?)",
+                           (iid, Path(filename).name[:200], "", size, db.now_str())).lastrowid
+        final = files_dir() / f"{iid}_{fid}_{documents.safe_name(filename)}"
+        os.replace(tmp, final)
+        conn.execute("UPDATE paper_invoice_files SET path=? WHERE id=?", (str(final), fid))
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    return {"id": fid, "filename": Path(filename).name[:200], "size": size}
+
+
+def get_file(conn: sqlite3.Connection, fid: int) -> dict[str, Any]:
+    r = conn.execute("SELECT * FROM paper_invoice_files WHERE id=?", (fid,)).fetchone()
+    if not r or not os.path.exists(r["path"]):
+        raise db.NotFound("فایل پیدا نشد")
+    return dict(r)
+
+
+def delete_file(conn: sqlite3.Connection, fid: int) -> None:
+    r = conn.execute("SELECT path FROM paper_invoice_files WHERE id=?", (fid,)).fetchone()
+    if not r:
+        raise db.NotFound("فایل پیدا نشد")
+    conn.execute("DELETE FROM paper_invoice_files WHERE id=?", (fid,))
+    if r["path"] and os.path.exists(r["path"]):
+        os.unlink(r["path"])
+
+
 def delete_invoice(conn: sqlite3.Connection, iid: int) -> None:
     inv = get_invoice(conn, iid)
+    for f in inv["files"]:
+        delete_file(conn, f["id"])
     _close_reminder(conn, inv["reminder_id"])
     for t in (inv["tx_income_id"], inv["tx_expense_id"]):
         if t and conn.execute("SELECT 1 FROM transactions WHERE id=?", (t,)).fetchone():

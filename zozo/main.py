@@ -799,6 +799,36 @@ def paper_invoice_update(iid: int, data: dict[str, Any]):
         return papers.save_invoice(conn, data, iid)
 
 
+@app.post("/api/paper-invoices/{iid}/files", status_code=201)
+def paper_invoice_files_add(iid: int, files: list[UploadFile] = File(...)):
+    added, errors = [], []
+    with db.connect() as conn:
+        for f in files:
+            try:
+                added.append(papers.add_file(conn, iid, f.file, f.filename or "file"))
+            except db.ValidationError as e:
+                errors.append(str(e))
+            finally:
+                f.file.close()
+    if errors and not added:
+        raise HTTPException(400, " | ".join(errors))
+    return {"added": added, "errors": errors}
+
+
+@app.get("/api/paper-invoice-files/{fid}")
+def paper_invoice_file(fid: int, download: int = 0):
+    with db.connect() as conn:
+        f = papers.get_file(conn, fid)
+    return FileResponse(f["path"], filename=f["filename"], content_disposition_type="attachment" if download else "inline")
+
+
+@app.delete("/api/paper-invoice-files/{fid}")
+def paper_invoice_file_delete(fid: int):
+    with db.connect() as conn:
+        papers.delete_file(conn, fid)
+    return {"ok": True}
+
+
 @app.delete("/api/paper-invoices/{iid}")
 def paper_invoice_delete(iid: int):
     with db.connect() as conn:

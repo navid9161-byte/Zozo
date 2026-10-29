@@ -13,11 +13,13 @@ def test_paper_invoices_flow():
         assert c.post("/api/papers", json={"name": "اطلاعات"}).status_code == 400
         office = c.post("/api/paper-clients", json={"name": "شهرداری کرمان", "kind": "office", "all_papers": True}).json()
         assert sorted(office["paper_ids"]) == sorted([p1, p2])
-        person = c.post("/api/paper-clients", json={"name": "آقای رضایی", "paper_ids": [p2], "phones": ["۰۹۱۲۱۱۱۲۲۳۳", "", "0343-2223344", "09121112233"],
-                                                    "address": "کرمان، خیابان شریعتی"}).json()
-        assert person["phones"] == ["09121112233", "0343-2223344"] and person["address"] == "کرمان، خیابان شریعتی"
-        upd = c.put(f"/api/paper-clients/{person['id']}", json={"name": "آقای رضایی", "paper_ids": [p2], "phones": ["09121112233"], "address": "کرمان"}).json()
-        assert upd["phones"] == ["09121112233"] and upd["address"] == "کرمان"
+        person = c.post("/api/paper-clients", json={"name": "آقای رضایی", "paper_ids": [p2], "address": "کرمان، خیابان شریعتی",
+                                                    "phones": ["۰۹۱۲۱۱۱۲۲۳۳", "", {"label": "روابط عمومی", "number": "0343-2223344"}, "09121112233"]}).json()
+        assert person["phones"] == [{"label": "", "number": "09121112233"}, {"label": "روابط عمومی", "number": "0343-2223344"}]
+        assert person["address"] == "کرمان، خیابان شریعتی"
+        upd = c.put(f"/api/paper-clients/{person['id']}", json={"name": "آقای رضایی", "paper_ids": [p2], "address": "کرمان",
+                                                               "phones": [{"label": "روابط عمومی", "number": "09130000000"}]}).json()
+        assert upd["phones"] == [{"label": "روابط عمومی", "number": "09130000000"}] and upd["address"] == "کرمان"
         assert c.post("/api/paper-clients", json={"name": "بی‌روزنامه"}).status_code == 400
         # مشتری برای روزنامه‌ای که به او وصل نیست → خطا
         assert c.post("/api/paper-invoices", json={"client_id": person["id"], "paper_id": p1, "total": 100,
@@ -43,6 +45,14 @@ def test_paper_invoices_flow():
         # فاکتور دوم
         c.post("/api/paper-invoices", json={"client_id": person["id"], "paper_id": p2, "total": 5000000, "profit": 1000000,
                                             "paper_cost": 4000000, "status": "reprint", "follow_date": f1})
+        # پیوست‌ها
+        up = c.post(f"/api/paper-invoices/{a['id']}/files", files=[("files", ("رسید.pdf", b"%PDF-1.4 test", "application/pdf")),
+                                                                     ("files", ("x.exe", b"MZ", "application/octet-stream"))]).json()
+        assert len(up["added"]) == 1 and up["errors"]
+        fid = up["added"][0]["id"]
+        assert c.get(f"/api/paper-invoice-files/{fid}").content == b"%PDF-1.4 test"
+        assert c.get(f"/api/paper-invoices/{a['id']}").json()["files"][0]["filename"] == "رسید.pdf"
+        assert next(x for x in c.get("/api/paper-invoices").json()["items"] if x["id"] == a["id"])["file_count"] == 1
         # اعلام وصول ← درآمد و هزینه در مالی؛ یادآوری بسته
         col = c.put(f"/api/paper-invoices/{a['id']}", json={"status": "collected"}).json()
         assert col["collected_date"] == db.today_str() and col["tx_income_id"] and col["tx_expense_id"]
@@ -65,4 +75,5 @@ def test_paper_invoices_flow():
         # حذف روزنامه‌ی دارای فاکتور ممنوع؛ حذف فاکتور یادآوری را می‌بندد
         assert c.delete(f"/api/papers/{p1}").status_code == 400
         assert c.delete(f"/api/paper-invoices/{a['id']}").status_code == 200
+        assert c.get(f"/api/paper-invoice-files/{fid}").status_code == 404
         assert c.get(f"/api/reminders/{back['reminder_id']}").json()["status"] == "done"

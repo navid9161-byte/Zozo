@@ -799,3 +799,9 @@ dialog.designer:not([open]) { display: none; }
 .pc-ph { display: flex; gap: 6px; } .pc-ph input { flex: 1; }
 .pp-fgrid > .wide { grid-column: 1 / -1; }
 .pp-fgrid textarea { width: 100%; }
+.pc-ph .pc-phl { flex: 0 0 34%; min-width: 0; }
+.pp-files { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 8px; display: grid; gap: 6px; justify-items: start; }
+.pp-files #pi-files { display: grid; gap: 4px; width: 100%; }
+.pp-file { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; }
+.pp-file a:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.pp-file.pend { border-style: dashed; color: var(--muted); }

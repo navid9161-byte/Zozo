@@ -560,6 +560,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "phones" not in cols:
         conn.execute("ALTER TABLE paper_clients ADD COLUMN phones TEXT")
         conn.execute("UPDATE paper_clients SET phones=json_array(phone) WHERE COALESCE(phone,'')!=''")
+    conn.execute("""CREATE TABLE IF NOT EXISTS paper_invoice_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        invoice_id INTEGER NOT NULL REFERENCES paper_invoices(id) ON DELETE CASCADE,
+        filename TEXT, path TEXT NOT NULL, size INTEGER, created_at TEXT)""")
     if "address" not in cols:
         conn.execute("ALTER TABLE paper_clients ADD COLUMN address TEXT")
         conn.execute("UPDATE paper_clients SET address=notes WHERE COALESCE(notes,'')!=''")
