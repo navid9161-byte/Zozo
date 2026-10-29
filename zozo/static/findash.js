@@ -12,12 +12,13 @@ function fdBindScope(view) {
 const FD_PERIODS = [["month", "این ماه"], ["3m", "۳ ماه"], ["6m", "۶ ماه"], ["year", "امسال"], ["12m", "۱۲ ماه"], ["all", "همه"]];
 
 function financeTabs(active) {
-  return `<div class="seg fd-tabs"><a href="#finance" class="${active === "dash" ? "active" : ""}">📊 داشبورد</a><a href="#finance?tab=day" class="${active === "day" ? "active" : ""}">📆 روزانه</a><a href="#finance?tab=month" class="${active === "month" ? "active" : ""}">📅 گزارش ماهانه</a></div>`;
+  return `<div class="seg fd-tabs"><a href="#finance" class="${active === "dash" ? "active" : ""}">📊 داشبورد</a><a href="#finance?tab=day" class="${active === "day" ? "active" : ""}">📆 روزانه</a><a href="#finance?tab=loans" class="${active === "loans" ? "active" : ""}">💳 وام و اقساط</a><a href="#finance?tab=month" class="${active === "month" ? "active" : ""}">📅 گزارش ماهانه</a></div>`;
 }
 
 VIEWS.finance = async (view, params) => {
   if (params.get("tab") === "month" || params.get("m")) return financeMonthView(view, params);
   if (params.get("tab") === "day") return financeDailyView(view, params);
+  if (params.get("tab") === "loans") return financeLoansView(view, params);
   if (params.get("p")) FD.period = params.get("p");
   const d = await api(`/api/finance/dashboard?period=${FD.period}&scope=${FD.scope}`);
   const work = FD.scope !== "personal";
@@ -368,4 +369,126 @@ async function financeDailyView(view, params) {
   $$("[data-tx]", view).forEach((el) => (el.onclick = async () => openForm("transactions", await api(`/api/transactions/${el.dataset.tx}`))));
   fdBindTips(view);
   if (window.innerWidth > 700) $("#fq-amt", view).focus();
+}
+
+// ═════════════════════════ وام‌ها و اقساط ═════════════════════════
+const lnAmount = (v) => Number(enDigits(String(v ?? "")).replace(/[^\d]/g, "")) || 0;
+
+async function financeLoansView(view, params) {
+  const d = await api("/api/loans"), s = d.summary;
+  const act = d.items.filter((x) => x.status === "active"), done = d.items.filter((x) => x.status !== "active");
+  const card = (l) => {
+    const pct = Math.round((100 * l.paid) / l.count);
+    return `<div class="card ln-card ${l.overdue ? "late" : ""}">
+      <div class="ln-head"><div><b>${esc(l.title)}</b>${l.lender ? ` <small class="muted">· ${esc(l.lender)}</small>` : ""}
+        <span class="badge ${l.scope === "personal" ? "gray" : "primary"}">${l.scope === "personal" ? "🏠 شخصی" : "💼 کاری"}</span></div>
+        <button class="btn sm ghost" data-led="${l.id}">✏️</button></div>
+      <div class="ln-bar" title="${num(l.paid)} از ${num(l.count)} قسط"><span style="width:${pct}%"></span></div>
+      <div class="ln-nums small">
+        <span>قسط: <b>${moneyWords(l.installment)}</b></span>
+        <span>پرداخت‌شده: <b>${num(l.paid)} از ${num(l.count)}</b></span>
+        <span>مانده: <b>${moneyWords(l.remaining)}</b> (${num(l.left)} قسط)</span>
+        ${l.principal ? `<span>مبلغ وام: <b>${moneyWords(l.principal)}</b></span>` : ""}
+      </div>
+      ${l.next_n ? `<div class="ln-next ${l.overdue ? "neg" : ""}">${l.overdue ? "⚠ عقب افتاده — " : ""}قسط ${num(l.next_n)}: <b>${esc(fa(l.next_due))}</b></div>
+        <div class="btn-row"><button class="btn primary" data-lpay="${l.id}">✅ قسط ${num(l.next_n)} پرداخت شد</button>
+          ${l.payments.length ? `<button class="btn sm ghost" data-lundo="${l.id}">↩ برگرداندن آخرین پرداخت</button>` : ""}</div>`
+        : `<div class="ln-next pos">🎉 همه‌ی اقساط پرداخت شده (آخرین قسط ${esc(fa(l.last_due))})</div>
+          ${l.payments.length ? `<div class="btn-row"><button class="btn sm ghost" data-lundo="${l.id}">↩ برگرداندن آخرین پرداخت</button></div>` : ""}`}
+      ${l.payments.length ? `<details class="ln-hist"><summary class="small">🧾 پرداخت‌ها (${num(l.payments.length)})</summary><ol>${l.payments.slice().reverse().map((p) => `<li class="small">قسط ${num(p.n)} · ${esc(fa(p.date))} · ${moneyWords(p.amount)}${p.due && p.date > p.due ? ` <span class="neg">(${num(Jalali.daysBetween(p.due, p.date))} روز دیرتر)</span>` : ""}</li>`).join("")}</ol></details>` : ""}
+    </div>`;
+  };
+  view.innerHTML = `<div class="page-title"><h2>💰 مالی</h2>${financeTabs("loans")}</div>
+    <div class="stats">
+      <div class="stat"><div class="v">${moneyWords(s.monthly)}</div><div class="l">جمع اقساط ماهانه (${num(s.active)} وام)</div></div>
+      <div class="stat warn"><div class="v">${moneyWords(s.due_this_month)}</div><div class="l">باید تا آخر این ماه پرداخت شود</div></div>
+      <div class="stat"><div class="v">${moneyWords(s.remaining)}</div><div class="l">کل بدهی باقی‌مانده</div></div>
+      <div class="stat ${s.overdue ? "bad" : "good"}"><div class="v">${num(s.overdue)}</div><div class="l">قسط عقب‌افتاده</div></div>
+    </div>
+    <div class="btn-row" style="margin-bottom:10px"><button class="btn primary" id="ln-new">➕ وام یا خرید قسطی تازه</button>
+      <span class="small muted">سر تاریخ هر قسط ساعت ۹ صبح یادآوری می‌آید («پرداخت شد؟»)؛ با «بله» مبلغ قسط خودکار در هزینه‌ها («اقساط و وام») ثبت می‌شود.</span></div>
+    <div class="ln-list">${act.map(card).join("") || `<div class="card empty">وام فعالی ندارید.</div>`}</div>
+    ${done.length ? `<details class="card"><summary><b>✔ وام‌های تمام‌شده (${num(done.length)})</b></summary><div class="ln-list">${done.map(card).join("")}</div></details>` : ""}`;
+  $("#ln-new").onclick = () => loanForm(null);
+  $$("[data-led]", view).forEach((b) => (b.onclick = () => loanForm(d.items.find((x) => x.id === Number(b.dataset.led)))));
+  $$("[data-lpay]", view).forEach((b) => (b.onclick = () => loanPayDialog(d.items.find((x) => x.id === Number(b.dataset.lpay)))));
+  $$("[data-lundo]", view).forEach((b) => (b.onclick = async () => {
+    const l = d.items.find((x) => x.id === Number(b.dataset.lundo)), p = l.payments[l.payments.length - 1];
+    if (!confirm(`پرداخت قسط ${fa(p.n)} (${moneyWords(p.amount)}) برگردانده شود؟ هزینه‌اش هم از بخش مالی حذف می‌شود.`)) return;
+    try { await api(`/api/loans/${l.id}/undo`, { method: "POST" }); toast("برگردانده شد"); refresh(); } catch (e) { toast(e.message, 5000); }
+  }));
+  // از یادآوری: #finance?tab=loans&pay=ID
+  const pay = Number(params.get("pay"));
+  if (pay) {
+    history.replaceState(null, "", "#finance?tab=loans");
+    const l = d.items.find((x) => x.id === pay);
+    if (l?.next_n) loanPayDialog(l); else if (l) toast("همه‌ی اقساط این وام ثبت شده ✔");
+  }
+}
+
+function loanPayDialog(l) {
+  $("#dlg-body").innerHTML = `<h3>💳 قسط ${num(l.next_n)} از ${num(l.count)} — ${esc(l.title)}</h3>
+    <p style="margin-top:0">سررسید: <b>${esc(fa(l.next_due))}</b>${l.overdue ? ` <span class="neg">(عقب افتاده)</span>` : ""}<br>پرداخت کردید؟</p>
+    <div class="pp-fgrid">
+      <label>مبلغ پرداختی<input id="lp-amt" inputmode="numeric" value="${num(l.installment)}"></label>
+      <label>تاریخ پرداخت<input id="lp-date" inputmode="numeric" value="${esc(fa(META.today))}"></label>
+    </div>
+    <p class="small muted">با «بله»، این مبلغ به‌عنوان هزینه («اقساط و وام»، ${l.scope === "personal" ? "شخصی" : "کاری"}) در بخش مالی ثبت می‌شود و یادآوری قسط بعدی ساخته می‌شود.</p>
+    <div class="modal-error" id="lp-err"></div>
+    <div class="modal-actions"><button class="btn" onclick="this.closest('dialog').close()">هنوز نه</button><button class="btn primary" id="lp-ok">✅ بله، پرداخت کردم</button></div>`;
+  const amt = $("#lp-amt");
+  amt.oninput = () => { const v = lnAmount(amt.value); amt.value = v ? num(v) : ""; };
+  $("#lp-ok").onclick = async () => {
+    try {
+      const r = await api(`/api/loans/${l.id}/pay`, { method: "POST", body: { n: l.next_n, amount: lnAmount(amt.value), date: enDigits($("#lp-date").value.trim()) } });
+      $("#dlg").close();
+      toast(r.next_due ? `✅ ثبت شد · قسط بعدی ${fa(r.next_due)}` : "🎉 آخرین قسط هم ثبت شد", 4500);
+      refresh();
+    } catch (e) { $("#lp-err").textContent = e.message; }
+  };
+  $("#dlg").showModal();
+}
+
+function loanForm(l) {
+  const isNew = !l, v = l || { scope: "personal", first_due: Jalali.addDays(META.today, 30), paid: 0 };
+  $("#dlg-body").innerHTML = `<h3>💳 ${isNew ? "وام یا خرید قسطی تازه" : `ویرایش «${esc(l.title)}»`}</h3>
+    <form id="ln-form" class="pp-form"><div class="pp-fgrid">
+      <label class="wide">عنوان<input name="title" value="${esc(v.title || "")}" placeholder="مثلاً وام ۱۲۰ میلیونی (گوشی)" required></label>
+      <label>وام‌دهنده / فروشگاه<input name="lender" value="${esc(v.lender || "")}" placeholder="مثلاً بانک ملت"></label>
+      <label>کاری یا شخصی<select name="scope"><option value="personal" ${v.scope === "personal" ? "selected" : ""}>🏠 شخصی / خانه</option><option value="work" ${v.scope === "work" ? "selected" : ""}>💼 کاری</option></select></label>
+      <label>مبلغ وام (اختیاری)<input name="principal" inputmode="numeric" value="${v.principal ? num(v.principal) : ""}"><small class="money-hint" data-h="principal"></small></label>
+      <label>تعداد اقساط<input name="count" inputmode="numeric" value="${v.count ? num(v.count) : ""}" placeholder="مثلاً ۱۸"></label>
+      <label>مبلغ هر قسط<input name="installment" inputmode="numeric" value="${v.installment ? num(v.installment) : ""}"><small class="money-hint" data-h="installment"></small></label>
+      <label>تاریخ اولین قسط<span class="date-wrap"><input name="first_due" inputmode="numeric" value="${esc(fa(v.first_due || ""))}"><button type="button" id="ln-dp">📅</button></span></label>
+      <label>چند قسط تا امروز پرداخت شده؟<input name="paid" inputmode="numeric" value="${num(v.paid || 0)}"><small class="muted">برای وامی که از قبل دارید؛ این‌ها در هزینه‌ها ثبت نمی‌شوند.</small></label>
+      <label class="wide">توضیح<input name="notes" value="${esc(v.notes || "")}"></label>
+    </div>
+    <div class="small" id="ln-hint"></div>
+    <div class="modal-error" id="ln-err"></div>
+    <div class="modal-actions">${isNew ? "" : `<button type="button" class="btn danger ghost" id="ln-del">🗑 حذف</button>`}<span style="flex:1"></span>
+      <button type="button" class="btn" onclick="this.closest('dialog').close()">بستن</button><button class="btn primary">✔ ذخیره</button></div></form>`;
+  const f = $("#ln-form");
+  const hint = () => {
+    for (const k of ["principal", "installment"]) { const n = lnAmount(f[k].value); $(`[data-h=${k}]`, f).textContent = n ? `${moneyWords(n)} ${META.currency}` : ""; }
+    const p = lnAmount(f.principal.value), c = lnAmount(f.count.value), i = lnAmount(f.installment.value), box = $("#ln-hint");
+    if (p && c && !i) { box.innerHTML = `<button type="button" class="btn sm" id="ln-sug">💡 هر قسط = مبلغ وام ÷ تعداد = ${moneyWords(Math.round(p / c))} (بدون سود)</button>`; $("#ln-sug").onclick = () => { f.installment.value = num(Math.round(p / c)); hint(); }; }
+    else box.innerHTML = c && i ? `<span class="muted">جمع بازپرداخت: <b>${moneyWords(c * i)}</b>${p && c * i > p ? ` · سود/کارمزد: ${moneyWords(c * i - p)}` : ""}</span>` : "";
+  };
+  for (const k of ["principal", "installment", "count", "paid"]) f[k].addEventListener("input", () => { const n = lnAmount(f[k].value); f[k].value = n || k === "paid" ? num(n) : ""; hint(); });
+  $("#ln-dp").onclick = () => pickDate(f.first_due.value, false, (x) => (f.first_due.value = fa(x)));
+  hint();
+  f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const body = { title: f.title.value, lender: f.lender.value, scope: f.scope.value, principal: lnAmount(f.principal.value), count: lnAmount(f.count.value),
+      installment: lnAmount(f.installment.value), first_due: enDigits(f.first_due.value.trim()), paid: lnAmount(f.paid.value), notes: f.notes.value };
+    try {
+      const r = await api(isNew ? "/api/loans" : `/api/loans/${l.id}`, { method: isNew ? "POST" : "PUT", body });
+      $("#dlg").close(); toast(r.next_due ? `✔ ذخیره شد · یادآوری قسط ${fa(r.next_n)}: ${fa(r.next_due)}` : "✔ ذخیره شد", 4500); refresh();
+    } catch (e) { $("#ln-err").textContent = e.message; }
+  };
+  if (!isNew) $("#ln-del").onclick = async () => {
+    if (!confirm(`«${l.title}» حذف شود؟ (هزینه‌های قسط‌هایی که ثبت شده در بخش مالی می‌مانند)`)) return;
+    await api(`/api/loans/${l.id}`, { method: "DELETE" }); $("#dlg").close(); refresh();
+  };
+  $("#dlg").showModal();
 }

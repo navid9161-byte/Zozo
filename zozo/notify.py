@@ -30,13 +30,14 @@ MAX_LEN = 4000
 
 
 def add(conn: sqlite3.Connection, kind: str, title: str, body: str = "", link: str = "",
-        dedup: str | None = None, url: str | None = None) -> int | None:
-    """ثبت اعلان؛ اگر dedup تکراری باشد چیزی ثبت نمی‌شود. خروجی: شناسه یا None."""
+        dedup: str | None = None, url: str | None = None, actions: list[list[str]] | None = None) -> int | None:
+    """ثبت اعلان؛ اگر dedup تکراری باشد چیزی ثبت نمی‌شود. خروجی: شناسه یا None.
+    actions: دکمه‌های پاسخ در بله، مثل [["✅ بله", "loanpay:3:5"]]."""
     if url:
         body = f"{body}\n{url}".strip()
     cur = conn.execute(
-        "INSERT OR IGNORE INTO notifications (kind, title, body, link, dedup, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (kind, title[:300], body[:3000], link, dedup, db.now_str()),
+        "INSERT OR IGNORE INTO notifications (kind, title, body, link, dedup, actions, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (kind, title[:300], body[:3000], link, dedup, json.dumps(actions, ensure_ascii=False) if actions else None, db.now_str()),
     )
     return cur.lastrowid if cur.rowcount else None
 
@@ -139,20 +140,24 @@ class BaleBot:
             raise RuntimeError(f"Bale {method}: {data.get('description')}")
         return data["result"]
 
-    def send(self, chat_id: int | str, text: str) -> None:
+    def send(self, chat_id: int | str, text: str, buttons: list[list[str]] | None = None) -> None:
         text = text.strip() or "—"
-        for i in range(0, len(text), MAX_LEN):
-            self.call("sendMessage", chat_id=chat_id, text=text[i: i + MAX_LEN])
+        parts = [text[i: i + MAX_LEN] for i in range(0, len(text), MAX_LEN)]
+        for k, part in enumerate(parts):
+            extra: dict[str, Any] = {}
+            if buttons and k == len(parts) - 1:
+                extra["reply_markup"] = {"inline_keyboard": [[{"text": t, "callback_data": d} for t, d in buttons]]}
+            self.call("sendMessage", chat_id=chat_id, text=part, **extra)
 
     @property
     def allowed(self) -> set[str]:
         return allowed_chats()
 
-    def broadcast(self, text: str) -> bool:
+    def broadcast(self, text: str, buttons: list[list[str]] | None = None) -> bool:
         ok = bool(self.allowed)
         for chat_id in self.allowed:
             try:
-                self.send(chat_id, text)
+                self.send(chat_id, text, buttons)
             except Exception:
                 ok = False
                 log.exception("ارسال به بله (%s) ناموفق بود", chat_id)
@@ -210,6 +215,31 @@ class BaleBot:
                 db.create(conn, "notes", {"title": title, "content": text, "kind": "idea", "tags": "از بله"})
             self.send(chat_id, "✅ به عنوان ایده در یادداشت‌ها ذخیره شد.")
 
+    def handle_callback(self, q: dict[str, Any]) -> None:
+        """دکمه‌های زیر پیام (مثلاً «✅ بله، پرداخت کردم» برای قسط)."""
+        from . import loans
+
+        msg = q.get("message") or {}
+        chat_id = str((msg.get("chat") or {}).get("id") or (q.get("from") or {}).get("id") or "")
+        data = str(q.get("data") or "")
+        if chat_id not in self.allowed:
+            reply = "این ربات شخصی است."
+        elif data.startswith(("loanpay:", "loanlater:")):
+            reply = loans.handle_action(data)
+        else:
+            reply = "دستور ناشناخته"
+        try:
+            self.call("answerCallbackQuery", callback_query_id=q.get("id"), text=reply[:190])
+        except Exception:
+            log.debug("answerCallbackQuery ناموفق بود", exc_info=True)
+        if chat_id in self.allowed:
+            try:  # دکمه‌ها از پیام قبلی برداشته شوند تا دوباره زده نشوند
+                self.call("editMessageReplyMarkup", chat_id=chat_id, message_id=msg.get("message_id"),
+                          reply_markup={"inline_keyboard": []})
+            except Exception:
+                log.debug("برداشتن دکمه‌ها ناموفق بود", exc_info=True)
+            self.send(chat_id, reply)
+
     def transcribe_media(self, chat_id: str, media: dict[str, Any], caption: str = "") -> None:
         """ویس یا فایل صوتی فرستاده‌شده به ربات ← صف تبدیل به متن؛ متن آماده همین‌جا فرستاده می‌شود."""
         import io
@@ -242,6 +272,11 @@ class BaleBot:
                             self.handle(u["message"])
                         except Exception:
                             log.exception("خطا در پردازش پیام بله")
+                    elif "callback_query" in u:
+                        try:
+                            self.handle_callback(u["callback_query"])
+                        except Exception:
+                            log.exception("خطا در پردازش دکمه‌ی بله")
             except Exception as e:
                 log.warning("خطای getUpdates بله: %s؛ تلاش دوباره تا ۲۰ ثانیه‌ی دیگر", e)
                 self._stop.wait(20)
@@ -338,11 +373,15 @@ def deliver_pending() -> int:
         # اعلان‌های قدیمی (مثلاً پیش از راه‌اندازی ربات) فرستاده نمی‌شوند
         conn.execute("UPDATE notifications SET bale_sent=3 WHERE bale_sent=0 AND created_at < ?", (day_ago,))
         rows = conn.execute(
-            "SELECT id, kind, title, body FROM notifications WHERE bale_sent=0 ORDER BY id LIMIT 20").fetchall()
+            "SELECT id, kind, title, body, actions FROM notifications WHERE bale_sent=0 ORDER BY id LIMIT 20").fetchall()
     n = 0
     for r in rows:
         text = r["title"] if not r["body"] else f"{r['title']}\n\n{r['body']}"
-        ok = bot.broadcast(text)
+        try:
+            buttons = json.loads(r["actions"]) if r["actions"] else None
+        except ValueError:
+            buttons = None
+        ok = bot.broadcast(text, buttons)
         with db.connect() as conn:
             conn.execute("UPDATE notifications SET bale_sent=? WHERE id=?", (1 if ok else 2, r["id"]))
         n += 1

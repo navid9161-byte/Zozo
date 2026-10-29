@@ -30,8 +30,12 @@ def check_reminders(conn: sqlite3.Connection, now: str) -> int:
         "WHERE r.status='active' AND r.remind_at <= ?", (now,)).fetchall()
     for r in rows:
         body = "\n".join(x for x in (r["story_name"] and f"سوژه: {r['story_name']}", r["notes"]) if x)
-        notify.add(conn, "reminder", f"⏰ {r['title']}", body, link=f"#reminders?id={r['id']}",
-                   dedup=f"rem:{r['id']}:{r['remind_at']}")
+        actions = None
+        if (r["action"] or "").startswith("loan:"):   # «قسط پرداخت شد؟» ← دکمه‌های بله
+            _, lid, inst = r["action"].split(":")
+            actions = [["✅ بله، پرداخت کردم", f"loanpay:{lid}:{inst}"], ["⏰ فردا یادم بینداز", f"loanlater:{lid}:{inst}"]]
+        notify.add(conn, "reminder", f"⏰ {r['title']}", body, link=r["link"] or f"#reminders?id={r['id']}",
+                   dedup=f"rem:{r['id']}:{r['remind_at']}", actions=actions)
         if r["repeat"] and r["repeat"] != "none":
             nxt = r["remind_at"]
             while nxt <= now:  # اگر سرور مدتی خاموش بوده، به اولین زمان آینده برود

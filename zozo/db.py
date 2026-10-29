@@ -202,6 +202,8 @@ ENTITIES: dict[str, Entity] = {
                 }),
                 Field("notes", "توضیح", "longtext"),
                 Field("last_sent", "آخرین ارسال", "datetime", system=True),
+                Field("link", "پیوند", system=True),          # مثلاً #finance?tab=loans&pay=3
+                Field("action", "دکمه‌ی پاسخ", system=True),   # مثلاً loan:3:5 ← «پرداخت شد؟ بله» در بله
             ),
         ),
         Entity(
@@ -560,6 +562,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "phones" not in cols:
         conn.execute("ALTER TABLE paper_clients ADD COLUMN phones TEXT")
         conn.execute("UPDATE paper_clients SET phones=json_array(phone) WHERE COALESCE(phone,'')!=''")
+    # وام‌ها و اقساط
+    conn.execute("""CREATE TABLE IF NOT EXISTS loans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, lender TEXT, principal INTEGER DEFAULT 0,
+        installment INTEGER NOT NULL, count INTEGER NOT NULL, paid INTEGER DEFAULT 0, first_due TEXT NOT NULL,
+        scope TEXT DEFAULT 'personal', status TEXT DEFAULT 'active', notes TEXT, payments TEXT,
+        reminder_id INTEGER, created_at TEXT, updated_at TEXT)""")
+    if "actions" not in {r["name"] for r in conn.execute("PRAGMA table_info(notifications)")}:
+        conn.execute("ALTER TABLE notifications ADD COLUMN actions TEXT")
     conn.execute("""CREATE TABLE IF NOT EXISTS paper_invoice_files (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         invoice_id INTEGER NOT NULL REFERENCES paper_invoices(id) ON DELETE CASCADE,

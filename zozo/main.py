@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest, fonts, push, tts, imgfit, denoise, papers
+from . import __version__, ai, auth, db, documents, feeds, jalali, notify, scheduler, services, teaser, textnorm, transcribe, invoices, suggest, fonts, push, tts, imgfit, denoise, papers, loans
 from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -724,6 +724,46 @@ def legal_renew(doc_id: int, data: dict[str, Any]):
 
 def enum_digits(s: str) -> str:
     return str(s).translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
+
+
+# ───────────────────────── وام‌ها و اقساط ─────────────────────────
+
+
+@app.get("/api/loans")
+def loans_list():
+    with db.connect() as conn:
+        return loans.list_all(conn)
+
+
+@app.post("/api/loans", status_code=201)
+def loan_create(data: dict[str, Any]):
+    with db.connect() as conn:
+        return loans.save(conn, data)
+
+
+@app.put("/api/loans/{lid}")
+def loan_update(lid: int, data: dict[str, Any]):
+    with db.connect() as conn:
+        return loans.save(conn, data, lid)
+
+
+@app.delete("/api/loans/{lid}")
+def loan_delete(lid: int):
+    with db.connect() as conn:
+        loans.delete(conn, lid)
+    return {"ok": True}
+
+
+@app.post("/api/loans/{lid}/pay")
+def loan_pay(lid: int, data: dict[str, Any]):
+    with db.connect() as conn:
+        return loans.pay(conn, lid, data.get("n"), data.get("date"), data.get("amount"))
+
+
+@app.post("/api/loans/{lid}/undo")
+def loan_undo(lid: int):
+    with db.connect() as conn:
+        return loans.undo(conn, lid)
 
 
 # ───────────────────────── فاکتور روزنامه‌ها ─────────────────────────

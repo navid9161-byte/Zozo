@@ -805,3 +805,14 @@ dialog.designer:not([open]) { display: none; }
 .pp-file { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; }
 .pp-file a:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .pp-file.pend { border-style: dashed; color: var(--muted); }
+/* وام و اقساط */
+.ln-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.ln-card.late { border-inline-start: 4px solid var(--danger); }
+.ln-head { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
+.ln-bar { height: 10px; background: var(--line); border-radius: 6px; overflow: hidden; margin: 10px 0 6px; }
+.ln-bar span { display: block; height: 100%; background: var(--ok); }
+.ln-nums { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.ln-next { margin: 8px 0; }
+.ln-next.neg { color: var(--danger); } .ln-next.pos { color: var(--ok); }
+.ln-hist ol { margin: 6px 0 0; padding-inline-start: 20px; }
+.neg { color: var(--danger); }
