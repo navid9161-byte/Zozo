@@ -216,7 +216,7 @@ def _tx(conn: sqlite3.Connection, tid: int | None, kind: str, amount: int, inv: 
     vals = {"tx_date": inv["collected_date"] or db.today_str(), "kind": kind, "amount": amount, "scope": "work",
             "category": INCOME_CAT if kind == "income" else EXPENSE_CAT,
             "description": (f"وصول فاکتور {inv['number']} — {who}" if kind == "income" else f"سهم روزنامه، فاکتور {inv['number']} — {who}")[:300],
-            "ref_no": inv["number"]}
+            "ref_no": inv["number"], "paper_id": inv["paper_id"]}
     if tid:
         db.update(conn, "transactions", tid, vals)
         return tid

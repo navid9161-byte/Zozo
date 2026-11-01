@@ -208,8 +208,8 @@ def finance_dashboard(conn: sqlite3.Connection, period: str = "12m", month: str 
                     "WHERE kind='income' AND tx_date BETWEEN ? AND ?" + sc + " GROUP BY name ORDER BY total DESC")
     exp_cat = group("SELECT COALESCE(NULLIF(category,''),'بدون دسته') name, SUM(amount) total FROM transactions "
                     "WHERE kind='expense' AND tx_date BETWEEN ? AND ?" + sc + " GROUP BY name ORDER BY total DESC")
-    by_outlet = group("SELECT COALESCE(o.name,'بدون رسانه') name, SUM(t.amount) total FROM transactions t "
-                      "LEFT JOIN outlets o ON o.id=t.outlet_id WHERE t.kind='income' AND t.tx_date BETWEEN ? AND ?" + sct
+    by_outlet = group("SELECT COALESCE(p.name,'بدون روزنامه') name, SUM(t.amount) total FROM transactions t "
+                      "LEFT JOIN papers p ON p.id=t.paper_id WHERE t.kind='income' AND t.tx_date BETWEEN ? AND ?" + sct
                       + " GROUP BY name ORDER BY total DESC")
 
     rec = receivables(conn)

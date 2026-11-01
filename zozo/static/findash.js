@@ -89,7 +89,7 @@ VIEWS.finance = async (view, params) => {
           <span class="btn-row"><b>${moneyWords(v.due)}</b><button class="btn sm" data-pay="${v.id}">💳 ثبت پرداخت</button></span></div>`).join("")
           : `<div class="empty">همه‌ی فاکتورها پرداخت شده‌اند ✔</div>`}
       </div>
-      <div class="card"><h3>🏢 درآمد به تفکیک رسانه / کارفرما</h3>${d.by_outlet.length ? fdHbars(d.by_outlet) : `<div class="empty">موردی نیست.</div>`}</div>
+      <div class="card"><h3>📰 درآمد به تفکیک روزنامه</h3>${d.by_outlet.length ? fdHbars(d.by_outlet) : `<div class="empty">موردی نیست.</div>`}</div>
     </div>` : ""}`;
 
   $$("[data-p]", view).forEach((b) => (b.onclick = () => { FD.period = b.dataset.p; lsSet("fdPeriod", FD.period); refresh(); }));

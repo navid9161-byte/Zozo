@@ -61,6 +61,13 @@ def test_paper_invoices_flow():
         exp = c.get(f"/api/transactions/{col['tx_expense_id']}").json()
         assert (inc["kind"], inc["amount"], inc["scope"]) == ("income", 12000000, "work")
         assert (exp["kind"], exp["amount"]) == ("expense", 9000000) and "شهرداری کرمان" in exp["description"]
+        assert inc["paper_id"] == p1 and inc["paper_name"] == "کرمان امروز"
+        dash = c.get("/api/finance/dashboard", params={"period": "month", "scope": "work"}).json()
+        assert {"name": "کرمان امروز", "total": 12000000} in dash["by_outlet"]
+        # فرم تراکنش: «روزنامه» دارد، «رسانه / کارفرما» پنهان است
+        f = {x["name"]: x for x in c.get("/api/meta").json()["schema"]["transactions"]["fields"]}
+        assert f["paper_id"]["ref"] == "papers" and f["outlet_id"]["hidden"]
+        assert any(x["name"] == "کرمان امروز" for x in c.get("/api/papers", params={"limit": 500}).json())
         # جمع‌ها و تفکیک
         lst = c.get("/api/paper-invoices").json()
         assert lst["totals"]["total"] == 17000000 and lst["totals"]["profit"] == 4100000 and lst["totals"]["paper_cost"] == 13000000

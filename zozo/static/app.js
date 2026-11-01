@@ -321,7 +321,7 @@ const ENTITY_FILTERS = {
   notes: ["kind"],
   contacts: ["reliability"],
   contracts: ["status", "outlet_id"],
-  transactions: ["kind", "outlet_id"],
+  transactions: ["kind", "paper_id"],
   outlets: [],
   feeds: [],
   keywords: [],
@@ -397,10 +397,11 @@ async function renderEntity(view, e, params) {
 
 async function loadRefs(force = false) {
   if (!force && loadRefs._at && Date.now() - loadRefs._at < 15000) return;
-  const [o, c, s, k] = await Promise.all([
+  const [o, c, s, k, p] = await Promise.all([
     api("/api/outlets?limit=500"), api("/api/contacts?limit=2000"), api("/api/stories?limit=400"), api("/api/contracts?limit=300"),
+    api("/api/papers?limit=500").catch(() => []),
   ]);
-  Object.assign(REFS, { outlets: o, contacts: c, stories: s, contracts: k });
+  Object.assign(REFS, { outlets: o, contacts: c, stories: s, contracts: k, papers: p });
   loadRefs._at = Date.now();
 }
 const invalidateRefs = () => (loadRefs._at = 0);
@@ -513,7 +514,7 @@ async function openForm(e, rec, preset = {}) {
     Object.assign(defaults, preset);
   }
   const values = rec ? { ...rec, ...preset } : defaults;
-  const fields = s.fields.filter((f) => !f.system);
+  const fields = s.fields.filter((f) => !f.system && !f.hidden);
   const basic = fields.filter((f) => !f.advanced);
   const adv = fields.filter((f) => f.advanced);
   const advOpen = rec && adv.some((f) => values[f.name] && values[f.name] !== f.default);

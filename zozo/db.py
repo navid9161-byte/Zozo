@@ -30,6 +30,7 @@ class Field:
     ref: str = ""  # برای نوع ref: نام موجودیت مقصد
     suggest: tuple[str, ...] = ()  # پیشنهادهای ورودی متنی
     list_hidden: bool = False  # در فرم «پیشرفته» (جمع‌شده) نمایش داده شود
+    hidden: bool = False  # در فرم نمی‌آید ولی داده‌اش می‌ماند و از راه برنامه پر می‌شود
 
     @property
     def sql_type(self) -> str:
@@ -99,6 +100,16 @@ PERSONAL_INCOME_CATEGORIES = ("یارانه", "هدیه", "فروش وسایل",
 ENTITIES: dict[str, Entity] = {
     e.name: e
     for e in [
+        Entity(
+            name="papers",
+            label="روزنامه",
+            label_plural="روزنامه‌ها",
+            icon="📰",
+            title_field="name",
+            order_by="name",
+            search_fields=("name",),
+            fields=(Field("name", "نام روزنامه", required=True), Field("notes", "توضیح", "longtext")),
+        ),
         Entity(
             name="outlets",
             label="رسانه",
@@ -277,7 +288,9 @@ ENTITIES: dict[str, Entity] = {
                 Field("category", "دسته", suggest=INCOME_CATEGORIES + EXPENSE_CATEGORIES
                       + PERSONAL_EXPENSE_CATEGORIES + PERSONAL_INCOME_CATEGORIES),
                 Field("description", "شرح", required=True),
-                Field("outlet_id", "رسانه / کارفرما", "ref", ref="outlets"),
+                Field("paper_id", "روزنامه", "ref", ref="papers"),
+                # رسانه / کارفرما فقط برای ثبت خودکار حقوق؛ در فرم نمی‌آید
+                Field("outlet_id", "رسانه / کارفرما", "ref", ref="outlets", hidden=True),
                 Field("story_id", "مربوط به سوژه", "ref", ref="stories", list_hidden=True),
                 Field("contract_id", "مربوط به قرارداد", "ref", ref="contracts", list_hidden=True),
                 Field("ref_no", "شماره رسید / پیگیری", list_hidden=True),
@@ -890,7 +903,7 @@ def schema() -> dict[str, Any]:
                 {
                     "name": f.name, "label": f.label, "type": f.type, "required": f.required,
                     "choices": f.choices, "default": f.default, "help": f.help, "system": f.system,
-                    "ref": f.ref, "suggest": list(f.suggest), "advanced": f.list_hidden,
+                    "ref": f.ref, "suggest": list(f.suggest), "advanced": f.list_hidden, "hidden": f.hidden,
                     "join": f.join_alias if f.type == "ref" else None,
                 }
                 for f in e.fields
