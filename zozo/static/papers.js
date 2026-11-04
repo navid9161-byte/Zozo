@@ -128,6 +128,7 @@ function ppInvoiceForm(inv) {
         <div class="pp-combo"><b class="small">مشتری</b><input id="pi-cq" autocomplete="off" placeholder="چند حرف از اسم یا شماره را بنویسید…" value="${esc(ppClient(v.client_id)?.name || "")}">
           <input type="hidden" name="client_id" value="${esc(v.client_id || "")}"><div class="pp-combo-list" id="pi-clist" hidden></div></div>
         <label>روزنامه<select name="paper_id" required></select></label>
+        <div class="wide pp-newc" id="pi-newc" hidden></div>
         <label>شماره<input name="number" value="${esc(fa(v.number || ""))}"></label>
         <label>تاریخ فاکتور<input name="issue_date" value="${esc(fa(v.issue_date || ""))}" inputmode="numeric"></label>
         <label class="wide">شرح (اختیاری)<input name="title" value="${esc(v.title || "")}" placeholder="مثلاً آگهی مناقصه، آگهی تسلیت…"></label>
@@ -370,11 +371,14 @@ function ppBindClientCombo(form, onPick) {
       return words.every((w) => hay.includes(w));
     }).slice(0, 30);
     idx = items.length ? 0 : -1;
-    list.innerHTML = items.length ? items.map((c, i) => `<button type="button" data-ci="${i}" class="${i === idx ? "on" : ""}"><b>${esc(c.name)}</b>
+    const typed = q.value.trim();
+    list.innerHTML = (items.length ? items.map((c, i) => `<button type="button" data-ci="${i}" class="${i === idx ? "on" : ""}"><b>${esc(c.name)}</b>
         <small class="muted">${c.paper_ids.map((id) => esc(ppPaper(id)?.name || "")).join("، ")}${(c.phones || []).length ? ` · ${ppPhText(c.phones[0])}` : ""}</small></button>`).join("")
-      : `<div class="small muted" style="padding:8px">مشتری‌ای با این نام نیست. در زبانه‌ی «👥 مشتری‌ها» تعریفش کنید.</div>`;
+      : `<div class="small muted" style="padding:8px 10px 0">مشتری‌ای با این نام نیست.</div>`)
+      + `<button type="button" class="pp-combo-new" data-newc>➕ مشتری تازه${typed ? `: «${esc(typed)}»` : ""}</button>`;
     list.hidden = false;
     $$("[data-ci]", list).forEach((b) => b.addEventListener("mousedown", (ev) => { ev.preventDefault(); pick(items[Number(b.dataset.ci)]); }));
+    $("[data-newc]", list).addEventListener("mousedown", (ev) => { ev.preventDefault(); list.hidden = true; ppQuickClient(form, typed, pick); });
   };
   const pick = (c) => {
     if (!c) return;
@@ -389,7 +393,8 @@ function ppBindClientCombo(form, onPick) {
     if (!hid.value) { const exact = PP.meta.clients.find((c) => ppNorm(c.name) === ppNorm(q.value)); if (exact) pick(exact); }
   }, 150));
   q.addEventListener("keydown", (ev) => {
-    if (list.hidden || !items.length) return;
+    if (list.hidden) return;
+    if (!items.length) { if (ev.key === "Enter") { ev.preventDefault(); list.hidden = true; ppQuickClient(form, q.value.trim(), pick); } return; }
     if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
       ev.preventDefault(); idx = (idx + (ev.key === "ArrowDown" ? 1 : items.length - 1)) % items.length;
       $$("[data-ci]", list).forEach((b, i) => b.classList.toggle("on", i === idx));
@@ -397,4 +402,39 @@ function ppBindClientCombo(form, onPick) {
     else if (ev.key === "Escape") list.hidden = true;
   });
   if (hid.value) q.classList.add("ok");
+}
+
+// ساختن مشتری تازه همان‌جا در فرم فاکتور (فاکتورِ نیمه‌کاره بسته نمی‌شود)
+function ppQuickClient(form, name, pick) {
+  const box = $("#pi-newc", form), papers = PP.meta.papers;
+  const cur = Number(form.paper_id.value) || Number(PP.f?.paper_id) || (papers.length === 1 ? papers[0].id : 0);
+  box.hidden = false;
+  box.innerHTML = `<b class="small">➕ مشتری تازه</b>
+    <div class="pp-fgrid" style="margin-top:6px">
+      <label>نام<input id="nc-name" value="${esc(name || "")}" placeholder="نام اداره، شخص یا شرکت"></label>
+      <label>تلفن (اختیاری)<input id="nc-phone" type="tel" dir="ltr" placeholder="مثلاً ۰۹۱۳…"></label>
+    </div>
+    <div class="small" style="margin-top:6px">برای کدام روزنامه‌ها؟</div>
+    <div class="pp-papers">${papers.map((p) => `<label class="chk"><input type="checkbox" name="ncp" value="${p.id}" ${p.id === cur ? "checked" : ""}> ${esc(p.name)}</label>`).join("")}
+      <button type="button" class="btn sm ghost" id="nc-all">✔ همه</button></div>
+    <div class="modal-error" id="nc-err" style="color:var(--accent)"></div>
+    <div class="btn-row"><button type="button" class="btn primary sm" id="nc-ok">✔ ساختن و انتخاب</button><button type="button" class="btn sm" id="nc-x">انصراف</button></div>
+    <div class="small muted">آدرس و شماره‌های بیشتر را بعداً هم می‌شود در «👥 مشتری‌ها» اضافه کرد.</div>`;
+  const nm = $("#nc-name", box), ph = $("#nc-phone", box);
+  nm.focus();
+  $("#nc-all", box).onclick = () => $$("[name=ncp]", box).forEach((x) => (x.checked = true));
+  $("#nc-x", box).onclick = () => { box.hidden = true; box.innerHTML = ""; };
+  const ok = async () => {
+    const tel = enDigits(ph.value.trim());
+    try {
+      const c = await api("/api/paper-clients", { method: "POST", body: { name: nm.value, paper_ids: $$("[name=ncp]:checked", box).map((x) => Number(x.value)), phones: tel ? [{ label: "", number: tel }] : [] } });
+      await ppLoadMeta();
+      box.hidden = true; box.innerHTML = "";
+      pick(ppClient(c.id) || c);
+      PP.dirty = true;
+      toast(`✔ مشتری «${c.name}» ساخته و انتخاب شد`);
+    } catch (e) { if (!(e instanceof LoginRequired)) $("#nc-err", box).textContent = e.message; }
+  };
+  $("#nc-ok", box).onclick = ok;
+  for (const el of [nm, ph]) el.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ok(); } };
 }

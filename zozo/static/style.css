@@ -783,7 +783,7 @@ dialog.designer:not([open]) { display: none; }
 .pp-papers .chk { display: flex; align-items: center; gap: 4px; }
 .pp-fgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
 .pp-fgrid > label { display: grid; gap: 3px; font-size: 13px; font-weight: 600; }
-.pp-fgrid > label.wide { grid-column: 1 / -1; }
+.pp-fgrid > label.wide, .pp-fgrid > div.wide { grid-column: 1 / -1; }
 .pp-fgrid input, .pp-fgrid select { width: 100%; }
 .pp-fgrid input[inputmode=numeric] { direction: ltr; text-align: left; font-variant-numeric: tabular-nums; }
 .pp-fgrid .money-hint { font-weight: 400; font-size: 12px; color: var(--muted); min-height: 1em; }
@@ -816,3 +816,5 @@ dialog.designer:not([open]) { display: none; }
 .ln-next.neg { color: var(--danger); } .ln-next.pos { color: var(--ok); }
 .ln-hist ol { margin: 6px 0 0; padding-inline-start: 20px; }
 .neg { color: var(--danger); }
+.pp-combo-list .pp-combo-new { color: var(--primary); font-weight: 700; border-bottom: 0; }
+.pp-newc { border: 1.5px dashed var(--primary); border-radius: 10px; padding: 10px; background: var(--primary-soft); }
