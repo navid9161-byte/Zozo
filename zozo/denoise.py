@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 
-from . import db, dfn, teaser
+from . import db, dfn, documents, teaser
 from .config import settings
 
 MODEL = Path(__file__).parent / "models" / "rnnoise-cb.rnnn"
@@ -133,7 +133,8 @@ def status(jid: str) -> dict[str, Any]:
 
 
 def _run(job: dict[str, Any], m: dict[str, Any], level: str, normalize: bool) -> None:
-    with _lock:
+    # در صف مشترک کارهای سنگین (ساخت ویدیو، تبدیل گفتار…) تا هم‌زمان حافظه‌ی سرور را پر نکنند
+    with _lock, documents.HEAVY:
         job["status"] = "running"
         kind = m["kind"]
         stem = Path(m["filename"]).stem

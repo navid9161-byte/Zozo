@@ -755,6 +755,29 @@ class Cancelled(Exception):
     pass
 
 
+class Interrupted(Exception):
+    """برنامه در حال خاموش‌شدن است (نصب نسخه‌ی تازه / ری‌استارت)؛ کار باید دوباره در صف برود."""
+
+
+class Killed(RuntimeError):
+    """ffmpeg از بیرون بسته شد (معمولاً چون حافظه‌ی سرور پر شد)."""
+
+
+KILLED_MSG = ("حافظه‌ی سرور کم آمد و ساخت ویدیو نیمه‌کاره ماند (حتی با حالت کم‌مصرف). "
+              "«↻ دوباره» را بزنید؛ اگر باز تکرار شد، ویدیو را کوتاه‌تر کنید یا حافظه‌ی سرور را بیشتر کنید.")
+
+
+def lowmem_args(args: list[str]) -> list[str]:
+    """همان فرمان ffmpeg با یک رشته‌ی پردازشی؛ کندتر ولی با مصرف حافظه‌ی خیلی کمتر."""
+    out = list(args)
+    for i, a in enumerate(out[:-1]):
+        if a == "-threads":
+            out[i + 1] = "1"
+    if out and out[0] == "ffmpeg":
+        out[1:1] = ["-filter_threads", "1", "-filter_complex_threads", "1"]
+    return out
+
+
 class Renderer:
     def __init__(self) -> None:
         self._event = threading.Event()
@@ -763,6 +786,7 @@ class Renderer:
         self._current: int | None = None
         self._cancel: set[int] = set()
         self.stopping = False
+        self._lowmem = False
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -797,6 +821,10 @@ class Renderer:
     def _exec(self, tid: int, args: list[str], on_progress=None) -> None:
         if tid in self._cancel:
             raise Cancelled()
+        if self.stopping:
+            raise Interrupted()
+        if self._lowmem:
+            args = lowmem_args(args)
         self._proc = subprocess.Popen(args, stdout=subprocess.PIPE if on_progress else subprocess.DEVNULL,
                                       stderr=subprocess.PIPE, text=True)
         err_lines: list[str] = []
@@ -820,6 +848,10 @@ class Renderer:
         t.join(timeout=5)
         if tid in self._cancel:
             raise Cancelled()
+        if self.stopping:
+            raise Interrupted()
+        if code < 0 and not err_lines:
+            raise Killed(f"ffmpeg بسته شد ({code})")
         if code != 0:
             raise RuntimeError("".join(err_lines).strip()[-600:] or f"ffmpeg خطای {code}")
 
@@ -828,6 +860,33 @@ class Renderer:
             row = conn.execute("SELECT * FROM teasers WHERE id=?", (tid,)).fetchone()
         spec = json.loads(row["spec"])
         self._current = tid
+        self._lowmem = False
+        try:
+            try:
+                self._render_once(tid, spec)
+            except Killed:
+                if self.stopping:
+                    raise Interrupted() from None
+                # بار دوم با حالت کم‌مصرف؛ کاربر کاری لازم نیست بکند
+                log.warning("ffmpeg تیزر %s بسته شد؛ دوباره با حالت کم‌مصرف", tid)
+                self._lowmem = True
+                self._render_once(tid, spec)
+        except Cancelled:
+            self._set(tid, status="cancelled", progress=0)
+        except Interrupted:
+            self._set(tid, status="queued", progress=0, error=None)
+        except Killed:
+            log.error("ساخت تیزر %s حتی با حالت کم‌مصرف ناموفق بود (کمبود حافظه)", tid)
+            self._set(tid, status="error", error=KILLED_MSG)
+        except Exception as e:
+            log.exception("ساخت تیزر %s ناموفق بود", tid)
+            self._set(tid, status="error", error=str(e)[:800])
+        finally:
+            self._current = None
+            self._lowmem = False
+            self._cancel.discard(tid)
+
+    def _render_once(self, tid: int, spec: dict[str, Any]) -> None:
         self._set(tid, status="rendering", progress=0.01, error=None)
         work = Path(tempfile.mkdtemp(prefix=f"teaser{tid}_", dir=teaser_dir()))
         try:
@@ -888,14 +947,7 @@ class Renderer:
             with db.connect() as conn:
                 notify.add(conn, "teaser", f"🎬 تیزر «{spec['title']}» آماده است", "", link="#teaser",
                            dedup=f"teaser:{tid}:{db.now_str()}")
-        except Cancelled:
-            self._set(tid, status="cancelled", progress=0)
-        except Exception as e:
-            log.exception("ساخت تیزر %s ناموفق بود", tid)
-            self._set(tid, status="error", error=str(e)[:800])
         finally:
-            self._current = None
-            self._cancel.discard(tid)
             shutil.rmtree(work, ignore_errors=True)
 
     def run_pending(self) -> int:
