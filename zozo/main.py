@@ -602,6 +602,16 @@ def media_file(mid: int):
     return FileResponse(m["path"], filename=m["filename"], headers={"Cache-Control": "private, max-age=86400"})
 
 
+@app.get("/api/media/{mid}/play")
+def media_play(mid: int):
+    """برای پخش در مرورگر: اگر فیلم HEVC/۱۰بیتی… باشد نسخه‌ی H.264 آن (بار اول ساخته می‌شود)، وگرنه خود فایل."""
+    m = teaser.get_media(mid)
+    pv = teaser.ensure_preview(m)
+    if pv:
+        return FileResponse(pv, media_type="video/mp4", headers={"Cache-Control": "private, max-age=86400"})
+    return FileResponse(m["path"], filename=m["filename"], headers={"Cache-Control": "private, max-age=86400"})
+
+
 @app.get("/api/media/{mid}/thumb")
 def media_thumb(mid: int):
     m = teaser.get_media(mid)

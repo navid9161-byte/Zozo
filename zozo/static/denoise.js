@@ -50,7 +50,7 @@ function dnPick() {
   inp.click();
 }
 const dnPlayer = (m) => (m.kind === "video"
-  ? `<video controls playsinline preload="metadata" src="/api/media/${m.id}/file"></video>`
+  ? `<video controls playsinline preload="metadata" src="/api/media/${m.id}/play"></video>`
   : `<audio controls preload="metadata" src="/api/media/${m.id}/file"></audio>`);
 function dnShowSrc() {
   const m = DN.m;

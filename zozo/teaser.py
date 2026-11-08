@@ -187,10 +187,83 @@ def add_media(fileobj: BinaryIO, filename: str, keep: bool = True) -> dict[str, 
                 t = media_dir() / f"{mid}_thumb.jpg"
                 thumb = str(t) if _thumb(str(final), str(t), kind, info["duration"]) else None
             conn.execute("UPDATE media SET path=?, thumb=? WHERE id=?", (str(final), thumb, mid))
-            return get_media(mid, conn)
+            m = get_media(mid, conn)
+        prepare_preview_async(m)  # فیلم گوشی (HEVC…) ← نسخه‌ی قابل‌پخش در مرورگر، در پس‌زمینه
+        return m
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+# ───── نسخه‌ی قابل‌پخش در مرورگر ─────
+# فیلم‌های گوشی اغلب HEVC (H.265) یا ۱۰ بیتی‌اند و Chrome/Edge آن‌ها را پخش نمی‌کنند («no supported sources»).
+# برای پیش‌نمایش یک نسخه‌ی سبک H.264 ساخته می‌شود؛ ساخت ویدیوی نهایی همچنان از فایل اصلی با کیفیت کامل است.
+SAFE_VIDEO = {"h264": {"yuv420p", "yuvj420p"}, "vp8": {"yuv420p"}, "vp9": {"yuv420p"}, "av1": {"yuv420p"}}
+SAFE_AUDIO = {"aac", "mp3", "opus", "vorbis", "flac"}
+SAFE_CONTAINER = {".mp4", ".m4v", ".mov", ".webm"}
+_pv_need: dict[int, bool] = {}
+_pv_locks: dict[int, threading.Lock] = {}
+_pv_guard = threading.Lock()
+
+
+def preview_path(mid: int) -> Path:
+    return media_dir() / f"{mid}_preview.mp4"
+
+
+def browser_safe(path: str) -> bool:
+    if Path(path).suffix.lower() not in SAFE_CONTAINER:
+        return False
+    try:
+        res = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name,pix_fmt", "-of", "json", path],
+                             capture_output=True, text=True, timeout=60)
+        streams = json.loads(res.stdout or "{}").get("streams", [])
+    except (subprocess.TimeoutExpired, ValueError):
+        return True  # نامعلوم: همان فایل اصلی
+    v = next((s for s in streams if s.get("codec_type") == "video"), None)
+    a = next((s for s in streams if s.get("codec_type") == "audio"), None)
+    if not v or v.get("pix_fmt") not in SAFE_VIDEO.get(v.get("codec_name"), set()):
+        return False
+    return not a or a.get("codec_name") in SAFE_AUDIO
+
+
+def needs_preview(m: dict[str, Any]) -> bool:
+    if m.get("kind") != "video" or not m.get("path") or str(m.get("filename", "")).startswith("builtin-"):
+        return False
+    if m["id"] not in _pv_need:
+        _pv_need[m["id"]] = not browser_safe(m["path"])
+    return _pv_need[m["id"]]
+
+
+def ensure_preview(m: dict[str, Any]) -> str | None:
+    """نسخه‌ی H.264 سبک برای پخش در مرورگر (اگر لازم باشد)؛ مسیرش یا None."""
+    if not needs_preview(m):
+        return None
+    with _pv_guard:
+        lock = _pv_locks.setdefault(m["id"], threading.Lock())
+    with lock:
+        out = preview_path(m["id"])
+        if out.exists():
+            return str(out)
+        tmp = out.with_suffix(".part.mp4")
+        args = ["ffmpeg", "-y", "-v", "error", "-nostdin", "-i", m["path"], "-map", "0:v:0", "-map", "0:a:0?",
+                "-vf", "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-g", "30",
+                "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-movflags", "+faststart", "-threads", "2", str(tmp)]
+        try:
+            ok = subprocess.run(args, capture_output=True, timeout=1800).returncode == 0
+        except subprocess.TimeoutExpired:
+            ok = False
+        if ok and tmp.exists() and tmp.stat().st_size:
+            os.replace(tmp, out)
+            return str(out)
+        tmp.unlink(missing_ok=True)
+        log.warning("ساخت نسخه‌ی پیش‌نمایش رسانه‌ی %s ناموفق بود", m["id"])
+        return None
+
+
+def prepare_preview_async(m: dict[str, Any]) -> None:
+    if m.get("kind") == "video":
+        threading.Thread(target=lambda: ensure_preview(m), name=f"preview-{m['id']}", daemon=True).start()
 
 
 def add_media_dataurl(data_url: str, name: str = "card.png") -> dict[str, Any]:
@@ -282,7 +355,8 @@ def delete_media(mid: int) -> None:
     m = get_media(mid)
     with db.connect() as conn:
         conn.execute("DELETE FROM media WHERE id=?", (mid,))
-    for p in (m["path"], m["thumb"]):
+    _pv_need.pop(mid, None)
+    for p in (m["path"], m["thumb"], str(preview_path(mid))):
         if p and os.path.exists(p):
             os.unlink(p)
 

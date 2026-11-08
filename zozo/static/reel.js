@@ -116,7 +116,7 @@ function rlEl(id, kind) {
       el.addEventListener("seeked", () => !RL.playing && reelDraw());
       el.addEventListener("loadeddata", () => !RL.playing && reelDraw());
     } else { el = new Image(); el.onload = () => reelDraw(); }
-    el.src = `/api/media/${id}/file`;
+    el.src = `/api/media/${id}/${kind === "video" ? "play" : "file"}`;
     RL.els[id] = el;
   }
   return RL.els[id];
@@ -385,7 +385,7 @@ function rlStop() {
 
 // یک عنصر صدا که همین حالا (داخل کلیک کاربر) یک بار بی‌صدا پخش و متوقف می‌شود تا بعداً مجاز به پخش باشد
 function rlAudioEl(id, label) {
-  const a = new Audio(`/api/media/${id}/file`);
+  const a = new Audio(`/api/media/${id}/play`);
   a.preload = "auto"; a.dataset.label = label;
   a.addEventListener("error", () => toast(`«${label}» در مرورگر پخش نشد (فایل باز نمی‌شود یا قالبش پشتیبانی نمی‌شود). در ویدیوی ساخته‌شده معمولاً مشکلی ندارد؛ برای اطمینان فایل را mp3 کنید.`, 8000), { once: true });
   a.muted = true;
@@ -838,7 +838,7 @@ function rlSetSpeed(v) {
 
 function rlTrimHTML(c) {
   return `<div class="rl-trim" id="rl-trim">
-    <video id="rl-tv" src="/api/media/${c.media_id}/file" playsinline preload="auto"></video>
+    <video id="rl-tv" src="/api/media/${c.media_id}/play" playsinline preload="auto"></video>
     <div class="rl-tt" id="rl-tt" dir="ltr">
       <canvas class="rl-strip" id="rl-strip"></canvas>
       <div class="rl-dim" id="rl-dim-l"></div><div class="rl-dim" id="rl-dim-r"></div>
@@ -1221,7 +1221,7 @@ function rlCtlStrip(cv) {
   octx.fillStyle = "#222"; octx.fillRect(0, 0, W, H);
   RL.ctlStrips[key] = off;
   const tv = document.createElement("video");
-  tv.muted = true; tv.playsInline = true; tv.preload = "auto"; tv.src = `/api/media/${c.media_id}/file`;
+  tv.muted = true; tv.playsInline = true; tv.preload = "auto"; tv.src = `/api/media/${c.media_id}/play`;
   let i = 0;
   const next = () => {
     if (i >= n) { tv.removeAttribute("src"); tv.load(); return; }
