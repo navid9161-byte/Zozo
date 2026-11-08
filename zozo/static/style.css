@@ -818,3 +818,5 @@ dialog.designer:not([open]) { display: none; }
 .neg { color: var(--danger); }
 .pp-combo-list .pp-combo-new { color: var(--primary); font-weight: 700; border-bottom: 0; }
 .pp-newc { border: 1.5px dashed var(--primary); border-radius: 10px; padding: 10px; background: var(--primary-soft); }
+.rl-onoff { padding: 10px 14px; }
+.rl-onoff.off { border: 1.5px dashed var(--accent); background: var(--accent-soft, #fdecec); }

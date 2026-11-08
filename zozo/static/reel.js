@@ -71,10 +71,10 @@ const rlGuidesSave = () => lsSet("rlGuides", JSON.stringify(RL.guides));
 const rlSpeed = (c = RL.s?.s2) => (c?.kind === "video" ? Math.min(2, Math.max(0.25, Number(c.speed) || 1)) : 1);
 function reelTL() {
   const s = RL.s;
-  const d1 = Math.max(0.5, Number(s.s1.dur) || 4);
+  const d1 = s.s1.on === false ? 0 : Math.max(0.5, Number(s.s1.dur) || 4);
   const d2 = rlPlan(s).d2;
   const ov = rlOutroVid();
-  const d3 = ov ? ov.dur : OUT_ANIM + Math.max(0, Number(s.s3.hold) || 0);
+  const d3 = s.s3.on === false ? 0 : ov ? ov.dur : OUT_ANIM + Math.max(0, Number(s.s3.hold) || 0);
   return { d1, d2, d3, outro: d1 + d2, total: +(d1 + d2 + d3).toFixed(2) };
 }
 // ویدیوی پایانی: {id, dur} یا null (= انیمیشن مُهر)
@@ -508,6 +508,7 @@ function rlTrack1() {
   if (!a.media_id) return null;
   const at = Math.max(0, Math.min(tl.total - 0.2, Number(a.at) || 0));
   let end = a.end == null || a.end === "" ? tl.outro + 0.3 : Math.min(tl.total, Number(a.end));
+  if (!snd.cont && tl.d2 && !tl.d1) return null;  // صدای شروع ولی شروع خاموش است
   if (!snd.cont && tl.d2) end = Math.min(end, tl.d1);
   const dur = Math.max(0.2, end - at);
   const duck = snd.cont && tl.d2 && snd.level < 0.999 ? [[tl.d1, tl.outro, snd.level]] : [];
@@ -526,7 +527,8 @@ function rlTrack2() {
 // ───── ساخت ویدیو ─────
 async function reelRender() {
   const s = RL.s, tl = reelTL();
-  if (!s.s1.media_id) return toast("اول عکس شروع را انتخاب کنید (مرحله‌ی ۱)");
+  if (s.s1.on !== false && !s.s1.media_id) return toast("اول عکس شروع را انتخاب کنید (مرحله‌ی ۱) — یا تیک «شروع در ریلز باشد» را بردارید");
+  if (!tl.d1 && !tl.d2 && !tl.d3) return toast("ریلز خالی است: شروع، بدنه یا پایان را اضافه کنید");
   // دکمه فقط در زبانه‌ی «ساخت» است؛ ساخت خودکار (از پیشنهاد سوژه) بدون آن هم کار کند
   const btn = $("#rl-render") || { disabled: false, textContent: "" };
   btn.disabled = true; btn.textContent = "در حال آماده‌سازی…";
@@ -543,27 +545,28 @@ async function reelRender() {
       const x = c.getContext("2d"); x.scale(RW / DW, RH / DH); fn(x); return c.toDataURL("image/png");
     };
     const overlays = [];
-    overlays.push({ image: shot((x) => rlChrome(x, false)), start: 0, end: tl.outro });
+    if (tl.outro > 0) overlays.push({ image: shot((x) => rlChrome(x, false)), start: 0, end: tl.outro });
     const t1 = ["kick", "head", "sub"].map((k) => s.texts[k]).filter((L) => !L.hidden && L.text.trim());
-    if (t1.length) overlays.push({ image: shot((x) => t1.forEach((L) => drawLayer(x, L))), start: 0, end: tl.d1 });
+    if (t1.length && tl.d1) overlays.push({ image: shot((x) => t1.forEach((L) => drawLayer(x, L))), start: 0, end: tl.d1 });
     if (tl.d2) {
       const t2 = ["b1", "b2"].map((k) => s[k]).filter((L) => !L.hidden && L.text.trim());
       if (t2.length) overlays.push({ image: shot((x) => t2.forEach((L) => drawLayer(x, L))), start: tl.d1, end: tl.outro });
       for (const c of capTimes()) overlays.push({ image: shot((x) => drawLayer(x, { ...s.caps.style, text: c.text, runs: null })), start: +(tl.d1 + c.start).toFixed(2), end: +(tl.d1 + c.end).toFixed(2) });
     }
     const lg = rlOutroLogo();
-    const clips = [{ media_id: s.s1.media_id, duration: tl.d1, gray: !!s.s1.gray, bright: Number(s.s1.bright) || 0, scale: s.s1.scale, ox: s.s1.ox, oy: s.s1.oy, motion: "none", zoom: false }];
+    const clips = [];
+    if (tl.d1) clips.push({ media_id: s.s1.media_id, duration: tl.d1, gray: !!s.s1.gray, bright: Number(s.s1.bright) || 0, scale: s.s1.scale, ox: s.s1.ox, oy: s.s1.oy, motion: "none", zoom: false });
     if (tl.d2) clips.push(...rlBodyClips());
     const ov = rlOutroVid();
-    if (ov && !ov.id) throw new Error("ویدیوی پایانی پیدا نشد؛ صفحه را دوباره باز کنید");
-    if (ov) clips.push({ media_id: ov.id, start: 0, duration: tl.d3, speed: 1, scale: 1, ox: 0, oy: 0, motion: "none", zoom: false, mute: false, vol: Number(s.s3.vvol ?? 1) });
+    if (tl.d3 && ov && !ov.id) throw new Error("ویدیوی پایانی پیدا نشد؛ صفحه را دوباره باز کنید");
+    if (!tl.d3) { /* پایان خاموش است */ } else if (ov) clips.push({ media_id: ov.id, start: 0, duration: tl.d3, speed: 1, scale: 1, ox: 0, oy: 0, motion: "none", zoom: false, mute: false, vol: Number(s.s3.vvol ?? 1) });
     else clips.push({ outro: { bg: shot((x) => rlOutroBg(x)), logo: lg.toDataURL("image/png"), duration: tl.d3, logo_w: OUT_W, logo_y: OUT_Y, drop: OUT_DROP, land: OUT_LAND } });
     const tracks = [];
     const t1r = rlTrack1();
     if (t1r) tracks.push(t1r);
     const t2r = rlTrack2();
     if (t2r) tracks.push(t2r);
-    if (s.s3.stamp_id && !ov) tracks.push({ media_id: s.s3.stamp_id, src: 0, at: Math.max(0, tl.outro + OUT_LAND + (Number(s.s3.stamp_off) || 0) - 0.02), dur: Math.min(3, tl.d3), vol: Number(s.s3.stamp_vol) || 1, fin: 0, fout: 0.2, loop: false, duck: [] });
+    if (s.s3.stamp_id && !ov && tl.d3) tracks.push({ media_id: s.s3.stamp_id, src: 0, at: Math.max(0, tl.outro + OUT_LAND + (Number(s.s3.stamp_off) || 0) - 0.02), dur: Math.min(3, tl.d3), vol: Number(s.s3.stamp_vol) || 1, fin: 0, fout: 0.2, loop: false, duck: [] });
     btn.textContent = "در حال فرستادن…";
     const head = (s.texts.head.text || "").replace(/\n/g, " ").trim();
     await api("/api/teasers", { method: "POST", body: {
@@ -676,7 +679,7 @@ function rlPanel() {
   let h = "";
   if (RL.tab === 1) {
     const a = s.audio1;
-    h = `<div class="card"><h3>🖼 عکس شروع</h3>
+    h = rlStageToggle(1) + (s.s1.on === false ? "" : `<div class="card"><h3>🖼 عکس شروع</h3>
         <div class="btn-row"><button class="btn primary" id="rl-img1">📷 انتخاب عکس</button>${rlMediaSelect(["image"], s.s1.media_id, 'id="rl-img1-lib"')}</div>
         <div class="rl-grid" style="margin-top:8px">
           <label>مدت نمایش (ثانیه)<input type="number" min="0.5" max="30" step="0.5" id="rl-d1" value="${s.s1.dur}"></label>
@@ -685,7 +688,7 @@ function rlPanel() {
           <label>اندازه<span class="btn-row"><button class="btn sm" data-sz="s1:0.9">−</button><b>${num(Math.round((s.s1.scale || 1) * 100))}٪</b><button class="btn sm" data-sz="s1:1.1">+</button><button class="btn sm ghost" data-szr="s1">↺</button></span></label>
         </div>
         <p class="small muted">👆 عکس را روی پیش‌نمایش با انگشت بکشید تا جابه‌جا شود؛ با دو انگشت یا چرخ موس بزرگ و کوچک کنید.</p></div>
-      ${rlTextBox("kick", "روتیتر")}${rlTextBox("head", "تیتر", "هر Enter یک سطر تازه")}${rlTextBox("sub", "زیرتیتر")}
+      ${rlTextBox("kick", "روتیتر")}${rlTextBox("head", "تیتر", "هر Enter یک سطر تازه")}${rlTextBox("sub", "زیرتیتر")}`) + `
       <div class="card"><h3>🎵 صدا</h3>
         <div class="btn-row"><button class="btn" id="rl-aud">🎵 بارگذاری فایل صوتی</button><button class="btn" id="rl-aud-tts" title="خواندن یک متن با صدای زن یا مرد">🗣️ ساخت صدا از متن</button>${rlMediaSelect(["audio", "video"], a.media_id, 'id="rl-aud-lib"')}
           ${a.media_id ? `<button class="btn sm" data-listen="a1">🎧 گوش دادن</button><button class="btn sm danger" id="rl-aud-x">حذف صدا</button>` : ""}</div>
@@ -791,6 +794,7 @@ function rlPanel() {
           <label>جلو / عقب کردن صدا <small>${num((+o.stamp_off).toFixed(2))} ث</small><input type="range" min="-0.6" max="0.6" step="0.02" data-o="stamp_off" value="${o.stamp_off}"></label>
         </div><button class="btn sm" id="rl-stamp-try" style="margin-top:6px">▶ دیدن و شنیدن پایان</button>` : ""}
       </div>`;
+    h = rlStageToggle(3) + (o.on === false ? "" : h);
   } else {
     h = `<div class="card"><h3>🎬 ساخت ویدیو</h3>
         <div class="rl-grid">
@@ -970,6 +974,16 @@ function rlStrip(c, v) {
   tv.addEventListener("error", () => { RL.stripBusy = null; }, { once: true });
 }
 
+// تیک «این بخش در ریلز باشد» برای شروع (۱) و پایان (۳)
+function rlStageToggle(k) {
+  const on = RL.s[`s${k}`].on !== false;
+  const name = k === 1 ? "شروع (عکس و تیتر)" : "پایان (ویدیوی پایانی یا مُهر)";
+  const off = k === 1 ? "ریلز مستقیم از بدنه (مرحله‌ی ۲) شروع می‌شود. صدای این زبانه اگر روی بدنه هم ادامه دارد، همان‌جا پخش می‌شود."
+    : "ریلز با پایانِ بدنه تمام می‌شود؛ ویدیوی پایانی و مُهر نمی‌آید.";
+  return `<div class="card rl-onoff ${on ? "" : "off"}"><label class="chk"><input type="checkbox" data-stage-on="${k}" ${on ? "checked" : ""}> <b>${name} در ریلز باشد</b></label>
+    ${on ? "" : `<p class="small muted" style="margin:6px 0 0">⛔ این بخش خاموش است. ${off} تنظیم‌هایش پاک نشده؛ با زدن دوباره‌ی تیک برمی‌گردد.</p>`}</div>`;
+}
+
 function rlJumpTab() {
   const tl = reelTL();
   RL.t = RL.tab === 1 ? Math.min(1, tl.d1 / 2) : RL.tab === 2 ? (tl.d2 ? tl.d1 + 0.3 : tl.d1 - 0.1) : RL.tab === 3 ? tl.outro + OUT_ANIM + 0.1 : RL.t;
@@ -980,6 +994,7 @@ function rlBind(box) {
   const s = RL.s, upd = () => { reelSave(); reelDraw(); };
   rlBindTextBoxes(box);
   const on = (id, ev, fn) => { const el = $(id, box); if (el) el.addEventListener(ev, fn); };
+  $$("[data-stage-on]", box).forEach((el) => (el.onchange = () => { s[`s${el.dataset.stageOn}`].on = el.checked; reelSave(); rlPanel(); rlJumpTab(); }));
   // مرحله‌ی ۱
   on("#rl-img1", "click", () => rlUpload("image/*", (m) => { Object.assign(s.s1, { media_id: m.id, scale: 1, ox: 0, oy: 0 }); upd(); rlPanel(); }));
   on("#rl-img1-lib", "change", (ev) => { s.s1.media_id = Number(ev.target.value) || null; upd(); });
