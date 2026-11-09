@@ -14,7 +14,7 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from . import db, teaser
 
 DEFAULT_PRESET = {"id": "site", "name": "عکس سایت کرمان راوی", "w": 1007, "h": 719, "mode": "fill", "bg": "blur",
-                  "sharpen": 0, "bright": 0, "contrast": 0, "color": 0, "quality": 85, "max_kb": 0,
+                  "sharpen": 0, "enhance": 0, "bright": 0, "contrast": 0, "color": 0, "quality": 85, "max_kb": 0,
                   "wm": True, "wm_logo": "bar", "wm_pos": "br", "wm_size": 0.18, "wm_opacity": 0.9}
 # واترمارک: لوگوی کرمان راوی (نسخه‌ی با حاشیه‌ی سفید روی هر عکسی خوانده می‌شود)
 BRAND = Path(__file__).parent / "static" / "brand"
@@ -40,7 +40,7 @@ def params(p: dict[str, Any]) -> dict[str, Any]:
         bg = "blur"
     return {"w": w, "h": h, "mode": mode, "bg": bg,
             "fx": _num(p, "fx", 0, 1, 0.5), "fy": _num(p, "fy", 0, 1, 0.5), "zoom": _num(p, "zoom", 1, 6, 1),
-            "sharpen": _num(p, "sharpen", 0, 2, 0), "bright": _num(p, "bright", -0.5, 0.5, 0),
+            "sharpen": _num(p, "sharpen", 0, 2, 0), "enhance": int(_num(p, "enhance", 0, 3, 0)), "bright": _num(p, "bright", -0.5, 0.5, 0),
             "contrast": _num(p, "contrast", -0.5, 0.5, 0), "color": _num(p, "color", -1, 1, 0),
             "quality": int(_num(p, "quality", 30, 100, 85)), "max_kb": int(_num(p, "max_kb", 0, 20000, 0)),
             "wm": p.get("wm", True) not in (False, 0, "0", "false"),
@@ -86,6 +86,8 @@ def render(src: Image.Image, p: dict[str, Any]) -> Image.Image:
         sc = min(W / src.width, H / src.height)
         fw, fh = max(1, round(src.width * sc)), max(1, round(src.height * sc))
         out.paste(src.resize((fw, fh), Image.LANCZOS), ((W - fw) // 2, (H - fh) // 2))
+    if p["enhance"]:
+        out = enhance(out, p["enhance"])
     if p["bright"]:
         out = ImageEnhance.Brightness(out).enhance(1 + p["bright"])
     if p["contrast"]:
@@ -97,6 +99,44 @@ def render(src: Image.Image, p: dict[str, Any]) -> Image.Image:
     if p["wm"]:
         out = watermark(out, p)
     return out
+
+
+# بهبود کیفیت: ۱ ملایم، ۲ متوسط، ۳ قوی
+# (تنظیم خودکار نور و کنتراست + وضوح محلی + تیز کردن جزئیات با آستانه تا دانه‌ها و نویز درشت نشوند)
+ENHANCE = {1: {"tone": 0.5, "clarity": 18, "detail": 70, "thr": 3, "sat": 1.04},
+           2: {"tone": 0.75, "clarity": 30, "detail": 110, "thr": 3, "sat": 1.07},
+           3: {"tone": 1.0, "clarity": 45, "detail": 160, "thr": 4, "sat": 1.10}}
+
+
+def enhance(im: Image.Image, level: int) -> Image.Image:
+    e = ENHANCE.get(int(level))
+    if not e:
+        return im
+    # ۱) نور و کنتراست خودکار (بدون تغییر رنگ‌ها)، کمی کمتر از تمام‌قدرت تا طبیعی بماند
+    auto = ImageOps.autocontrast(im, cutoff=(0.4, 0.4), preserve_tone=True)
+    out = Image.blend(im, auto, e["tone"])
+    # ۲) وضوح محلی (Clarity): کنتراست لبه‌های درشت؛ عکس مه‌آلود/تار جان می‌گیرد
+    r = max(6, round(max(out.size) / 60))
+    out = out.filter(ImageFilter.UnsharpMask(radius=r, percent=e["clarity"], threshold=0))
+    # ۳) تیز کردن جزئیات ریز
+    out = out.filter(ImageFilter.UnsharpMask(radius=1.2, percent=e["detail"], threshold=e["thr"]))
+    # ۴) کمی رنگ زنده‌تر
+    return ImageEnhance.Color(out).enhance(e["sat"])
+
+
+def preview(media_id: int, raw: dict[str, Any], max_side: int = 900) -> bytes:
+    """پیش‌نمایش واقعی (همان پردازش خروجی) به صورت JPEG کوچک برای مقایسه‌ی قبل/بعد."""
+    m = teaser.get_media(int(media_id))
+    if m["kind"] != "image":
+        raise db.ValidationError("فقط عکس")
+    p = params(raw)
+    im = render(_open(m["path"]), p)
+    if max(im.size) > max_side:
+        k = max_side / max(im.size)
+        im = im.resize((max(1, round(im.width * k)), max(1, round(im.height * k))), Image.LANCZOS)
+    b = io.BytesIO()
+    im.save(b, "JPEG", quality=88)
+    return b.getvalue()
 
 
 def watermark(im: Image.Image, p: dict[str, Any]) -> Image.Image:

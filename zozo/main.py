@@ -189,6 +189,11 @@ def imgfit_make(data: dict[str, Any]):
         "X-Quality": str(info["quality"]), "X-Size-KB": str(info["kb"]), "X-Filename": quote(name), "Cache-Control": "no-store"})
 
 
+@app.post("/api/imgfit/preview")
+def imgfit_preview(data: dict[str, Any]):
+    return Response(imgfit.preview(int(data.get("media_id") or 0), data), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
 # ───── حذف نویز صدای فیلم/فایل صوتی ─────
 @app.post("/api/denoise")
 def denoise_start(data: dict[str, Any]):

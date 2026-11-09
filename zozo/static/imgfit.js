@@ -3,9 +3,10 @@
 // عکس ← اندازه‌ی دقیق (پیش‌فرض: عکس سایت کرمان راوی ۱۰۰۷×۷۱۹، پر کردن کادر) ← خروجی WebP.
 // پیش‌نمایش در مرورگر کشیده می‌شود؛ خروجی نهایی روی سرور با همان حساب ساخته می‌شود.
 
-const IF_DEFAULT = { id: "site", name: "عکس سایت کرمان راوی", w: 1007, h: 719, mode: "fill", bg: "blur", sharpen: 0, bright: 0, contrast: 0, color: 0, quality: 85, max_kb: 0,
+const IF_DEFAULT = { id: "site", name: "عکس سایت کرمان راوی", w: 1007, h: 719, mode: "fill", bg: "blur", sharpen: 0, enhance: 0, bright: 0, contrast: 0, color: 0, quality: 85, max_kb: 0,
   wm: true, wm_logo: "bar", wm_pos: "br", wm_size: 0.18, wm_opacity: 0.9 };
-const IF_KEYS = ["w", "h", "mode", "bg", "sharpen", "bright", "contrast", "color", "quality", "max_kb", "wm", "wm_logo", "wm_pos", "wm_size", "wm_opacity"];
+const IF_ENH = [[0, "خاموش"], [1, "ملایم"], [2, "متوسط"], [3, "قوی"]];
+const IF_KEYS = ["w", "h", "mode", "bg", "sharpen", "enhance", "bright", "contrast", "color", "quality", "max_kb", "wm", "wm_logo", "wm_pos", "wm_size", "wm_opacity"];
 // واترمارک: همان فایل‌های لوگو که سرور روی خروجی می‌گذارد
 const IF_LOGOS = { bar: ["logo-bar.png", "لوگوی کامل"], mark: ["logo-mark.png", "فقط نشان"], full: ["logo-transparent.png", "لوگوی کامل بی‌حاشیه"] };
 const IF_POS = [["tl", "↖ بالا چپ"], ["tr", "↗ بالا راست"], ["bl", "↙ پایین چپ"], ["br", "↘ پایین راست"]];
@@ -43,6 +44,7 @@ VIEWS.imgfit = async (view) => {
         <div class="card"><h3>قالب</h3><div id="if-presets"></div></div>
         <div class="card"><h3>اندازه و خروجی</h3><div id="if-size"></div></div>
         <div class="card"><h3>🏷 واترمارک (لوگوی کرمان راوی)</h3><div id="if-wm"></div></div>
+        <div class="card"><h3>✨ بهبود کیفیت</h3><div id="if-enh"></div></div>
         <div class="card"><details id="if-adj-d"><summary><b>🎨 رنگ و وضوح</b> <small class="muted">(پیش‌فرض: بدون تغییر)</small></summary><div id="if-adj"></div></details></div>
         <div class="card"><button class="btn primary big" id="if-go" style="width:100%">⬇️ ساخت و دانلود WebP</button><div id="if-out"></div></div>
       </div>
@@ -79,6 +81,7 @@ async function ifUpload(f) {
 function ifSetImage(m) {
   IF.m = m; IF.out = null;
   if ($("#if-out")) $("#if-out").innerHTML = "";
+  if ($("#if-cmp")) $("#if-cmp").innerHTML = "";
   const im = new Image();
   im.onload = () => { IF.img = im; ifDraw(); ifInfo(); };
   im.onerror = () => toast("این عکس در مرورگر باز نشد");
@@ -198,8 +201,14 @@ function ifPanels() {
   $$("[data-sz]").forEach((b) => (b.onclick = () => { const [w, h] = b.dataset.sz.split("x").map(Number); setSize(w, h); }));
   $("#if-q").oninput = (ev) => { p.quality = Number(ev.target.value); $("#if-qv").textContent = num(p.quality); ifPresetsUI(); };
   $("#if-kb").onchange = (ev) => { p.max_kb = Math.max(0, Number(enDigits(ev.target.value)) || 0); ifPresetsUI(); };
+  // بهبود کیفیت
+  $("#if-enh").innerHTML = `<div class="seg" id="if-enh-seg">${IF_ENH.map(([v, l]) => `<button data-enh="${v}" class="${p.enhance === v ? "active" : ""}">${l}</button>`).join("")}</div>
+    <p class="small muted" style="margin:6px 0">برای عکس‌های کمی تار، کدر یا کم‌نور: نور و کنتراست خودکار تنظیم می‌شود، لبه‌ها و جزئیات واضح‌تر و رنگ کمی زنده‌تر می‌شود. عکسی که خیلی تار یا لرزیده است معجزه‌وار درست نمی‌شود.</p>
+    <button class="btn sm" id="if-cmp-go">👁 مقایسه‌ی قبل و بعد</button><div id="if-cmp"></div>`;
+  $$("[data-enh]").forEach((b) => (b.onclick = () => { p.enhance = Number(b.dataset.enh); $$("[data-enh]").forEach((x) => x.classList.toggle("active", x === b)); ifPresetsUI(); if ($("#if-cmp").innerHTML) ifCompare(); }));
+  $("#if-cmp-go").onclick = ifCompare;
   // رنگ و وضوح
-  const adj = [["sharpen", "شفاف‌سازی", 0, 2, 0.1], ["bright", "نور", -0.5, 0.5, 0.02], ["contrast", "کنتراست", -0.5, 0.5, 0.02], ["color", "رنگ (اشباع)", -1, 1, 0.05]];
+  const adj =[["sharpen", "شفاف‌سازی", 0, 2, 0.1], ["bright", "نور", -0.5, 0.5, 0.02], ["contrast", "کنتراست", -0.5, 0.5, 0.02], ["color", "رنگ (اشباع)", -1, 1, 0.05]];
   const pct = (k) => (k === "sharpen" ? num(+p[k].toFixed(1)) : `${p[k] > 0 ? "+" : ""}${num(Math.round(p[k] * 100))}٪`);
   $("#if-adj").innerHTML = `<div class="rl-grid">${adj.map(([k, l, a, b, s]) => `<label>${l} <small data-av="${k}">${pct(k)}</small><input type="range" data-adj="${k}" min="${a}" max="${b}" step="${s}" value="${p[k]}"></label>`).join("")}</div>
     <div class="btn-row"><button class="btn sm ghost" id="if-adj0">↺ بدون تغییر</button><span class="small muted">شفاف‌سازی فقط در فایل خروجی دیده می‌شود.</span></div>`;
@@ -250,6 +259,33 @@ function ifPresetsUI() {
     IF.preset = IF.cfg.def;
     save("قالب حذف شد");
   };
+}
+
+// ───── مقایسه‌ی قبل و بعد (همان پردازش سرور) ─────
+async function ifPreviewImg(params) {
+  const res = await fetch("/api/imgfit/preview", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ media_id: IF.m.id, ...params }) });
+  if (!res.ok) throw new Error("پیش‌نمایش ساخته نشد");
+  return URL.createObjectURL(await res.blob());
+}
+async function ifCompare() {
+  const box = $("#if-cmp");
+  if (!IF.m || !box) return toast("اول یک عکس انتخاب کنید");
+  if (!IF.p.enhance) { box.innerHTML = `<p class="small muted">یکی از حالت‌های ملایم / متوسط / قوی را انتخاب کنید.</p>`; return; }
+  box.innerHTML = `<p class="small muted">در حال ساختن پیش‌نمایش…</p>`;
+  const tok = (IF.cmpTok = (IF.cmpTok || 0) + 1);
+  try {
+    const base = { ...IF.p, wm: false };
+    const [a, b] = await Promise.all([ifPreviewImg({ ...base, enhance: 0 }), ifPreviewImg(base)]);
+    if (tok !== IF.cmpTok) return;
+    (IF.cmpUrls || []).forEach((u) => URL.revokeObjectURL(u));
+    IF.cmpUrls = [a, b];
+    box.innerHTML = `<div class="if-cmp"><img src="${b}" alt=""><img src="${a}" alt="" class="if-cmp-before"><i class="if-cmp-line"></i>
+        <span class="if-cmp-l">قبل</span><span class="if-cmp-r">بعد ✨</span></div>
+      <input type="range" id="if-cmp-x" dir="ltr" min="0" max="100" value="50" style="width:100%"><p class="small muted" style="margin:0">خط وسط را جابه‌جا کنید: سمت چپ قبل، سمت راست بعد.</p>`;
+    const set = (v) => { $(".if-cmp-before", box).style.clipPath = `inset(0 ${100 - v}% 0 0)`; $(".if-cmp-line", box).style.left = `${v}%`; };
+    $("#if-cmp-x").oninput = (ev) => set(Number(ev.target.value));
+    set(50);
+  } catch (e) { if (tok === IF.cmpTok) box.innerHTML = `<p class="small if-warn">${esc(e.message)}</p>`; }
 }
 
 // ───── ساخت خروجی ─────

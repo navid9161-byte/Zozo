@@ -820,3 +820,9 @@ dialog.designer:not([open]) { display: none; }
 .pp-newc { border: 1.5px dashed var(--primary); border-radius: 10px; padding: 10px; background: var(--primary-soft); }
 .rl-onoff { padding: 10px 14px; }
 .rl-onoff.off { border: 1.5px dashed var(--accent); background: var(--accent-soft, #fdecec); }
+.if-cmp { position: relative; margin-top: 8px; border-radius: 8px; overflow: hidden; line-height: 0; }
+.if-cmp img { width: 100%; display: block; }
+.if-cmp .if-cmp-before { position: absolute; inset: 0; }
+.if-cmp-line { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 4px rgba(0,0,0,.6); }
+.if-cmp-l, .if-cmp-r { position: absolute; top: 6px; background: rgba(0,0,0,.6); color: #fff; font-size: 12px; line-height: 1.4; padding: 2px 8px; border-radius: 6px; }
+.if-cmp-l { left: 6px; } .if-cmp-r { right: 6px; }

@@ -81,3 +81,15 @@ def test_imgfit_api():
         # قالب‌ها در تنظیمات ذخیره می‌شوند
         assert c.put("/api/prefs/imgfit", json={"value": {"presets": [imgfit.DEFAULT_PRESET], "def": "site"}}).status_code == 200
         assert c.get("/api/prefs/imgfit").json()["value"]["presets"][0]["w"] == 1007
+
+
+def test_enhance_levels_and_preview():
+    from PIL import Image, ImageFilter
+    from zozo import imgfit
+    src = Image.effect_noise((400, 300), 40).convert("RGB").filter(ImageFilter.GaussianBlur(2))
+    outs = [imgfit.enhance(src, lvl) for lvl in (0, 1, 3)]
+    assert outs[0] is src and all(o.size == src.size for o in outs)
+    edge = lambda im: sum(im.convert("L").filter(ImageFilter.FIND_EDGES).histogram()[i] * i for i in range(256))
+    assert edge(outs[2]) > edge(outs[1]) > edge(src)
+    p = imgfit.params({"enhance": 9})
+    assert p["enhance"] == 3 and imgfit.params({})["enhance"] == 0
