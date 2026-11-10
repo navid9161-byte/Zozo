@@ -572,7 +572,7 @@ async function reelRender() {
     await api("/api/teasers", { method: "POST", body: {
       title: s.title || head || "ریلز کرمان راوی", format: "9:16", quality: s.quality, fit: s.fit, clips, overlays, tracks,
       keep_audio: true, video_volume: 1, fade: false, transition: "none", bg_color: "#000000",
-      captions: capTimes().map((c) => ({ text: c.text, start: tl.d1 + c.start, end: tl.d1 + c.end })), editor: { kr3: s } } });
+      captions: capTimes().map((c) => ({ text: faText(c.text), start: tl.d1 + c.start, end: tl.d1 + c.end })), editor: { kr3: s } } });
     toast("در صف ساخت قرار گرفت 🎬 وقتی آماده شد خبرتان می‌کنیم.", 4000);
     drawList(await api("/api/teasers"));
   } catch (err) { if (!(err instanceof LoginRequired)) toast(err.message, 6000); }

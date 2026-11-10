@@ -8,6 +8,21 @@ const faNum = new Intl.NumberFormat("fa-IR");
 const num = (v) => (v === null || v === undefined || v === "" ? "" : faNum.format(v));
 const fa = (s) => String(s ?? "").replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[d]);
 const enDigits = (s) => String(s ?? "").replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d)).replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
+// نوشته‌های فارسی: ارقام انگلیسی/عربی ← فارسی (۲.۵ ← ۲٫۵ ، ۱۰۰,۰۰۰ ← ۱۰۰٬۰۰۰)؛ متنی که حرف لاتین دارد (آدرس سایت، COP29…) دست نمی‌خورد
+const faText = (s) => {
+  s = String(s ?? "");
+  if (!/[0-9٠-٩]/.test(s) || /[A-Za-z]/.test(s)) return s;
+  return s.replace(/([0-9٠-٩])\.(?=[0-9٠-٩])/g, "$1٫").replace(/([0-9٠-٩]),(?=[0-9٠-٩]{3})/g, "$1٬")
+    .replace(/[0-9٠-٩]/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[d >= "٠" ? d.charCodeAt(0) - 0x660 : d]);
+};
+// همه‌ی نوشته‌های روی بوم (ریلز، تیزر، پست، طرح، فاکتور…) با ارقام فارسی کشیده و اندازه‌گیری شوند
+for (const C of [window.CanvasRenderingContext2D, window.OffscreenCanvasRenderingContext2D]) {
+  if (!C) continue;
+  for (const k of ["fillText", "strokeText", "measureText"]) {
+    const orig = C.prototype[k];
+    C.prototype[k] = function (t, ...rest) { return orig.call(this, faText(t), ...rest); };
+  }
+}
 const lsGet = (k, d = null) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* حالت خصوصی */ } };
 
